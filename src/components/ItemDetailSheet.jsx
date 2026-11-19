@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { domainConfig, getStatusList } from '../config/domainConfig';
 import { getVerdictMeta } from '../utils/backlogHelpers';
 import { CoverArt } from './CoverArt';
+import { LibraryCatalogSection } from './LibraryCatalogSection';
 import { QuotesVaultTab } from './QuotesVaultTab';
 import { SmartCatalogButton } from './SmartCatalogButton';
 import { StatusBadge } from './StatusBadge';
@@ -223,8 +224,12 @@ export function ItemDetailSheet({
               />
             </div>
 
-            <div className="mt-4">
+            <div className="mt-4 space-y-3">
               <TechnicalAtmosphereSection
+                item={item}
+                onChange={(updates) => onUpdateItem(item.id, updates)}
+              />
+              <LibraryCatalogSection
                 item={item}
                 onChange={(updates) => onUpdateItem(item.id, updates)}
               />

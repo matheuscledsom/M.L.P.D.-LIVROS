@@ -2,6 +2,14 @@ import { useCallback, useEffect, useState } from 'react';
 import { domainConfig } from '../config/domainConfig';
 import { initialItems } from '../data/mockData';
 import {
+  buildCodiceDatabase,
+  createUuid,
+  exportDatabaseDownloads,
+  hydrateAppSnapshotFromDatabase,
+  loadStoredCodiceDatabase,
+  parseAndValidateBackupText,
+} from '../services/codiceDatabase';
+import {
   calculateSmartRating,
   calculateWorkProgress,
   createDefaultReviewCriteria,
@@ -10,6 +18,7 @@ import {
 } from '../utils/backlogHelpers';
 
 const STORAGE_KEY = domainConfig.storageKey;
+const SESSIONS_STORAGE_KEY = 'codice_reading_sessions';
 
 function normalizeRating(value) {
   if (value === '' || value === null || value === undefined) return null;
@@ -114,9 +123,32 @@ function normalizeItem(rawItem) {
       rawItem.publicationStatus || domainConfig.mangaPubStatuses[0],
     publisher: typeof rawItem.publisher === 'string' ? rawItem.publisher : '',
     isbn: typeof rawItem.isbn === 'string' ? rawItem.isbn : '',
+    issn: typeof rawItem.issn === 'string' ? rawItem.issn : '',
+    doi: typeof rawItem.doi === 'string' ? rawItem.doi : '',
+    cdu_cdd: typeof rawItem.cdu_cdd === 'string' ? rawItem.cdu_cdd : '',
+    cutter: typeof rawItem.cutter === 'string' ? rawItem.cutter : '',
+    callNumber: typeof rawItem.callNumber === 'string' ? rawItem.callNumber : '',
+    edition: typeof rawItem.edition === 'string' ? rawItem.edition : '',
+    publicationPlace:
+      typeof rawItem.publicationPlace === 'string' ? rawItem.publicationPlace : '',
+    publicationYear:
+      rawItem.publicationYear ?? rawItem.releaseYear ?? null,
+    language: typeof rawItem.language === 'string' ? rawItem.language : '',
     translator: typeof rawItem.translator === 'string' ? rawItem.translator : '',
+    advisor: typeof rawItem.advisor === 'string' ? rawItem.advisor : '',
+    seriesName: typeof rawItem.seriesName === 'string' ? rawItem.seriesName : '',
+    seriesIndex: typeof rawItem.seriesIndex === 'string' ? rawItem.seriesIndex : '',
     seriesVolume:
       typeof rawItem.seriesVolume === 'string' ? rawItem.seriesVolume : '',
+    physicalLocation:
+      typeof rawItem.physicalLocation === 'string' ? rawItem.physicalLocation : '',
+    acquisitionType:
+      typeof rawItem.acquisitionType === 'string' ? rawItem.acquisitionType : '',
+    conservationState:
+      typeof rawItem.conservationState === 'string' ? rawItem.conservationState : '',
+    recommended:
+      rawItem.recommended !== undefined ? Boolean(rawItem.recommended) : false,
+    readerState: rawItem.readerState || null,
     synopsis: typeof rawItem.synopsis === 'string' ? rawItem.synopsis : '',
     academicProgressMode:
       rawItem.academicProgressMode === 'fichamento' ? 'fichamento' : 'pages',
@@ -215,18 +247,42 @@ function applyStatusTransitionDefaults(merged, nextStatus, prevItem) {
 
 function loadInitialBacklog() {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw === null) return initialItems.map(normalizeItem);
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return initialItems.map(normalizeItem);
-    return parsed.map(normalizeItem);
+    const rawLegacy = localStorage.getItem(STORAGE_KEY);
+    if (rawLegacy !== null) {
+      const parsed = JSON.parse(rawLegacy);
+      if (Array.isArray(parsed)) return parsed.map(normalizeItem);
+    }
+    const storedDb = loadStoredCodiceDatabase();
+    if (storedDb) {
+      const { items } = hydrateAppSnapshotFromDatabase(storedDb);
+      return items.map(normalizeItem);
+    }
+    return initialItems.map(normalizeItem);
   } catch {
     return initialItems.map(normalizeItem);
   }
 }
 
+function loadInitialSessions() {
+  try {
+    const raw = localStorage.getItem(SESSIONS_STORAGE_KEY);
+    if (raw !== null) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) return parsed;
+    }
+    const storedDb = loadStoredCodiceDatabase();
+    if (storedDb) {
+      return hydrateAppSnapshotFromDatabase(storedDb).readingSessions || [];
+    }
+    return [];
+  } catch {
+    return [];
+  }
+}
+
 export function useBacklog() {
   const [items, setItems] = useState(loadInitialBacklog);
+  const [readingSessions, setReadingSessions] = useState(loadInitialSessions);
 
   useEffect(() => {
     try {
@@ -235,6 +291,14 @@ export function useBacklog() {
       // Ignora erro caso quota de storage esteja indisponível
     }
   }, [items]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(SESSIONS_STORAGE_KEY, JSON.stringify(readingSessions));
+    } catch {
+      // Ignora erro caso quota de storage esteja indisponível
+    }
+  }, [readingSessions]);
 
   const addItem = useCallback((newItem) => {
     const nowIso = new Date().toISOString();
@@ -372,32 +436,69 @@ export function useBacklog() {
 
   const removeItem = useCallback((id) => {
     setItems((prev) => prev.filter((item) => item.id !== id));
+    setReadingSessions((prev) => prev.filter((session) => session.workId !== id));
+  }, []);
+
+  const addReadingSession = useCallback((session) => {
+    if (!session || !session.workId) return null;
+    const nowIso = new Date().toISOString();
+    const record = {
+      id: session.id || createUuid(),
+      workId: String(session.workId),
+      startedAt: session.startedAt || nowIso,
+      endedAt: session.endedAt || nowIso,
+      durationSeconds: Math.max(0, Number(session.durationSeconds) || 0),
+      startPosition: session.startPosition ?? null,
+      endPosition: session.endPosition ?? null,
+      pagesRead: Math.max(0, Number(session.pagesRead) || 0),
+      notes: String(session.notes || ''),
+      createdAt: nowIso,
+      updatedAt: nowIso,
+    };
+    setReadingSessions((prev) => [record, ...prev].slice(0, 500));
+    return record;
   }, []);
 
   const exportBackup = useCallback(
     (extra = {}) => {
-      const payload = {
-        version: 3,
-        domain: domainConfig.domainKey,
-        exportedAt: new Date().toISOString(),
+      const db = buildCodiceDatabase({
         items,
-        ...extra,
-      };
-
-      const blob = new Blob([JSON.stringify(payload, null, 2)], {
-        type: 'application/json',
+        profile: extra.profile || null,
+        posts: extra.posts || [],
+        streak: extra.streak || null,
+        readingSessions,
       });
-      const url = URL.createObjectURL(blob);
-      const dateStamp = getTodayLocalISO();
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = `mlpd-livros-${dateStamp}.json`;
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      URL.revokeObjectURL(url);
+      exportDatabaseDownloads(db).json();
     },
-    [items]
+    [items, readingSessions]
+  );
+
+  const exportCatalogCsv = useCallback(
+    (extra = {}) => {
+      const db = buildCodiceDatabase({
+        items,
+        profile: extra.profile || null,
+        posts: extra.posts || [],
+        streak: extra.streak || null,
+        readingSessions,
+      });
+      exportDatabaseDownloads(db).csv();
+    },
+    [items, readingSessions]
+  );
+
+  const exportReferencesBibtex = useCallback(
+    (extra = {}) => {
+      const db = buildCodiceDatabase({
+        items,
+        profile: extra.profile || null,
+        posts: extra.posts || [],
+        streak: extra.streak || null,
+        readingSessions,
+      });
+      exportDatabaseDownloads(db).bib();
+    },
+    [items, readingSessions]
   );
 
   const importBackup = useCallback(async (file) => {
@@ -405,24 +506,23 @@ export function useBacklog() {
 
     try {
       const text = await file.text();
-      const parsed = JSON.parse(text);
-      const rawList = Array.isArray(parsed) ? parsed : parsed?.items;
-
-      if (!Array.isArray(rawList)) {
-        return { ok: false, error: domainConfig.ui.profile.backup.importError };
+      const result = parseAndValidateBackupText(text);
+      if (!result.ok) {
+        return { ok: false, error: result.error };
       }
 
-      const validItems = rawList
-        .filter((entry) => entry && typeof entry === 'object' && entry.id && entry.title)
-        .map(normalizeItem);
-
+      const validItems = result.items.map(normalizeItem);
       setItems(validItems);
+      setReadingSessions(result.readingSessions || []);
+
       return {
         ok: true,
         count: validItems.length,
-        profile: parsed?.profile || null,
-        posts: Array.isArray(parsed?.posts) ? parsed.posts : null,
-        streak: parsed?.streak || null,
+        profile: result.profile || null,
+        posts: Array.isArray(result.posts) ? result.posts : null,
+        streak: result.streak || null,
+        integrity: result.integrity,
+        detectedSchemaVersion: result.detectedSchemaVersion,
       };
     } catch {
       return { ok: false, error: domainConfig.ui.profile.backup.importError };
@@ -431,10 +531,14 @@ export function useBacklog() {
 
   return {
     items,
+    readingSessions,
     addItem,
     updateItem,
     removeItem,
+    addReadingSession,
     exportBackup,
+    exportCatalogCsv,
+    exportReferencesBibtex,
     importBackup,
   };
 }

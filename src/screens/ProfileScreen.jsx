@@ -1,8 +1,10 @@
 import {
   Bookmark,
+  BookMarked,
   BookOpen,
   Camera,
-  Download,
+  Database,
+  FileSpreadsheet,
   Film,
   Grid3X3,
   Layers,
@@ -54,6 +56,8 @@ export function ProfileScreen({
   onAddPostComment,
   onDeletePostComment,
   onExportBackup,
+  onExportCsv,
+  onExportBibtex,
   onImportBackup,
 }) {
   const { ui, cardFields } = domainConfig;
@@ -247,16 +251,16 @@ export function ProfileScreen({
           </button>
 
           {menuOpen && (
-            <div className="absolute right-0 top-11 z-30 w-60 overflow-hidden rounded-2xl border border-line bg-card p-1.5 shadow-2xl">
+            <div className="absolute right-0 top-12 z-30 w-68 overflow-hidden rounded-2xl border border-line bg-card p-1.5 shadow-2xl">
               <button
                 type="button"
                 onClick={() => {
                   setMenuOpen(false);
                   onReopenOnboarding?.();
                 }}
-                className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-xs font-medium text-ink transition-colors hover:bg-elevated"
+                className="flex min-h-[44px] w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-xs font-medium text-ink transition-colors hover:bg-elevated"
               >
-                <BookOpen className="h-3.5 w-3.5 shrink-0 text-accent" />
+                <BookOpen className="h-4 w-4 shrink-0 text-accent" strokeWidth={1.5} />
                 <span>Reabrir Boas-Vindas e Tutorial</span>
               </button>
               <button
@@ -267,13 +271,13 @@ export function ProfileScreen({
                   setSoundOn(next);
                   if (next) playTactileSound('tap');
                 }}
-                className="flex w-full items-center justify-between gap-2 rounded-xl px-3 py-2.5 text-left text-xs font-medium text-ink transition-colors hover:bg-elevated"
+                className="flex min-h-[44px] w-full items-center justify-between gap-2 rounded-xl px-3 py-2 text-left text-xs font-medium text-ink transition-colors hover:bg-elevated"
               >
                 <span className="inline-flex items-center gap-2.5">
                   {soundOn ? (
-                    <Volume2 className="h-3.5 w-3.5 text-accent" />
+                    <Volume2 className="h-4 w-4 text-accent" strokeWidth={1.5} />
                   ) : (
-                    <VolumeX className="h-3.5 w-3.5 text-subtle" />
+                    <VolumeX className="h-4 w-4 text-subtle" strokeWidth={1.5} />
                   )}
                   Efeitos Sonoros Táteis
                 </span>
@@ -293,10 +297,10 @@ export function ProfileScreen({
                   setMenuOpen(false);
                   onOpenGeminiSettings?.();
                 }}
-                className="flex w-full items-center justify-between gap-2 rounded-xl px-3 py-2.5 text-left text-xs font-medium text-ink transition-colors hover:bg-elevated"
+                className="flex min-h-[44px] w-full items-center justify-between gap-2 rounded-xl px-3 py-2 text-left text-xs font-medium text-ink transition-colors hover:bg-elevated"
               >
                 <span className="inline-flex items-center gap-2.5">
-                  <Sparkles className="h-3.5 w-3.5 text-accent" />
+                  <Sparkles className="h-4 w-4 text-accent" strokeWidth={1.5} />
                   Chave Google Gemini
                 </span>
                 <span
@@ -305,24 +309,47 @@ export function ProfileScreen({
                   }`}
                 />
               </button>
+              <div className="my-1 border-t border-line" />
               <button
                 type="button"
                 onClick={() => {
-                  onExportBackup();
+                  onExportBackup?.();
                   setMenuOpen(false);
                 }}
-                className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-xs font-medium text-ink transition-colors hover:bg-elevated"
+                className="flex min-h-[44px] w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-xs font-medium text-ink transition-colors hover:bg-elevated"
               >
-                <Download className="h-3.5 w-3.5 text-accent" />
-                {profileCfg.backup.exportLabel}
+                <Database className="h-4 w-4 shrink-0 text-accent" strokeWidth={1.5} />
+                <span>{profileCfg.backup.exportLabel}</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  onExportCsv?.();
+                  setMenuOpen(false);
+                }}
+                className="flex min-h-[44px] w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-xs font-medium text-ink transition-colors hover:bg-elevated"
+              >
+                <FileSpreadsheet className="h-4 w-4 shrink-0 text-accent" strokeWidth={1.5} />
+                <span>{profileCfg.backup.exportCsvLabel}</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  onExportBibtex?.();
+                  setMenuOpen(false);
+                }}
+                className="flex min-h-[44px] w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-xs font-medium text-ink transition-colors hover:bg-elevated"
+              >
+                <BookMarked className="h-4 w-4 shrink-0 text-accent" strokeWidth={1.5} />
+                <span>{profileCfg.backup.exportBibLabel}</span>
               </button>
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
-                className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-xs font-medium text-ink transition-colors hover:bg-elevated"
+                className="flex min-h-[44px] w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-xs font-medium text-ink transition-colors hover:bg-elevated"
               >
-                <Upload className="h-3.5 w-3.5 text-accent" />
-                {profileCfg.backup.importLabel}
+                <Upload className="h-4 w-4 shrink-0 text-accent" strokeWidth={1.5} />
+                <span>{profileCfg.backup.importLabel}</span>
               </button>
             </div>
           )}

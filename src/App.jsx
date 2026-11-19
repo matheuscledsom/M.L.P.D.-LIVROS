@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { BottomNav } from './components/BottomNav';
 import { GeminiConfigModal } from './components/GeminiConfigModal';
 import { ItemDetailSheet } from './components/ItemDetailSheet';
@@ -10,6 +10,7 @@ import { useGeminiKey } from './hooks/useGeminiKey';
 import { useReadingStreak } from './hooks/useReadingStreak';
 import { useSocialProfile } from './hooks/useSocialProfile';
 import { useTheme } from './hooks/useTheme';
+import { buildCodiceDatabase, persistCodiceDatabase } from './services/codiceDatabase';
 import { AddScreen } from './screens/AddScreen';
 import { HomeScreen } from './screens/HomeScreen';
 import { ListScreen } from './screens/ListScreen';
@@ -50,10 +51,14 @@ export function App() {
 
   const {
     items,
+    readingSessions,
     addItem,
     updateItem,
     removeItem,
+    addReadingSession,
     exportBackup,
+    exportCatalogCsv,
+    exportReferencesBibtex,
     importBackup,
   } = useBacklog();
   const {
@@ -120,7 +125,17 @@ export function App() {
 
   const handleExportBackup = () => {
     exportBackup({ profile, posts, streak: streakData });
-    showToast({ message: 'Backup .json exportado', type: 'success' });
+    showToast({ message: 'Banco relacional (.json) exportado', type: 'success' });
+  };
+
+  const handleExportCsv = () => {
+    exportCatalogCsv({ profile, posts, streak: streakData });
+    showToast({ message: 'Catálogo (.csv) exportado', type: 'success' });
+  };
+
+  const handleExportBibtex = () => {
+    exportReferencesBibtex({ profile, posts, streak: streakData });
+    showToast({ message: 'Referências (.bib) exportadas', type: 'success' });
   };
 
   const handleImportBackup = async (file) => {
@@ -128,8 +143,12 @@ export function App() {
     if (result.ok) {
       restoreSocialBackup({ profile: result.profile, posts: result.posts });
       restoreStreakBackup(result.streak);
+      const orphanCount = result.integrity?.orphanCount || 0;
       showToast({
-        message: `Backup restaurado (${result.count} obras)`,
+        message:
+          orphanCount > 0
+            ? `Backup restaurado (${result.count} obras, ${orphanCount} órfão(s) sinalizado(s))`
+            : `Backup restaurado (${result.count} obras)`,
         type: 'success',
       });
     } else {
@@ -137,6 +156,17 @@ export function App() {
     }
     return result;
   };
+
+  useEffect(() => {
+    const db = buildCodiceDatabase({
+      items,
+      profile,
+      posts,
+      streak: streakData,
+      readingSessions,
+    });
+    persistCodiceDatabase(db);
+  }, [items, profile, posts, streakData, readingSessions]);
 
   const handleRegisterToday = () => {
     registerToday();
@@ -237,6 +267,8 @@ export function App() {
               onAddPostComment={addPostComment}
               onDeletePostComment={deletePostComment}
               onExportBackup={handleExportBackup}
+              onExportCsv={handleExportCsv}
+              onExportBibtex={handleExportBibtex}
               onImportBackup={handleImportBackup}
             />
           )}

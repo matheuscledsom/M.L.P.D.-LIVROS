@@ -1,4 +1,4 @@
-import { domainConfig } from '../config/domainConfig';
+import { domainConfig } from '../config/domainConfig.js';
 
 export function getTodayLocalISO() {
   const now = new Date();

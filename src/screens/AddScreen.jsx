@@ -1,6 +1,7 @@
 import { AlertCircle, Barcode, Check, FileText, PenLine, Plus, RefreshCw, Search, Sparkles, X } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CoverArt } from '../components/CoverArt';
+import { LibraryCatalogSection } from '../components/LibraryCatalogSection';
 import { SmartCatalogButton } from '../components/SmartCatalogButton';
 import { TactileStatusFields } from '../components/TactileStatusFields';
 import { TechnicalAtmosphereSection } from '../components/TechnicalAtmosphereSection';
@@ -11,6 +12,7 @@ import {
   getStatusConfig,
   getWorkTypeConfig,
 } from '../config/domainConfig';
+import { createUuid } from '../services/codiceDatabase';
 import {
   detectDoiQuery,
   detectIsbnQuery,
@@ -25,6 +27,7 @@ import {
   getTodayLocalISO,
   getVerdictForScore,
 } from '../utils/backlogHelpers';
+import { suggestLibraryClassification } from '../utils/catalogingClassification';
 
 const MANUAL_PALETTES = [
   ['#1E1B4B', '#8B5CF6', '#38BDF8'],
@@ -260,6 +263,10 @@ export function AddScreen({
           ? 'academic'
           : 'book');
     const defaultFormat = item.format || bookFormats[0];
+    const classification = suggestLibraryClassification({
+      ...item,
+      workType: defaultWorkType,
+    });
 
     setDraftItem(
       buildDraftWithStatus(
@@ -279,6 +286,18 @@ export function AddScreen({
           isbn: item.isbn || '',
           doi: item.doi || '',
           issn: item.issn || '',
+          cdu_cdd: item.cdu_cdd || classification.cdu_cdd,
+          cutter: item.cutter || classification.cutter,
+          callNumber: item.callNumber || classification.callNumber,
+          edition: item.edition || '',
+          publicationPlace: item.publicationPlace || '',
+          language: item.language || '',
+          advisor: item.advisor || '',
+          seriesName: item.seriesName || '',
+          seriesIndex: item.seriesIndex || '',
+          physicalLocation: item.physicalLocation || '',
+          acquisitionType: item.acquisitionType || '',
+          conservationState: item.conservationState || '',
           translator: item.translator || '',
           seriesVolume: item.seriesVolume || '',
           academicProgressMode: 'pages',
@@ -332,6 +351,19 @@ export function AddScreen({
           publisher: '',
           isbn: isbnDetected,
           doi: doiDetected,
+          issn: '',
+          cdu_cdd: '',
+          cutter: '',
+          callNumber: '',
+          edition: '',
+          publicationPlace: '',
+          language: '',
+          advisor: '',
+          seriesName: '',
+          seriesIndex: '',
+          physicalLocation: '',
+          acquisitionType: '',
+          conservationState: '',
           translator: '',
           seriesVolume: '',
           academicProgressMode: 'pages',
@@ -374,16 +406,32 @@ export function AddScreen({
 
     const palette = MANUAL_PALETTES[cleanTitle.length % MANUAL_PALETTES.length];
     const { genresText, ...restDraft } = manualDraft;
+    const creatorName = manualDraft[cardFields.creator]?.trim() || '';
+    const classification = suggestLibraryClassification({
+      ...restDraft,
+      title: cleanTitle,
+      author: creatorName,
+      genres: genresList,
+    });
+
+    const finalCdd = String(restDraft.cdu_cdd || '').trim() || classification.cdu_cdd;
+    const finalCutter = String(restDraft.cutter || '').trim() || classification.cutter;
+    const finalCall =
+      String(restDraft.callNumber || '').trim() ||
+      [finalCdd, finalCutter].filter(Boolean).join(' ');
 
     onAddItem({
       ...restDraft,
-      id: `manual-${Date.now()}`,
+      id: createUuid(),
       title: cleanTitle,
-      [cardFields.creator]: manualDraft[cardFields.creator]?.trim() || '',
+      [cardFields.creator]: creatorName,
       [cardFields.year]: manualDraft[cardFields.year]
         ? Number(manualDraft[cardFields.year])
         : null,
       [cardFields.genres]: genresList,
+      cdu_cdd: finalCdd,
+      cutter: finalCutter,
+      callNumber: finalCall,
       monogram: createMonogram(cleanTitle),
       palette,
     });
@@ -756,8 +804,14 @@ export function AddScreen({
               />
             </div>
 
-            <div className="mt-4">
+            <div className="mt-4 space-y-3">
               <TechnicalAtmosphereSection
+                item={draftItem}
+                onChange={(updates) =>
+                  setDraftItem((prev) => ({ ...prev, ...updates }))
+                }
+              />
+              <LibraryCatalogSection
                 item={draftItem}
                 onChange={(updates) =>
                   setDraftItem((prev) => ({ ...prev, ...updates }))
@@ -968,6 +1022,13 @@ export function AddScreen({
               </div>
 
               <TechnicalAtmosphereSection
+                item={manualDraft}
+                onChange={(updates) =>
+                  setManualDraft((prev) => ({ ...prev, ...updates }))
+                }
+              />
+
+              <LibraryCatalogSection
                 item={manualDraft}
                 onChange={(updates) =>
                   setManualDraft((prev) => ({ ...prev, ...updates }))
