@@ -12,7 +12,6 @@ export function CoverImage({
   title = '',
   author = '',
   workType = 'book',
-  palette = [],
   className = '',
   showTitle = false,
   compact = false,
@@ -42,12 +41,6 @@ export function CoverImage({
     activeIndex < cleanSources.length ? cleanSources[activeIndex] : null;
   const isLoaded = Boolean(currentSrc && loadedSrc === currentSrc);
 
-  const [
-    baseColor = '#141414',
-    accentColor = '#8B5CF6',
-    secondaryColor = '#38BDF8',
-  ] = palette || [];
-
   const FallbackIcon = WORK_ICONS[workType] || BookOpen;
 
   const handleImageError = () => {
@@ -59,21 +52,25 @@ export function CoverImage({
     <div
       className={`relative aspect-[2/3] overflow-hidden border border-line bg-card select-none ${className}`}
       style={{
-        background: `radial-gradient(circle at 80% 18%, ${accentColor}38 0%, transparent 55%), radial-gradient(circle at 18% 85%, ${secondaryColor}22 0%, transparent 50%), linear-gradient(155deg, ${baseColor} 0%, #0A0A0A 100%)`,
+        backgroundImage:
+          'radial-gradient(circle at 82% 16%, color-mix(in srgb, var(--accent-color) 32%, transparent) 0%, transparent 58%), radial-gradient(circle at 18% 86%, color-mix(in srgb, var(--accent-color) 16%, transparent) 0%, transparent 52%), linear-gradient(155deg, color-mix(in srgb, var(--accent-color) 14%, var(--bg-card)) 0%, var(--bg-app) 100%)',
       }}
     >
-      {/* Capa vetorial minimalista exibida quando sem imagem ou durante carregamento */}
+      {/* Capa tipográfica vetorial derivada de --accent-color exibida como fallback ou durante o carregamento */}
       <div
         className={`absolute inset-0 flex flex-col justify-between p-2.5 transition-opacity duration-200 ${
           isLoaded ? 'opacity-0 pointer-events-none' : 'opacity-100'
         }`}
       >
         <div className="flex items-center justify-between gap-1">
-          <span className="flex h-6 w-6 items-center justify-center rounded-lg border border-white/10 bg-black/40 text-accent backdrop-blur-xs">
-            <FallbackIcon className={compact ? 'h-3 w-3' : 'h-3.5 w-3.5'} />
+          <span className="flex h-6 w-6 items-center justify-center rounded-lg border border-line bg-app/75 text-accent backdrop-blur-xs">
+            <FallbackIcon
+              className={compact ? 'h-3.5 w-3.5' : 'h-4 w-4'}
+              strokeWidth={1.5}
+            />
           </span>
           {!compact && badge && (
-            <span className="truncate rounded bg-black/50 px-1.5 py-0.5 text-[9px] font-medium tracking-wider text-neutral-300 border border-white/10">
+            <span className="truncate rounded border border-line bg-app/80 px-1.5 py-0.5 text-[10px] font-medium tracking-wider text-muted">
               {badge}
             </span>
           )}
@@ -82,7 +79,7 @@ export function CoverImage({
         <div className="space-y-1">
           {title && (
             <p
-              className={`font-semibold leading-tight text-white/95 ${
+              className={`font-semibold leading-tight text-ink ${
                 compact ? 'line-clamp-3 text-[10px]' : 'line-clamp-3 text-xs'
               }`}
             >
@@ -90,7 +87,7 @@ export function CoverImage({
             </p>
           )}
           {author && !compact && (
-            <p className="line-clamp-1 text-[10px] text-white/65">{author}</p>
+            <p className="line-clamp-1 text-[10px] text-muted">{author}</p>
           )}
         </div>
       </div>
@@ -121,7 +118,7 @@ export function CoverImage({
           />
           {showTitle && isLoaded && title && (
             <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/90 via-black/45 to-transparent p-2 pt-6">
-              <p className="line-clamp-2 text-[10px] font-medium leading-tight text-white/95">
+              <p className="line-clamp-2 text-[10px] font-medium leading-tight text-white">
                 {title}
               </p>
             </div>

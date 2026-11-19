@@ -58,7 +58,7 @@ export function OracleWidget({
       });
       setResult(recommendation);
     } catch (error) {
-      setErrorMsg(error.message || 'Erro ao consultar o Oráculo.');
+      setErrorMsg(error?.userMessage || error?.message || 'Erro ao consultar o Oráculo.');
     } finally {
       setIsLoading(false);
     }

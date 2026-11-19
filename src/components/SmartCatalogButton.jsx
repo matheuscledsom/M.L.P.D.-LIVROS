@@ -76,7 +76,7 @@ export function SmartCatalogButton({
       showToast({ message: 'Ficha completada com Gemini', type: 'success' });
       setTimeout(() => setDone(false), 3000);
     } catch (error) {
-      setErrorMsg(error.message || 'Falha ao consultar Gemini.');
+      setErrorMsg(error?.userMessage || error?.message || 'Falha ao consultar Gemini.');
     } finally {
       setIsLoading(false);
     }

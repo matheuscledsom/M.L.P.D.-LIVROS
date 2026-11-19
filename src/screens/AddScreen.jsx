@@ -1,4 +1,4 @@
-import { Barcode, Check, PenLine, Plus, Search, Sparkles, X } from 'lucide-react';
+import { AlertCircle, Barcode, Check, FileText, PenLine, Plus, RefreshCw, Search, Sparkles, X } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CoverArt } from '../components/CoverArt';
 import { SmartCatalogButton } from '../components/SmartCatalogButton';
@@ -12,6 +12,7 @@ import {
   getWorkTypeConfig,
 } from '../config/domainConfig';
 import {
+  detectDoiQuery,
   detectIsbnQuery,
   getCachedSearchMedia,
   searchMedia,
@@ -113,6 +114,8 @@ export function AddScreen({
   const [searchFilter, setSearchFilter] = useState('all');
   const [results, setResults] = useState(() => searchMockMedia('', 'all'));
   const [isLoading, setIsLoading] = useState(false);
+  const [partialFailure, setPartialFailure] = useState(false);
+  const [allFailed, setAllFailed] = useState(false);
 
   const [draftItem, setDraftItem] = useState(null);
   const [manualOpen, setManualOpen] = useState(false);
@@ -123,6 +126,7 @@ export function AddScreen({
   const { add } = ui;
 
   const isIsbnActive = Boolean(detectIsbnQuery(query));
+  const isDoiActive = !isIsbnActive && Boolean(detectDoiQuery(query));
   const isEasterEgg67 = query.trim().toLowerCase() === '#ovodepascoa67';
   const debounceTimerRef = useRef(null);
   const searchAbortRef = useRef(null);
@@ -144,43 +148,58 @@ export function AddScreen({
     backlogLookup.byTitle.get(candidate.title.trim().toLowerCase()) ||
     null;
 
-  const executeSearch = useCallback(async (cleanQuery, filter) => {
+  const executeSearch = useCallback(async (cleanQuery, filter, { skipCache = false } = {}) => {
     searchAbortRef.current?.abort();
 
     if (!cleanQuery) {
       setResults(searchMockMedia('', filter));
       setIsLoading(false);
+      setPartialFailure(false);
+      setAllFailed(false);
       return;
     }
 
     if (cleanQuery.toLowerCase() === '#ovodepascoa67') {
       setResults([]);
       setIsLoading(false);
+      setPartialFailure(false);
+      setAllFailed(false);
       return;
     }
 
-    const cached = getCachedSearchMedia(cleanQuery, filter);
-    if (cached) {
-      setResults(cached.results);
-      setIsLoading(false);
-      return;
+    if (!skipCache) {
+      const cached = getCachedSearchMedia(cleanQuery, filter);
+      if (cached) {
+        setResults(cached.results);
+        setPartialFailure(Boolean(cached.partialFailure));
+        setAllFailed(false);
+        setIsLoading(false);
+        return;
+      }
     }
 
     const controller = new AbortController();
     searchAbortRef.current = controller;
     setIsLoading(true);
+    setPartialFailure(false);
+    setAllFailed(false);
 
     try {
-      const { results: fetched } = await searchMedia(cleanQuery, {
+      const response = await searchMedia(cleanQuery, {
         signal: controller.signal,
         filter,
+        skipCache,
       });
       if (!controller.signal.aborted) {
-        setResults(fetched);
+        setResults(response.results);
+        setPartialFailure(Boolean(response.partialFailure));
+        setAllFailed(Boolean(response.allFailed));
       }
     } catch (error) {
       if (error.name !== 'AbortError') {
         setResults([]);
+        setPartialFailure(false);
+        setAllFailed(true);
       }
     } finally {
       if (!controller.signal.aborted) {
@@ -201,6 +220,8 @@ export function AddScreen({
     const cached = getCachedSearchMedia(cleanQuery, searchFilter);
     if (cached) {
       setResults(cached.results);
+      setPartialFailure(Boolean(cached.partialFailure));
+      setAllFailed(false);
       setIsLoading(false);
       return undefined;
     }
@@ -208,7 +229,7 @@ export function AddScreen({
     setIsLoading(true);
     debounceTimerRef.current = setTimeout(() => {
       executeSearch(cleanQuery, searchFilter);
-    }, 300);
+    }, 350);
 
     return () => {
       clearTimeout(debounceTimerRef.current);
@@ -256,6 +277,8 @@ export function AddScreen({
           publicationStatus: item.publicationStatus || 'Em lançamento',
           publisher: item.publisher || '',
           isbn: item.isbn || '',
+          doi: item.doi || '',
+          issn: item.issn || '',
           translator: item.translator || '',
           seriesVolume: item.seriesVolume || '',
           academicProgressMode: 'pages',
@@ -287,12 +310,13 @@ export function AddScreen({
           : 'book';
 
     const isbnDetected = detectIsbnQuery(query) || '';
+    const doiDetected = isbnDetected ? '' : detectDoiQuery(query) || '';
 
     setManualDraft(
       buildDraftWithStatus(
         {
-          workType: defaultWorkType,
-          title: isbnDetected ? '' : query.trim(),
+          workType: doiDetected ? 'academic' : defaultWorkType,
+          title: isbnDetected || doiDetected ? '' : query.trim(),
           [cardFields.creator]: '',
           [cardFields.year]: domainConfig.currentYear,
           genresText: '',
@@ -307,6 +331,7 @@ export function AddScreen({
           publicationStatus: 'Em lançamento',
           publisher: '',
           isbn: isbnDetected,
+          doi: doiDetected,
           translator: '',
           seriesVolume: '',
           academicProgressMode: 'pages',
@@ -433,8 +458,41 @@ export function AddScreen({
 
         {isIsbnActive && (
           <div className="inline-flex items-center gap-1.5 rounded-xl border border-accent/40 bg-accent/10 px-2.5 py-1 text-[11px] font-medium text-accent">
-            <Barcode className="h-3.5 w-3.5" />
+            <Barcode className="h-4 w-4" strokeWidth={1.5} />
             <span>{add.isbnDetectedLabel}</span>
+          </div>
+        )}
+
+        {isDoiActive && (
+          <div className="inline-flex items-center gap-1.5 rounded-xl border border-accent/40 bg-accent/10 px-2.5 py-1 text-[11px] font-medium text-accent">
+            <FileText className="h-4 w-4" strokeWidth={1.5} />
+            <span>Busca direta por DOI detectada (CrossRef)</span>
+          </div>
+        )}
+
+        {!isLoading && (partialFailure || allFailed) && query.trim() && (
+          <div
+            role="status"
+            className="flex items-center justify-between gap-2 rounded-xl border border-line bg-card px-3 py-2 text-xs text-muted"
+          >
+            <span className="inline-flex items-center gap-2 min-w-0">
+              <AlertCircle className="h-4 w-4 shrink-0 text-accent" strokeWidth={1.5} />
+              <span className="truncate">
+                {allFailed
+                  ? 'Fontes externas indisponíveis. Exibindo sugestões locais.'
+                  : 'Algumas fontes não responderam'}
+              </span>
+            </span>
+            <button
+              type="button"
+              onClick={() =>
+                executeSearch(query.trim(), searchFilter, { skipCache: true })
+              }
+              className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-line bg-app px-2.5 py-1 text-[11px] font-medium text-accent hover:border-accent"
+            >
+              <RefreshCw className="h-3.5 w-3.5" strokeWidth={1.5} />
+              Tentar de novo
+            </button>
           </div>
         )}
       </div>

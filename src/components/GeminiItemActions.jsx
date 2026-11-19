@@ -36,7 +36,7 @@ export function SpoilerFreeRecapAction({
       const output = await runSpoilerFreeRecap(geminiKey, { item, linkedPosts });
       setRecapText(output);
     } catch (error) {
-      setErrorMsg(error.message || 'Erro ao gerar recapitulação.');
+      setErrorMsg(error?.userMessage || error?.message || 'Erro ao gerar recapitulação.');
     } finally {
       setIsLoading(false);
     }
@@ -133,7 +133,7 @@ export function SynthesisReviewAction({
       });
       setSynthesisText(output);
     } catch (error) {
-      setErrorMsg(error.message || 'Erro ao sintetizar resenha/fichamento.');
+      setErrorMsg(error?.userMessage || error?.message || 'Erro ao sintetizar resenha/fichamento.');
     } finally {
       setIsLoading(false);
     }
