@@ -248,7 +248,9 @@ export function ListScreen({
         </span>
       </header>
 
-      {streakProps && <ReadingStreakWidget {...streakProps} />}
+      {profile?.gamificationEnabled !== false && streakProps && (
+        <ReadingStreakWidget {...streakProps} />
+      )}
 
       {backlogItems.length > 0 && (
         <OracleWidget

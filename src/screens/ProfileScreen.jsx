@@ -1,22 +1,32 @@
 import {
+  Award,
   Bookmark,
   BookMarked,
   BookOpen,
   Camera,
+  Cloud,
   Database,
   FileSpreadsheet,
   Film,
+  Globe,
   Grid3X3,
+  HardDrive,
   Layers,
   Link2,
+  Lock,
+  MessageSquare,
+  MessagesSquare,
   Palette,
   PenLine,
   Plus,
   Settings,
+  Shield,
   Sparkles,
   Star,
   Trophy,
   Upload,
+  UserCheck,
+  Users,
   Volume2,
   VolumeX,
   Zap,
@@ -41,12 +51,76 @@ const TAB_ICONS = {
   Bookmark,
 };
 
+const VISIBILITY_OPTIONS = [
+  {
+    id: 'public',
+    label: 'Público',
+    description: 'Qualquer leitor no Códice pode ver seu perfil e estante.',
+    icon: Globe,
+  },
+  {
+    id: 'followers',
+    label: 'Apenas Seguidores',
+    description: 'Somente quem segue você acompanha suas atividades.',
+    icon: Users,
+  },
+  {
+    id: 'private',
+    label: 'Privado',
+    description: 'Arquivo pessoal reservado apenas para você.',
+    icon: Lock,
+  },
+];
+
+function PrivacySwitchRow({ icon: Icon, label, description, checked, onToggle }) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      onClick={onToggle}
+      className="flex min-h-[44px] w-full items-center justify-between gap-3 rounded-xl border border-line bg-app px-3 py-2.5 text-left transition-colors hover:border-accent/50"
+    >
+      <div className="flex min-w-0 items-start gap-2.5">
+        <Icon className="mt-0.5 h-4 w-4 shrink-0 text-accent" strokeWidth={1.5} />
+        <div className="min-w-0">
+          <span className="block text-xs font-medium text-ink">{label}</span>
+          {description && (
+            <span className="mt-0.5 block text-[11px] leading-snug text-muted">
+              {description}
+            </span>
+          )}
+        </div>
+      </div>
+
+      <span
+        aria-hidden="true"
+        className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full border transition-colors ${
+          checked
+            ? 'border-accent bg-accent'
+            : 'border-line bg-elevated'
+        }`}
+      >
+        <span
+          className={`inline-block h-4 w-4 rounded-full transition-transform ${
+            checked
+              ? 'translate-x-5.5 bg-accent-ink'
+              : 'translate-x-1 bg-subtle'
+          }`}
+        />
+      </span>
+    </button>
+  );
+}
+
 export function ProfileScreen({
   items,
   profile,
   posts,
   themeProps,
   hasGeminiKey = false,
+  backendSession = null,
+  onOpenAuthModal,
   onOpenGeminiSettings,
   onReopenOnboarding,
   onUpdateProfile,
@@ -187,6 +261,13 @@ export function ProfileScreen({
     [items, selectedPost]
   );
 
+  const gamificationEnabled = profile?.gamificationEnabled !== false;
+  const privacyLevel = profile?.privacyLevel || 'public';
+  const activeVisibilityMeta =
+    VISIBILITY_OPTIONS.find((opt) => opt.id === privacyLevel) ||
+    VISIBILITY_OPTIONS[0];
+  const isSupabaseMode = backendSession?.mode === 'supabase';
+
   return (
     <div className="space-y-4 pb-24">
       <header className="relative flex items-center justify-between gap-2 pt-2">
@@ -200,6 +281,23 @@ export function ProfileScreen({
         </div>
 
         <div className="flex items-center gap-1" ref={menuRef}>
+          <button
+            type="button"
+            onClick={() => {
+              setMenuOpen(false);
+              onOpenAuthModal?.();
+            }}
+            aria-label="Conta e Perfis Locais"
+            title="Conta e Perfis Locais"
+            className={`flex h-11 w-11 items-center justify-center rounded-full border transition-colors ${
+              backendSession?.authenticated
+                ? 'border-accent/50 bg-accent/15 text-accent'
+                : 'border-line bg-card text-muted hover:border-accent/50 hover:text-ink'
+            }`}
+          >
+            <UserCheck className="h-4 w-4" strokeWidth={1.5} />
+          </button>
+
           <button
             type="button"
             onClick={() => onOpenJournalComposer(null)}
@@ -252,6 +350,22 @@ export function ProfileScreen({
 
           {menuOpen && (
             <div className="absolute right-0 top-12 z-30 w-68 overflow-hidden rounded-2xl border border-line bg-card p-1.5 shadow-2xl">
+              <button
+                type="button"
+                onClick={() => {
+                  setMenuOpen(false);
+                  onOpenAuthModal?.();
+                }}
+                className="flex min-h-[44px] w-full items-center justify-between gap-2 rounded-xl px-3 py-2 text-left text-xs font-medium text-ink transition-colors hover:bg-elevated"
+              >
+                <span className="inline-flex items-center gap-2.5">
+                  <Users className="h-4 w-4 shrink-0 text-accent" strokeWidth={1.5} />
+                  <span>Conta e Perfis Locais</span>
+                </span>
+                <span className="rounded-full bg-accent/15 px-1.5 py-0.5 text-[10px] font-semibold text-accent">
+                  {isSupabaseMode ? 'Nuvem' : 'Local'}
+                </span>
+              </button>
               <button
                 type="button"
                 onClick={() => {
@@ -431,9 +545,15 @@ export function ProfileScreen({
 
           {/* Nome, Bio & Link */}
           <div className="mt-3 space-y-1 text-xs">
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <p className="font-semibold text-ink">{profile.displayName}</p>
               <span className="text-[11px] text-subtle">{profile.handle}</span>
+              {gamificationEnabled && profile.activeTitleBadge && (
+                <span className="inline-flex items-center gap-1 rounded-full border border-accent/40 bg-accent/15 px-2 py-0.5 text-[10px] font-semibold text-accent">
+                  <Award className="h-3 w-3" strokeWidth={1.5} />
+                  {profile.activeTitleBadge}
+                </span>
+              )}
             </div>
             {profile.bio && (
               <p className="leading-relaxed text-muted">{profile.bio}</p>
@@ -445,36 +565,170 @@ export function ProfileScreen({
                 rel="noreferrer"
                 className="inline-flex items-center gap-1 pt-0.5 font-medium text-accent hover:opacity-80"
               >
-                <Link2 className="h-3 w-3" />
+                <Link2 className="h-3 w-3" strokeWidth={1.5} />
                 <span>{profile.linkLabel}</span>
               </a>
             )}
           </div>
 
-          {/* Barra de Nível / XP do Leitor */}
-          <div className="mt-3.5 rounded-2xl border border-line bg-card p-3">
-            <div className="flex items-center justify-between text-xs">
-              <span className="inline-flex items-center gap-1.5 font-semibold text-ink">
-                <span className="inline-flex items-center gap-1 rounded-lg bg-accent px-2 py-0.5 text-[11px] font-bold text-accent-ink">
-                  <Zap className="h-3 w-3" />
-                  {profileCfg.levelPrefix} {statsData.level}
+          {/* Barra de Nível / XP do Leitor (oculta quando gamificação desligada) */}
+          {gamificationEnabled && (
+            <div className="mt-3.5 rounded-2xl border border-line bg-card p-3">
+              <div className="flex items-center justify-between text-xs">
+                <span className="inline-flex items-center gap-1.5 font-semibold text-ink">
+                  <span className="inline-flex items-center gap-1 rounded-lg bg-accent px-2 py-0.5 text-[11px] font-bold text-accent-ink">
+                    <Zap className="h-3 w-3" strokeWidth={1.5} />
+                    {profileCfg.levelPrefix} {statsData.level}
+                  </span>
+                  <span className="text-muted font-medium">
+                    {profileCfg.xpTitle}
+                  </span>
                 </span>
-                <span className="text-muted font-medium">
-                  {profileCfg.xpTitle}
+                <span className="text-[11px] text-subtle">
+                  {statsData.currentLevelXp}/{statsData.xpPerLevel} XP
                 </span>
-              </span>
-              <span className="text-[11px] text-subtle">
-                {statsData.currentLevelXp}/{statsData.xpPerLevel} XP
-              </span>
-            </div>
+              </div>
 
-            <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-elevated">
-              <div
-                className="h-full rounded-full bg-accent transition-all duration-500"
-                style={{ width: `${Math.max(4, statsData.xpPct)}%` }}
-              />
+              <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-elevated">
+                <div
+                  className="h-full rounded-full bg-accent transition-all duration-500"
+                  style={{ width: `${Math.max(4, statsData.xpPct)}%` }}
+                />
+              </div>
+            </div>
+          )}
+        </div>
+      </section>
+
+      {/* Privacidade & Experiência */}
+      <section
+        aria-label="Privacidade e Experiência"
+        className="rounded-2xl border border-line bg-card p-4 space-y-3.5"
+      >
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2 min-w-0">
+            <Shield className="h-4 w-4 shrink-0 text-accent" strokeWidth={1.5} />
+            <div>
+              <h2 className="text-sm font-semibold tracking-tight text-ink">
+                Privacidade & Experiência
+              </h2>
+              <p className="text-[11px] text-muted">
+                Defina quem acessa seu perfil, interações sociais e modo de leitura.
+              </p>
             </div>
           </div>
+
+          <button
+            type="button"
+            onClick={() => onOpenAuthModal?.()}
+            className="inline-flex min-h-[36px] shrink-0 items-center gap-1.5 rounded-full border border-accent/40 bg-accent/15 px-3 py-1 text-[11px] font-semibold text-accent transition-colors hover:bg-accent hover:text-accent-ink"
+          >
+            {isSupabaseMode ? (
+              <Cloud className="h-3.5 w-3.5" strokeWidth={1.5} />
+            ) : (
+              <HardDrive className="h-3.5 w-3.5" strokeWidth={1.5} />
+            )}
+            <span>{isSupabaseMode ? 'Conta Supabase' : 'Modo Local'}</span>
+          </button>
+        </div>
+
+        {/* Visibilidade do perfil */}
+        <div className="space-y-2">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-xs font-medium text-ink">
+              Visibilidade do perfil
+            </span>
+            <span className="text-[11px] text-muted">
+              {activeVisibilityMeta.label}
+            </span>
+          </div>
+
+          <div
+            role="radiogroup"
+            aria-label="Visibilidade do perfil"
+            className="grid grid-cols-1 sm:grid-cols-3 gap-2"
+          >
+            {VISIBILITY_OPTIONS.map((option) => {
+              const Icon = option.icon;
+              const isSelected = privacyLevel === option.id;
+              return (
+                <button
+                  key={option.id}
+                  type="button"
+                  role="radio"
+                  aria-checked={isSelected}
+                  onClick={() => onUpdateProfile?.({ privacyLevel: option.id })}
+                  className={`flex min-h-[44px] items-center justify-center gap-2 rounded-xl border px-3 py-2 text-xs font-semibold transition-colors ${
+                    isSelected
+                      ? 'border-accent bg-accent/15 text-ink'
+                      : 'border-line bg-app text-muted hover:border-accent/40 hover:text-ink'
+                  }`}
+                >
+                  <Icon
+                    className={`h-4 w-4 shrink-0 ${
+                      isSelected ? 'text-accent' : 'text-subtle'
+                    }`}
+                    strokeWidth={1.5}
+                  />
+                  <span>{option.label}</span>
+                </button>
+              );
+            })}
+          </div>
+          <p className="text-[11px] text-subtle">
+            {activeVisibilityMeta.description}
+          </p>
+        </div>
+
+        {/* Switches individuais de privacidade e gamificação */}
+        <div className="space-y-2">
+          <PrivacySwitchRow
+            icon={PenLine}
+            label="Permitir recados no mural"
+            description="Outros leitores podem deixar mensagens públicas no seu perfil."
+            checked={profile?.allowWallPosts !== false}
+            onToggle={() =>
+              onUpdateProfile?.({
+                allowWallPosts: !(profile?.allowWallPosts !== false),
+              })
+            }
+          />
+
+          <PrivacySwitchRow
+            icon={MessageSquare}
+            label="Permitir comentários"
+            description="Habilita comentários em suas publicações do Diário e recados."
+            checked={profile?.allowComments !== false}
+            onToggle={() =>
+              onUpdateProfile?.({
+                allowComments: !(profile?.allowComments !== false),
+              })
+            }
+          />
+
+          <PrivacySwitchRow
+            icon={MessagesSquare}
+            label="Receber mensagens no chat"
+            description="Permite que outros leitores iniciem conversas diretas com você."
+            checked={profile?.allowDms !== false}
+            onToggle={() =>
+              onUpdateProfile?.({
+                allowDms: !(profile?.allowDms !== false),
+              })
+            }
+          />
+
+          <PrivacySwitchRow
+            icon={Zap}
+            label="Ativar Gamificação (XP, Níveis, Títulos e Sequência)"
+            description="Quando desligado, oculta barras de XP, níveis, insígnias e sequências na Home e no Perfil."
+            checked={gamificationEnabled}
+            onToggle={() =>
+              onUpdateProfile?.({
+                gamificationEnabled: !gamificationEnabled,
+              })
+            }
+          />
         </div>
       </section>
 

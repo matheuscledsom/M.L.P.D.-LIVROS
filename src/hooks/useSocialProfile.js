@@ -4,11 +4,20 @@ import { buildPublicProfileLink, domainConfig } from '../config/domainConfig';
 const PROFILE_KEY = domainConfig.profileStorageKey;
 const POSTS_KEY = domainConfig.postsStorageKey;
 
+function normalizePrivacyLevel(value) {
+  if (value === 'followers' || value === 'private' || value === 'public') {
+    return value;
+  }
+  return 'public';
+}
+
 function getDefaultProfile() {
   const { profile } = domainConfig.ui;
   return {
+    id: 'local-primary',
     displayName: profile.displayName,
     handle: profile.handle,
+    email: '',
     avatarInitials: profile.avatarInitials,
     avatarUrl: profile.avatarUrl || '',
     coverUrl: profile.coverUrl || '',
@@ -22,8 +31,73 @@ function getDefaultProfile() {
     preferredCriterion: 'Enredo e Ritmo',
     preferredAtmosphere: 'Tinta OLED',
     favoriteGenres: [],
+    privacyLevel: 'public',
+    allowWallPosts: true,
+    allowComments: true,
+    allowDms: true,
+    gamificationEnabled: true,
+    activeTitleBadge: '',
     onboardingCompleted: false,
   };
+}
+
+function normalizeProfileObject(rawProfile, fallback) {
+  const base = fallback || getDefaultProfile();
+  const parsed = rawProfile && typeof rawProfile === 'object' ? rawProfile : {};
+  const merged = {
+    ...base,
+    ...parsed,
+    annualGoal: Math.max(
+      1,
+      Number(parsed.annualGoal ?? parsed.annual_goal) || base.annualGoal
+    ),
+    favoriteGenres: Array.isArray(parsed.favoriteGenres)
+      ? parsed.favoriteGenres
+      : [],
+    privacyLevel: normalizePrivacyLevel(
+      parsed.privacyLevel ?? parsed.privacy_level ?? base.privacyLevel
+    ),
+    allowWallPosts:
+      parsed.allowWallPosts !== undefined
+        ? Boolean(parsed.allowWallPosts)
+        : parsed.allow_wall_posts !== undefined
+          ? Boolean(parsed.allow_wall_posts)
+          : base.allowWallPosts,
+    allowComments:
+      parsed.allowComments !== undefined
+        ? Boolean(parsed.allowComments)
+        : parsed.allow_comments !== undefined
+          ? Boolean(parsed.allow_comments)
+          : base.allowComments,
+    allowDms:
+      parsed.allowDms !== undefined
+        ? Boolean(parsed.allowDms)
+        : parsed.allow_dms !== undefined
+          ? Boolean(parsed.allow_dms)
+          : base.allowDms,
+    gamificationEnabled:
+      parsed.gamificationEnabled !== undefined
+        ? Boolean(parsed.gamificationEnabled)
+        : parsed.gamification_enabled !== undefined
+          ? Boolean(parsed.gamification_enabled)
+          : base.gamificationEnabled,
+    activeTitleBadge:
+      typeof (parsed.activeTitleBadge ?? parsed.active_title_badge) === 'string'
+        ? parsed.activeTitleBadge ?? parsed.active_title_badge
+        : base.activeTitleBadge,
+    onboardingCompleted:
+      parsed.onboardingCompleted !== undefined
+        ? Boolean(parsed.onboardingCompleted)
+        : Boolean(parsed.displayName && parsed.displayName !== base.displayName),
+  };
+
+  if (!merged.linkLabel || /^mlpd\.livros\//i.test(merged.linkLabel)) {
+    const publicLink = buildPublicProfileLink(merged.handle);
+    merged.linkLabel = publicLink.label;
+    merged.linkUrl = publicLink.url;
+  }
+
+  return merged;
 }
 
 function loadProfile() {
@@ -33,26 +107,7 @@ function loadProfile() {
     if (!raw) return fallback;
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== 'object') return fallback;
-    const merged = {
-      ...fallback,
-      ...parsed,
-      annualGoal: Math.max(1, Number(parsed.annualGoal) || fallback.annualGoal),
-      favoriteGenres: Array.isArray(parsed.favoriteGenres)
-        ? parsed.favoriteGenres
-        : [],
-      onboardingCompleted:
-        parsed.onboardingCompleted !== undefined
-          ? Boolean(parsed.onboardingCompleted)
-          : Boolean(parsed.displayName && parsed.displayName !== fallback.displayName),
-    };
-
-    if (!merged.linkLabel || /^mlpd\.livros\//i.test(merged.linkLabel)) {
-      const publicLink = buildPublicProfileLink(merged.handle);
-      merged.linkLabel = publicLink.label;
-      merged.linkUrl = publicLink.url;
-    }
-
-    return merged;
+    return normalizeProfileObject(parsed, fallback);
   } catch {
     return fallback;
   }
@@ -117,6 +172,23 @@ export function useSocialProfile() {
       if (updates.annualGoal !== undefined) {
         next.annualGoal = Math.max(1, Number(updates.annualGoal) || 12);
       }
+      if (updates.privacyLevel !== undefined || updates.privacy_level !== undefined) {
+        next.privacyLevel = normalizePrivacyLevel(
+          updates.privacyLevel ?? updates.privacy_level
+        );
+      }
+      if (updates.allowWallPosts !== undefined) {
+        next.allowWallPosts = Boolean(updates.allowWallPosts);
+      }
+      if (updates.allowComments !== undefined) {
+        next.allowComments = Boolean(updates.allowComments);
+      }
+      if (updates.allowDms !== undefined) {
+        next.allowDms = Boolean(updates.allowDms);
+      }
+      if (updates.gamificationEnabled !== undefined) {
+        next.gamificationEnabled = Boolean(updates.gamificationEnabled);
+      }
       return next;
     });
   }, []);
@@ -178,11 +250,18 @@ export function useSocialProfile() {
   const restoreSocialBackup = useCallback(
     ({ profile: savedProfile, posts: savedPosts }) => {
       if (savedProfile && typeof savedProfile === 'object') {
-        setProfile({
-          ...getDefaultProfile(),
-          ...savedProfile,
-          onboardingCompleted: true,
-        });
+        const defaultFallback = getDefaultProfile();
+        const normalized = normalizeProfileObject(
+          {
+            ...savedProfile,
+            onboardingCompleted:
+              savedProfile.onboardingCompleted !== undefined
+                ? Boolean(savedProfile.onboardingCompleted)
+                : true,
+          },
+          defaultFallback
+        );
+        setProfile(normalized);
       } else {
         setProfile((prev) => ({ ...prev, onboardingCompleted: true }));
       }

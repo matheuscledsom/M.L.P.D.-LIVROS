@@ -1,4 +1,5 @@
-import { Suspense, lazy, useCallback, useEffect, useMemo, useState } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { AuthModal } from './components/auth/AuthModal';
 import { BottomNav } from './components/BottomNav';
 import { GeminiConfigModal } from './components/GeminiConfigModal';
 import { ItemDetailSheet } from './components/ItemDetailSheet';
@@ -10,6 +11,12 @@ import { useGeminiKey } from './hooks/useGeminiKey';
 import { useReadingStreak } from './hooks/useReadingStreak';
 import { useSocialProfile } from './hooks/useSocialProfile';
 import { useTheme } from './hooks/useTheme';
+import {
+  bootstrapBackend,
+  getBackendMode,
+  syncActiveWorkspaceToBackend,
+  updateActiveProfileInBackend,
+} from './services/codiceBackend';
 import {
   buildCodiceDatabase,
   createUuid,
@@ -32,8 +39,16 @@ export function App() {
   const [activeTab, setActiveTab] = useState('home');
   const [selectedItemId, setSelectedItemId] = useState(null);
   const [geminiModalOpen, setGeminiModalOpen] = useState(false);
+  const [authModalOpen, setAuthModalOpen] = useState(false);
   const [onboardingReopened, setOnboardingReopened] = useState(false);
   const [storedReaderWorkIds, setStoredReaderWorkIds] = useState([]);
+  const [backendReady, setBackendReady] = useState(false);
+  const [backendSession, setBackendSession] = useState(() => ({
+    mode: getBackendMode(),
+    authenticated: false,
+    user: null,
+    profile: null,
+  }));
   const [readerSession, setReaderSession] = useState({
     open: false,
     workId: null,
@@ -73,6 +88,7 @@ export function App() {
     updateItem,
     removeItem,
     addReadingSession,
+    replaceWorkspaceData,
     exportBackup,
     exportCatalogCsv,
     exportReferencesBibtex,
@@ -97,6 +113,106 @@ export function App() {
     registerToday,
     restoreStreakBackup,
   } = useReadingStreak();
+
+  const bootSnapshotRef = useRef({
+    profile,
+    items,
+    posts,
+    streak: streakData,
+    readingSessions,
+  });
+
+  useEffect(() => {
+    let active = true;
+    bootstrapBackend(bootSnapshotRef.current)
+      .then((res) => {
+        if (!active) return;
+        setBackendSession({
+          mode: res.mode,
+          authenticated: Boolean(res.authenticated),
+          user: res.user || null,
+          profile: res.profile || null,
+        });
+        if (res.mode === 'supabase' && res.profile) {
+          restoreSocialBackup({ profile: res.profile });
+        }
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (active) setBackendReady(true);
+      });
+    return () => {
+      active = false;
+    };
+  }, [restoreSocialBackup]);
+
+  useEffect(() => {
+    if (!backendReady) return undefined;
+    const timer = setTimeout(() => {
+      syncActiveWorkspaceToBackend({
+        profile,
+        items,
+        posts,
+        streak: streakData,
+        readingSessions,
+      }).catch(() => {});
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [backendReady, profile, items, posts, streakData, readingSessions]);
+
+  const handleUpdateProfileWithSync = useCallback(
+    (updates, toastMessage = 'Perfil atualizado') => {
+      updateProfile(updates);
+      const mergedProfile = { ...profile, ...updates };
+      updateActiveProfileInBackend(mergedProfile)
+        .then((synced) => {
+          if (synced) {
+            setBackendSession((prev) => ({ ...prev, profile: synced }));
+          }
+        })
+        .catch(() => {});
+      if (toastMessage) {
+        showToast({ message: toastMessage, type: 'success' });
+      }
+    },
+    [profile, updateProfile, showToast]
+  );
+
+  const handleAuthSuccess = useCallback(
+    (result) => {
+      if (!result) return;
+      setBackendSession({
+        mode: result.mode || getBackendMode(),
+        authenticated: Boolean(result.user),
+        user: result.user || null,
+        profile: result.profile || null,
+      });
+
+      if (result.profile && result.workspace) {
+        replaceWorkspaceData({
+          items: result.workspace.items || [],
+          readingSessions: result.workspace.readingSessions || [],
+        });
+        restoreSocialBackup({
+          profile: result.profile,
+          posts: result.workspace.posts || [],
+        });
+        restoreStreakBackup(
+          result.workspace.streak || { count: 0, lastDate: null, history: [] }
+        );
+        showToast({
+          message:
+            result.mode === 'supabase'
+              ? `Conectado como ${result.profile.handle}`
+              : `Perfil ativo: ${result.profile.handle}`,
+          type: 'success',
+        });
+      } else if (result.authenticated === false) {
+        showToast({ message: 'Sessão encerrada', type: 'info' });
+      }
+    },
+    [replaceWorkspaceData, restoreSocialBackup, restoreStreakBackup, showToast]
+  );
 
   const selectedItem = useMemo(
     () => items.find((item) => item.id === selectedItemId) ?? null,
@@ -383,6 +499,8 @@ export function App() {
               profile={profile}
               posts={posts}
               hasGeminiKey={hasGeminiKey}
+              backendSession={backendSession}
+              onOpenAuthModal={() => setAuthModalOpen(true)}
               onOpenGeminiSettings={() => setGeminiModalOpen(true)}
               onReopenOnboarding={() => setOnboardingReopened(true)}
               themeProps={{
@@ -401,10 +519,9 @@ export function App() {
                 onChangeAccentColor: setCustomAccentColor,
                 onResetTheme: resetCustomColors,
               }}
-              onUpdateProfile={(updates) => {
-                updateProfile(updates);
-                showToast({ message: 'Perfil atualizado', type: 'success' });
-              }}
+              onUpdateProfile={(updates) =>
+                handleUpdateProfileWithSync(updates, 'Perfil atualizado')
+              }
               onSelectItem={(item) => setSelectedItemId(item.id)}
               onOpenJournalComposer={handleOpenJournalComposer}
               onDeletePost={deletePost}
@@ -494,11 +611,24 @@ export function App() {
           onSaveGeminiKey={saveApiKey}
           onImportBackup={handleImportBackup}
           onComplete={(updates) => {
-            updateProfile(updates);
+            handleUpdateProfileWithSync(updates, 'Perfil do leitor salvo');
             setOnboardingReopened(false);
-            showToast({ message: 'Perfil do leitor salvo', type: 'success' });
           }}
           onDismiss={() => setOnboardingReopened(false)}
+        />
+
+        <AuthModal
+          isOpen={authModalOpen}
+          onClose={() => setAuthModalOpen(false)}
+          backendSession={backendSession}
+          currentWorkspace={{
+            profile,
+            items,
+            posts,
+            streak: streakData,
+            readingSessions,
+          }}
+          onAuthSuccess={handleAuthSuccess}
         />
       </div>
     </div>

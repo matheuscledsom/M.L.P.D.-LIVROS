@@ -161,6 +161,11 @@ export function HomeScreen({
           <p className="text-xs font-medium text-subtle">
             {ui.home.greetingPrefix}{' '}
             {profile?.displayName || profile?.handle || ui.profile.displayName}
+            {profile?.gamificationEnabled !== false && profile?.activeTitleBadge && (
+              <span className="ml-1.5 inline-flex items-center rounded-full border border-accent/40 bg-accent/15 px-2 py-0.5 text-[10px] font-semibold text-accent">
+                {profile.activeTitleBadge}
+              </span>
+            )}
           </p>
           <div className="mt-0.5 flex flex-wrap items-baseline gap-2">
             <h1 className="text-xl sm:text-2xl font-semibold tracking-tight text-ink">
@@ -184,7 +189,9 @@ export function HomeScreen({
         </button>
       </header>
 
-      {streakProps && <ReadingStreakWidget {...streakProps} />}
+      {profile?.gamificationEnabled !== false && streakProps && (
+        <ReadingStreakWidget {...streakProps} />
+      )}
 
       {backlogItems.length === 0 ? (
         <section className="rounded-3xl border border-line bg-card px-6 py-12 text-center">

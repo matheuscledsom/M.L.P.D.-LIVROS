@@ -182,6 +182,13 @@ export function migrateV1ToV2(v1Raw) {
   };
 }
 
+function normalizePrivacyLevel(value) {
+  if (value === 'followers' || value === 'private' || value === 'public') {
+    return value;
+  }
+  return 'public';
+}
+
 function buildDefaultUserProfile(profileData) {
   const { profile } = domainConfig.ui;
   const baseHandle = profileData?.handle || profile.handle;
@@ -198,25 +205,45 @@ function buildDefaultUserProfile(profileData) {
 
   const nowIso = profileData?.updatedAt || profileData?.createdAt || new Date().toISOString();
 
+  const rawPrivacy = profileData?.privacyLevel ?? profileData?.privacy_level;
+  const rawAllowWall = profileData?.allowWallPosts ?? profileData?.allow_wall_posts;
+  const rawAllowComments = profileData?.allowComments ?? profileData?.allow_comments;
+  const rawAllowDms = profileData?.allowDms ?? profileData?.allow_dms;
+  const rawGamification =
+    profileData?.gamificationEnabled ?? profileData?.gamification_enabled;
+  const rawTitleBadge =
+    profileData?.activeTitleBadge ?? profileData?.active_title_badge;
+
   return {
     id: profileData?.id || deterministicUuid('user_profile:primary'),
-    displayName: profileData?.displayName || profile.displayName,
+    displayName: profileData?.displayName ?? profileData?.display_name ?? profile.displayName,
     handle: baseHandle,
-    avatarInitials: profileData?.avatarInitials || profile.avatarInitials,
-    avatarUrl: profileData?.avatarUrl || '',
-    coverUrl: profileData?.coverUrl || '',
-    bio: profileData?.bio !== undefined ? profileData.bio : profile.bio,
+    avatarInitials:
+      profileData?.avatarInitials ?? profileData?.avatar_initials ?? profile.avatarInitials,
+    avatarUrl: profileData?.avatarUrl ?? profileData?.avatar_url ?? '',
+    coverUrl: profileData?.coverUrl ?? profileData?.banner_url ?? '',
+    bio:
+      profileData?.bio !== undefined ? profileData.bio : profile.bio,
     linkLabel,
     linkUrl,
     age: profileData?.age || '',
     readerFocus: profileData?.readerFocus || 'Leitor Casual',
-    annualGoal: Math.max(1, Number(profileData?.annualGoal) || 12),
+    annualGoal: Math.max(
+      1,
+      Number(profileData?.annualGoal ?? profileData?.annual_goal) || 12
+    ),
     preferredFormat: profileData?.preferredFormat || 'Livro Físico',
     preferredCriterion: profileData?.preferredCriterion || 'Enredo e Ritmo',
     preferredAtmosphere: profileData?.preferredAtmosphere || 'Tinta OLED',
     favoriteGenres: Array.isArray(profileData?.favoriteGenres)
       ? profileData.favoriteGenres
       : [],
+    privacyLevel: normalizePrivacyLevel(rawPrivacy),
+    allowWallPosts: rawAllowWall !== undefined ? Boolean(rawAllowWall) : true,
+    allowComments: rawAllowComments !== undefined ? Boolean(rawAllowComments) : true,
+    allowDms: rawAllowDms !== undefined ? Boolean(rawAllowDms) : true,
+    gamificationEnabled: rawGamification !== undefined ? Boolean(rawGamification) : true,
+    activeTitleBadge: typeof rawTitleBadge === 'string' ? rawTitleBadge : '',
     onboardingCompleted:
       profileData?.onboardingCompleted !== undefined
         ? Boolean(profileData.onboardingCompleted)

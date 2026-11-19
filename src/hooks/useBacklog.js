@@ -532,6 +532,18 @@ export function useBacklog() {
     }
   }, []);
 
+  const replaceWorkspaceData = useCallback(
+    ({ items: nextItems, readingSessions: nextSessions } = {}) => {
+      if (Array.isArray(nextItems)) {
+        setItems(nextItems.map(normalizeItem));
+      }
+      if (Array.isArray(nextSessions)) {
+        setReadingSessions(nextSessions);
+      }
+    },
+    []
+  );
+
   return {
     items,
     readingSessions,
@@ -539,6 +551,7 @@ export function useBacklog() {
     updateItem,
     removeItem,
     addReadingSession,
+    replaceWorkspaceData,
     exportBackup,
     exportCatalogCsv,
     exportReferencesBibtex,
