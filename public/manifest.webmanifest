@@ -1,8 +1,8 @@
 {
   "id": "/",
-  "name": "M.L.P.D.LIVROS",
-  "short_name": "M.L.P.D.LIVROS",
-  "description": "Aplicação minimalista de controle de backlog de livros e diário de leitura",
+  "name": "M.L.P.D.-LIVROS",
+  "short_name": "M.L.P.D.-LIVROS",
+  "description": "Sistema editorial minimalista de controle de leituras, mangás e pesquisa acadêmica",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

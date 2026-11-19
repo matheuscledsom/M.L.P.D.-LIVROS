@@ -1,5 +1,6 @@
 import {
   Bookmark,
+  Camera,
   Download,
   Film,
   Grid3X3,
@@ -9,6 +10,7 @@ import {
   PenLine,
   Plus,
   Settings,
+  Sparkles,
   Star,
   Trophy,
   Upload,
@@ -19,6 +21,7 @@ import { CoverArt } from '../components/CoverArt';
 import { PostDetailModal } from '../components/PostDetailModal';
 import { ProfileEditModal } from '../components/ProfileEditModal';
 import { ThemeModal } from '../components/ThemeModal';
+import { VectorIcon } from '../components/VectorIcon';
 import { domainConfig } from '../config/domainConfig';
 import { getHypeMeta, getPagesRead } from '../utils/backlogHelpers';
 
@@ -32,10 +35,9 @@ export function ProfileScreen({
   items,
   profile,
   posts,
-  themeMode,
-  themeAccent,
-  onSelectThemeMode,
-  onSelectThemeAccent,
+  themeProps,
+  hasGeminiKey = false,
+  onOpenGeminiSettings,
   onUpdateProfile,
   onSelectItem,
   onOpenJournalComposer,
@@ -202,9 +204,26 @@ export function ProfileScreen({
             }}
             aria-label={ui.theme.title}
             title={ui.theme.title}
-            className="flex h-8 w-8 items-center justify-center rounded-full border border-line bg-card text-muted transition-colors hover:border-accent/50 hover:text-ink"
+            className="flex h-8 w-8 items-center justify-center rounded-full border border-line bg-card text-accent transition-colors hover:border-accent/50"
           >
             <Palette className="h-4 w-4" />
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setMenuOpen(false);
+              onOpenGeminiSettings?.();
+            }}
+            aria-label="Chave Google Gemini"
+            title="Chave Google Gemini"
+            className={`flex h-8 w-8 items-center justify-center rounded-full border transition-colors ${
+              hasGeminiKey
+                ? 'border-accent/50 bg-accent/15 text-accent'
+                : 'border-line bg-card text-muted hover:border-accent/50 hover:text-ink'
+            }`}
+          >
+            <Sparkles className="h-4 w-4" />
           </button>
 
           <button
@@ -218,7 +237,25 @@ export function ProfileScreen({
           </button>
 
           {menuOpen && (
-            <div className="absolute right-0 top-11 z-30 w-52 overflow-hidden rounded-2xl border border-line bg-card p-1.5 shadow-2xl">
+            <div className="absolute right-0 top-11 z-30 w-56 overflow-hidden rounded-2xl border border-line bg-card p-1.5 shadow-2xl">
+              <button
+                type="button"
+                onClick={() => {
+                  setMenuOpen(false);
+                  onOpenGeminiSettings?.();
+                }}
+                className="flex w-full items-center justify-between gap-2 rounded-xl px-3 py-2.5 text-left text-xs font-medium text-ink transition-colors hover:bg-elevated"
+              >
+                <span className="inline-flex items-center gap-2.5">
+                  <Sparkles className="h-3.5 w-3.5 text-accent" />
+                  Chave Google Gemini
+                </span>
+                <span
+                  className={`h-2 w-2 rounded-full ${
+                    hasGeminiKey ? 'bg-accent' : 'bg-line'
+                  }`}
+                />
+              </button>
               <button
                 type="button"
                 onClick={() => {
@@ -406,8 +443,9 @@ export function ProfileScreen({
               <button
                 type="button"
                 onClick={() => onOpenJournalComposer(null)}
-                className="mt-4 inline-flex items-center gap-1.5 rounded-xl bg-accent px-4 py-2.5 text-xs font-semibold text-accent-ink transition-opacity hover:opacity-90"
+                className="mt-4 inline-flex items-center gap-2 rounded-xl bg-accent px-4 py-2.5 text-xs font-semibold text-accent-ink transition-opacity hover:opacity-90"
               >
+                <Camera className="h-3.5 w-3.5" />
                 {profileCfg.emptyJournalCta}
               </button>
             </div>
@@ -428,7 +466,7 @@ export function ProfileScreen({
                     onClick={() => setSelectedPostId(post.id)}
                     className="group relative aspect-square overflow-hidden bg-card text-left focus:outline-none"
                   >
-                    {firstMedia?.type === 'image' ? (
+                    {firstMedia?.type === 'image' || firstMedia?.type === 'gif' ? (
                       <img
                         src={firstMedia.url}
                         alt={post.title}
@@ -455,6 +493,12 @@ export function ProfileScreen({
                       </div>
                     )}
 
+                    {post.progressMarker && (
+                      <span className="absolute left-1.5 top-1.5 max-w-[72%] truncate rounded bg-black/70 px-1.5 py-0.5 text-[9px] font-medium text-accent backdrop-blur-xs">
+                        {post.progressMarker}
+                      </span>
+                    )}
+
                     <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 via-black/30 to-transparent p-1.5 pt-5">
                       <p className="truncate text-[10px] font-medium text-white">
                         {post.title}
@@ -464,6 +508,11 @@ export function ProfileScreen({
                     {hasMultiple && (
                       <span className="absolute right-1.5 top-1.5 rounded bg-black/60 p-1 text-white backdrop-blur-xs">
                         <Layers className="h-3 w-3" />
+                      </span>
+                    )}
+                    {!hasMultiple && firstMedia?.type === 'gif' && (
+                      <span className="absolute right-1.5 top-1.5 rounded bg-black/70 px-1 py-0.5 text-[8px] font-bold text-accent backdrop-blur-xs">
+                        GIF
                       </span>
                     )}
                     {!hasMultiple && firstMedia?.type === 'video' && (
@@ -478,7 +527,7 @@ export function ProfileScreen({
           )
         )}
 
-        {/* Aba 2: Estante de Lidos & Favoritos 5 Estrelas */}
+        {/* Aba 2: Estante de Concluídos & Favoritos 5 Estrelas */}
         {activeTab === 'trophies' && (
           trophyItems.length === 0 ? (
             <div className="py-14 text-center text-xs text-subtle">
@@ -502,9 +551,9 @@ export function ProfileScreen({
 
                   <div className="absolute inset-x-1.5 top-1.5 flex items-center justify-between gap-1">
                     {item.isPlatinum ? (
-                      <span className="inline-flex items-center gap-0.5 rounded-full bg-black/75 px-1.5 py-0.5 text-[9px] font-bold text-amber-300 ring-1 ring-amber-400/50 backdrop-blur-xs">
-                        <Star className="h-2.5 w-2.5 fill-amber-300 text-amber-300" />
-                        5★
+                      <span className="inline-flex items-center gap-0.5 rounded-full bg-black/75 px-1.5 py-0.5 text-[9px] font-bold text-accent ring-1 ring-accent/50 backdrop-blur-xs">
+                        <Star className="h-2.5 w-2.5 fill-current" />
+                        5
                       </span>
                     ) : (
                       <span />
@@ -522,7 +571,7 @@ export function ProfileScreen({
           )
         )}
 
-        {/* Aba 3: Radar / Quero Ler */}
+        {/* Aba 3: Radar / Na Estante */}
         {activeTab === 'radar' && (
           radarItems.length === 0 ? (
             <div className="py-14 text-center text-xs text-subtle">
@@ -546,7 +595,8 @@ export function ProfileScreen({
                       className="h-full w-full rounded-none border-0 transition-opacity group-hover:opacity-85"
                     />
                     {hype && (
-                      <span className="absolute left-1.5 top-1.5 rounded-md bg-black/70 px-1.5 py-0.5 text-[9px] font-medium text-white backdrop-blur-xs">
+                      <span className="absolute left-1.5 top-1.5 inline-flex items-center gap-1 rounded-md bg-black/70 px-1.5 py-0.5 text-[9px] font-medium text-white backdrop-blur-xs">
+                        <VectorIcon name={hype.icon} className="h-2.5 w-2.5 text-accent" />
                         {hype.label}
                       </span>
                     )}
@@ -561,10 +611,7 @@ export function ProfileScreen({
       <ThemeModal
         isOpen={themeModalOpen}
         onClose={() => setThemeModalOpen(false)}
-        mode={themeMode}
-        accent={themeAccent}
-        onSelectMode={onSelectThemeMode}
-        onSelectAccent={onSelectThemeAccent}
+        {...themeProps}
       />
 
       <ProfileEditModal

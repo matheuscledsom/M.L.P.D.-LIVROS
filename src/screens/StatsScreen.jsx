@@ -1,10 +1,11 @@
 import { BarChart2, Clock, Star } from 'lucide-react';
 import { useMemo, useState } from 'react';
+import { VectorIcon } from '../components/VectorIcon';
 import { domainConfig, getStatusList } from '../config/domainConfig';
 import { getCompletionPace, getPagesRead } from '../utils/backlogHelpers';
 
 export function StatsScreen({ items = [] }) {
-  const { ui, cardFields } = domainConfig;
+  const { ui, cardFields, workTypes } = domainConfig;
   const { stats } = ui;
   const statuses = getStatusList();
   const [rankingMode, setRankingMode] = useState('authors');
@@ -25,7 +26,7 @@ export function StatsScreen({ items = [] }) {
     );
 
     const queuedEstimatedPages = backlogItems
-      .filter((item) => item.status === 'queued')
+      .filter((item) => item.status === 'queued' && item.workType !== 'manga')
       .reduce((sum, item) => sum + (Number(item.totalPages) || 0), 0);
 
     const maxPagesBar = Math.max(readPages, queuedEstimatedPages, 1);
@@ -43,6 +44,7 @@ export function StatsScreen({ items = [] }) {
     const lifeFavoritesTotal = backlogItems.filter((item) => item.isPlatinum).length;
 
     const paces = completedItems
+      .filter((item) => item.workType !== 'manga')
       .map((item) =>
         getCompletionPace(
           item.startDate,
@@ -62,6 +64,14 @@ export function StatsScreen({ items = [] }) {
       const count = backlogItems.filter((item) => item.status === status.id).length;
       const pct = totalCount > 0 ? Math.round((count / totalCount) * 100) : 0;
       return { ...status, count, pct };
+    });
+
+    const workTypeCounts = workTypes.map((type) => {
+      const count = backlogItems.filter(
+        (item) => (item.workType || 'book') === type.id
+      ).length;
+      const pct = totalCount > 0 ? Math.round((count / totalCount) * 100) : 0;
+      return { ...type, count, pct };
     });
 
     const buildRanking = (extractKeys) => {
@@ -93,7 +103,7 @@ export function StatsScreen({ items = [] }) {
     const topAuthors = buildRanking((item) =>
       item[cardFields.creator]
         ? String(item[cardFields.creator])
-            .split(',')
+            .split(/[;,]/)
             .map((author) => author.trim())
             .filter(Boolean)
         : []
@@ -121,12 +131,14 @@ export function StatsScreen({ items = [] }) {
       lifeFavoritesTotal,
       avgDays: avgDays !== null ? `${avgDays} ${stats.daysUnit}` : '—',
       statusCounts,
+      workTypeCounts,
       topAuthors,
       topGenres,
     };
   }, [
     items,
     statuses,
+    workTypes,
     stats.daysUnit,
     cardFields.creator,
     cardFields.rating,
@@ -181,7 +193,7 @@ export function StatsScreen({ items = [] }) {
           </div>
 
           <div className="rounded-xl border border-line bg-app p-3">
-            <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400" />
+            <Star className="h-3.5 w-3.5 fill-current text-accent" />
             <span className="mt-2 block text-base font-semibold tracking-tight text-ink">
               {analytics.lifeFavoritesTotal}
             </span>
@@ -191,7 +203,7 @@ export function StatsScreen({ items = [] }) {
           </div>
 
           <div className="rounded-xl border border-line bg-app p-3">
-            <Clock className="h-3.5 w-3.5 text-emerald-400" />
+            <Clock className="h-3.5 w-3.5 text-accent" />
             <span className="mt-2 block text-base font-semibold tracking-tight text-ink">
               {analytics.avgDays}
             </span>
@@ -326,6 +338,29 @@ export function StatsScreen({ items = [] }) {
               </span>
             </div>
           </div>
+        </div>
+      </section>
+
+      {/* Distribuição por Natureza da Obra */}
+      <section className="rounded-2xl border border-line bg-card p-4">
+        <h2 className="mb-3.5 text-sm font-semibold text-ink">
+          {stats.workTypeDistributionTitle}
+        </h2>
+        <div className="grid grid-cols-3 gap-2">
+          {analytics.workTypeCounts.map((type) => (
+            <div
+              key={type.id}
+              className="rounded-xl border border-line bg-app p-3"
+            >
+              <VectorIcon name={type.icon} className="h-3.5 w-3.5 text-accent" />
+              <span className="mt-2 block text-base font-semibold tracking-tight text-ink">
+                {type.count}
+              </span>
+              <span className="mt-0.5 block truncate text-[10px] text-subtle">
+                {type.shortLabel}
+              </span>
+            </div>
+          ))}
         </div>
       </section>
 

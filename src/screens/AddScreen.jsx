@@ -1,13 +1,20 @@
-import { Check, PenLine, Plus, Search, X } from 'lucide-react';
+import { Barcode, Check, PenLine, Plus, Search, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { CoverArt } from '../components/CoverArt';
+import { SmartCatalogButton } from '../components/SmartCatalogButton';
 import { TactileStatusFields } from '../components/TactileStatusFields';
-import { domainConfig, getStatusConfig } from '../config/domainConfig';
-import { catalogItems } from '../data/mockData';
-import { searchMedia } from '../services/mediaApi';
+import { TechnicalAtmosphereSection } from '../components/TechnicalAtmosphereSection';
+import { VectorIcon } from '../components/VectorIcon';
+import { WorkTypeSelector } from '../components/WorkTypeSelector';
 import {
-  calculatePageProgress,
+  domainConfig,
+  getStatusConfig,
+  getWorkTypeConfig,
+} from '../config/domainConfig';
+import { detectIsbnQuery, searchMedia, searchMockMedia } from '../services/mediaApi';
+import {
   calculateSmartRating,
+  calculateWorkProgress,
   createDefaultReviewCriteria,
   getTodayLocalISO,
   getVerdictForScore,
@@ -27,7 +34,7 @@ function createMonogram(title) {
   if (words.length >= 2) {
     return `${words[0][0]}${words[1][0]}`.toUpperCase();
   }
-  return String(title || 'LV').slice(0, 2).toUpperCase();
+  return String(title || 'OB').slice(0, 2).toUpperCase();
 }
 
 function buildDraftWithStatus(baseDraft, nextStatus) {
@@ -36,10 +43,7 @@ function buildDraftWithStatus(baseDraft, nextStatus) {
 
   if (nextStatus === 'playing') {
     updated.startDate = updated.startDate || today;
-    updated.progress = calculatePageProgress(
-      updated.currentPage,
-      updated.totalPages
-    );
+    updated.progress = calculateWorkProgress(updated);
   }
 
   if (nextStatus === 'completed') {
@@ -48,6 +52,14 @@ function buildDraftWithStatus(baseDraft, nextStatus) {
     updated.progress = 100;
     if (Number(updated.totalPages) > 0) {
       updated.currentPage = Number(updated.totalPages);
+    }
+    if (updated.workType === 'manga') {
+      if (Number(updated.totalChapters) > 0) {
+        updated.currentChapter = Number(updated.totalChapters);
+      }
+      if (Number(updated.totalVolumes) > 0) {
+        updated.currentVolume = Number(updated.totalVolumes);
+      }
     }
     updated.completionType =
       updated.completionType || domainConfig.tactileOptions.completionTypes[0];
@@ -59,10 +71,7 @@ function buildDraftWithStatus(baseDraft, nextStatus) {
   }
 
   if (nextStatus === 'queued') {
-    updated.progress = calculatePageProgress(
-      updated.currentPage,
-      updated.totalPages
-    );
+    updated.progress = calculateWorkProgress(updated);
   }
 
   return updated;
@@ -88,17 +97,27 @@ function ResultSkeleton() {
   );
 }
 
-export function AddScreen({ items, onAddItem, onSelectExisting }) {
+export function AddScreen({
+  items,
+  geminiKey = '',
+  onAddItem,
+  onSelectExisting,
+  onOpenGeminiSettings,
+}) {
   const [query, setQuery] = useState('');
-  const [results, setResults] = useState(catalogItems);
+  const [searchFilter, setSearchFilter] = useState('all');
+  const [results, setResults] = useState(() => searchMockMedia('', 'all'));
   const [isLoading, setIsLoading] = useState(false);
 
   const [draftItem, setDraftItem] = useState(null);
   const [manualOpen, setManualOpen] = useState(false);
   const [manualDraft, setManualDraft] = useState(null);
 
-  const { ui, cardFields, addFlowStatuses, formatOptions } = domainConfig;
+  const { ui, cardFields, addFlowStatuses, bookFormats, searchFilters } =
+    domainConfig;
   const { add } = ui;
+
+  const isIsbnActive = Boolean(detectIsbnQuery(query));
 
   const backlogLookup = useMemo(() => {
     const byId = new Map();
@@ -120,7 +139,7 @@ export function AddScreen({ items, onAddItem, onSelectExisting }) {
   useEffect(() => {
     const cleanQuery = query.trim();
     if (!cleanQuery) {
-      setResults(catalogItems);
+      setResults(searchMockMedia('', searchFilter));
       setIsLoading(false);
       return;
     }
@@ -132,6 +151,7 @@ export function AddScreen({ items, onAddItem, onSelectExisting }) {
       try {
         const { results: fetched } = await searchMedia(cleanQuery, {
           signal: controller.signal,
+          filter: searchFilter,
         });
         setResults(fetched);
       } catch (error) {
@@ -143,13 +163,13 @@ export function AddScreen({ items, onAddItem, onSelectExisting }) {
           setIsLoading(false);
         }
       }
-    }, 500);
+    }, 450);
 
     return () => {
       clearTimeout(timer);
       controller.abort();
     };
-  }, [query]);
+  }, [query, searchFilter]);
 
   const openQuickAdd = (item) => {
     const existing = findExisting(item);
@@ -158,14 +178,41 @@ export function AddScreen({ items, onAddItem, onSelectExisting }) {
       return;
     }
 
-    const defaultFormat = item[cardFields.primary] || formatOptions[0];
+    const defaultWorkType =
+      item.workType ||
+      (searchFilter === 'manga'
+        ? 'manga'
+        : searchFilter === 'academic'
+          ? 'academic'
+          : 'book');
+    const defaultFormat = item.format || bookFormats[0];
+
     setDraftItem(
       buildDraftWithStatus(
         {
           ...item,
-          [cardFields.primary]: defaultFormat,
+          workType: defaultWorkType,
+          format: defaultFormat,
           currentPage: 0,
           totalPages: item.totalPages ?? null,
+          currentVolume: 0,
+          totalVolumes: item.totalVolumes ?? null,
+          currentChapter: 0,
+          totalChapters: item.totalChapters ?? null,
+          demographicOrigin: item.demographicOrigin || 'Mangá',
+          publicationStatus: item.publicationStatus || 'Em lançamento',
+          publisher: item.publisher || '',
+          isbn: item.isbn || '',
+          translator: item.translator || '',
+          seriesVolume: item.seriesVolume || '',
+          academicProgressMode: 'pages',
+          fichamentoSteps: {},
+          institution: item.institution || '',
+          keywords: item.keywords || '',
+          fichamento: '',
+          abntReference: '',
+          atmosphere: item.atmosphere || [],
+          tropes: item.tropes || [],
           progress: 0,
           hype: 'high',
           access: defaultFormat,
@@ -179,19 +226,47 @@ export function AddScreen({ items, onAddItem, onSelectExisting }) {
   };
 
   const openManualModal = () => {
+    const defaultWorkType =
+      searchFilter === 'manga'
+        ? 'manga'
+        : searchFilter === 'academic'
+          ? 'academic'
+          : 'book';
+
+    const isbnDetected = detectIsbnQuery(query) || '';
+
     setManualDraft(
       buildDraftWithStatus(
         {
-          title: query.trim(),
+          workType: defaultWorkType,
+          title: isbnDetected ? '' : query.trim(),
           [cardFields.creator]: '',
           [cardFields.year]: domainConfig.currentYear,
           genresText: '',
-          [cardFields.primary]: formatOptions[0],
+          format: bookFormats[0],
           currentPage: 0,
           totalPages: null,
+          currentVolume: 0,
+          totalVolumes: null,
+          currentChapter: 0,
+          totalChapters: null,
+          demographicOrigin: 'Mangá',
+          publicationStatus: 'Em lançamento',
+          publisher: '',
+          isbn: isbnDetected,
+          translator: '',
+          seriesVolume: '',
+          academicProgressMode: 'pages',
+          fichamentoSteps: {},
+          institution: '',
+          keywords: '',
+          fichamento: '',
+          abntReference: '',
+          atmosphere: [],
+          tropes: [],
           progress: 0,
           hype: 'high',
-          access: formatOptions[0],
+          access: bookFormats[0],
           checkpoint: '',
           isPlatinum: false,
           notes: '',
@@ -260,7 +335,7 @@ export function AddScreen({ items, onAddItem, onSelectExisting }) {
         </button>
       </header>
 
-      <div className="sticky top-0 z-20 bg-app/95 py-2 backdrop-blur-xs">
+      <div className="sticky top-0 z-20 space-y-2.5 bg-app/95 py-2 backdrop-blur-xs">
         <div className="relative flex items-center">
           <Search className="pointer-events-none absolute left-3.5 h-4 w-4 text-subtle" />
           <input
@@ -281,6 +356,33 @@ export function AddScreen({ items, onAddItem, onSelectExisting }) {
             </button>
           )}
         </div>
+
+        <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar">
+          {searchFilters.map((filterItem) => {
+            const isActive = searchFilter === filterItem.id;
+            return (
+              <button
+                key={filterItem.id}
+                type="button"
+                onClick={() => setSearchFilter(filterItem.id)}
+                className={`shrink-0 rounded-full border px-3 py-1 text-[11px] font-medium transition-colors ${
+                  isActive
+                    ? 'border-accent bg-accent text-accent-ink'
+                    : 'border-line bg-card text-muted hover:text-ink'
+                }`}
+              >
+                {filterItem.label}
+              </button>
+            );
+          })}
+        </div>
+
+        {isIsbnActive && (
+          <div className="inline-flex items-center gap-1.5 rounded-xl border border-accent/40 bg-accent/10 px-2.5 py-1 text-[11px] font-medium text-accent">
+            <Barcode className="h-3.5 w-3.5" />
+            <span>{add.isbnDetectedLabel}</span>
+          </div>
+        )}
       </div>
 
       <section className="space-y-2.5">
@@ -318,6 +420,7 @@ export function AddScreen({ items, onAddItem, onSelectExisting }) {
                 ]
                   .filter(Boolean)
                   .join(' • ');
+                const workMeta = getWorkTypeConfig(item.workType);
 
                 return (
                   <button
@@ -342,18 +445,35 @@ export function AddScreen({ items, onAddItem, onSelectExisting }) {
                         </p>
                       )}
                       <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                        {item.sourceLabel && (
+                          <span className="inline-flex items-center gap-1 rounded-md border border-accent/30 bg-accent/10 px-1.5 py-0.5 text-[10px] font-medium text-accent">
+                            <VectorIcon name={workMeta.icon} className="h-2.5 w-2.5" />
+                            {item.sourceLabel}
+                          </span>
+                        )}
                         {genres.slice(0, 1).map((genre) => (
                           <span
                             key={genre}
-                            className="max-w-[160px] truncate rounded-md border border-line bg-app px-1.5 py-0.5 text-[10px] text-muted"
+                            className="max-w-[130px] truncate rounded-md border border-line bg-app px-1.5 py-0.5 text-[10px] text-muted"
                           >
                             {genre}
                           </span>
                         ))}
-                        {item.totalPages > 0 && (
+                        {item.workType === 'manga' && (item.totalVolumes || item.totalChapters) ? (
                           <span className="rounded-md border border-line bg-app px-1.5 py-0.5 text-[10px] text-ink">
-                            {item.totalPages} págs
+                            {[
+                              item.totalVolumes ? `${item.totalVolumes} vols` : null,
+                              item.totalChapters ? `${item.totalChapters} caps` : null,
+                            ]
+                              .filter(Boolean)
+                              .join(' · ')}
                           </span>
+                        ) : (
+                          item.totalPages > 0 && (
+                            <span className="rounded-md border border-line bg-app px-1.5 py-0.5 text-[10px] text-ink">
+                              {item.totalPages} págs
+                            </span>
+                          )
                         )}
                       </div>
                     </div>
@@ -428,6 +548,52 @@ export function AddScreen({ items, onAddItem, onSelectExisting }) {
             </div>
 
             <div className="mt-5">
+              <WorkTypeSelector
+                label={add.drawerWorkTypeLabel}
+                value={draftItem.workType}
+                onChange={(nextType) =>
+                  setDraftItem((prev) => ({
+                    ...prev,
+                    workType: nextType,
+                    progress: calculateWorkProgress({
+                      ...prev,
+                      workType: nextType,
+                    }),
+                  }))
+                }
+              />
+            </div>
+
+            <div className="mt-4">
+              <SmartCatalogButton
+                item={draftItem}
+                geminiKey={geminiKey}
+                onApplyFields={(updates) =>
+                  setDraftItem((prev) => ({ ...prev, ...updates }))
+                }
+                onOpenGeminiSettings={() => {
+                  setDraftItem(null);
+                  onOpenGeminiSettings?.();
+                }}
+              />
+            </div>
+
+            <label className="mt-3 block">
+              <span className="mb-1 block text-[11px] font-medium text-muted">
+                Sinopse (sem spoilers)
+              </span>
+              <textarea
+                rows={2}
+                value={draftItem.synopsis || ''}
+                onChange={(e) =>
+                  setDraftItem((prev) => ({ ...prev, synopsis: e.target.value }))
+                }
+                placeholder="Sinopse breve ou premissa sem spoilers..."
+                className="w-full resize-none rounded-xl border border-line bg-app px-3 py-2 text-xs leading-relaxed text-ink placeholder:text-subtle focus:border-accent focus:outline-none"
+              />
+            </label>
+
+            <div className="mt-4">
               <p className="mb-2 text-xs font-medium text-muted">
                 {add.drawerStatusLabel}
               </p>
@@ -442,56 +608,33 @@ export function AddScreen({ items, onAddItem, onSelectExisting }) {
                       onClick={() =>
                         setDraftItem((prev) => buildDraftWithStatus(prev, status.id))
                       }
-                      className={`flex items-center justify-center gap-1.5 rounded-xl border px-2.5 py-2.5 text-xs font-medium transition-colors ${
+                      className={`flex items-center justify-center gap-1.5 rounded-xl border px-2 py-2.5 text-[11px] font-medium transition-colors ${
                         isSelected
                           ? 'border-accent bg-accent/15 text-ink'
                           : 'border-line bg-app text-muted hover:text-ink'
                       }`}
                     >
                       <span className={`h-1.5 w-1.5 rounded-full ${status.dotClass}`} />
-                      {status.label}
+                      <span className="truncate">{status.label}</span>
                     </button>
                   );
                 })}
               </div>
             </div>
 
-            {draftItem.status !== 'queued' && (
-              <div className="mt-4">
-                <p className="mb-2 text-xs font-medium text-muted">
-                  {add.drawerFormatLabel}
-                </p>
-                <div className="flex flex-wrap gap-1.5">
-                  {formatOptions.map((format) => {
-                    const isSelected = draftItem[cardFields.primary] === format;
-                    return (
-                      <button
-                        key={format}
-                        type="button"
-                        onClick={() =>
-                          setDraftItem((prev) => ({
-                            ...prev,
-                            [cardFields.primary]: format,
-                          }))
-                        }
-                        className={`rounded-xl border px-3 py-1.5 text-xs font-medium transition-colors ${
-                          isSelected
-                            ? 'border-accent bg-accent/15 text-ink'
-                            : 'border-line bg-app text-muted hover:text-ink'
-                        }`}
-                      >
-                        {format}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-
             <div className="mt-4 border-t border-line pt-4">
               <TactileStatusFields
                 item={draftItem}
                 showJournalAction={false}
+                onChange={(updates) =>
+                  setDraftItem((prev) => ({ ...prev, ...updates }))
+                }
+              />
+            </div>
+
+            <div className="mt-4">
+              <TechnicalAtmosphereSection
+                item={draftItem}
                 onChange={(updates) =>
                   setDraftItem((prev) => ({ ...prev, ...updates }))
                 }
@@ -535,7 +678,22 @@ export function AddScreen({ items, onAddItem, onSelectExisting }) {
               </button>
             </div>
 
-            <div className="mt-4 space-y-3">
+            <div className="mt-4 space-y-3.5">
+              <WorkTypeSelector
+                label={add.drawerWorkTypeLabel}
+                value={manualDraft.workType}
+                onChange={(nextType) =>
+                  setManualDraft((prev) => ({
+                    ...prev,
+                    workType: nextType,
+                    progress: calculateWorkProgress({
+                      ...prev,
+                      workType: nextType,
+                    }),
+                  }))
+                }
+              />
+
               <label className="block">
                 <span className="mb-1 block text-xs font-medium text-muted">
                   {add.manualTitleLabel}
@@ -608,6 +766,42 @@ export function AddScreen({ items, onAddItem, onSelectExisting }) {
                 />
               </label>
 
+              <SmartCatalogButton
+                item={manualDraft}
+                geminiKey={geminiKey}
+                onApplyFields={(updates) =>
+                  setManualDraft((prev) => ({
+                    ...prev,
+                    ...updates,
+                    ...(updates.genres
+                      ? { genresText: updates.genres.join(', ') }
+                      : {}),
+                  }))
+                }
+                onOpenGeminiSettings={() => {
+                  setManualOpen(false);
+                  onOpenGeminiSettings?.();
+                }}
+              />
+
+              <label className="block">
+                <span className="mb-1 block text-[11px] font-medium text-muted">
+                  Sinopse (sem spoilers)
+                </span>
+                <textarea
+                  rows={2}
+                  value={manualDraft.synopsis || ''}
+                  onChange={(e) =>
+                    setManualDraft((prev) => ({
+                      ...prev,
+                      synopsis: e.target.value,
+                    }))
+                  }
+                  placeholder="Sinopse breve ou premissa sem spoilers..."
+                  className="w-full resize-none rounded-xl border border-line bg-app px-3 py-2 text-xs leading-relaxed text-ink placeholder:text-subtle focus:border-accent focus:outline-none"
+                />
+              </label>
+
               <div>
                 <p className="mb-2 text-xs font-medium text-muted">
                   {add.drawerStatusLabel}
@@ -625,51 +819,19 @@ export function AddScreen({ items, onAddItem, onSelectExisting }) {
                             buildDraftWithStatus(prev, status.id)
                           )
                         }
-                        className={`flex items-center justify-center gap-1.5 rounded-xl border px-2.5 py-2.5 text-xs font-medium transition-colors ${
+                        className={`flex items-center justify-center gap-1.5 rounded-xl border px-2 py-2.5 text-[11px] font-medium transition-colors ${
                           isSelected
                             ? 'border-accent bg-accent/15 text-ink'
                             : 'border-line bg-app text-muted hover:text-ink'
                         }`}
                       >
                         <span className={`h-1.5 w-1.5 rounded-full ${status.dotClass}`} />
-                        {status.label}
+                        <span className="truncate">{status.label}</span>
                       </button>
                     );
                   })}
                 </div>
               </div>
-
-              {manualDraft.status !== 'queued' && (
-                <div>
-                  <p className="mb-2 text-xs font-medium text-muted">
-                    {add.drawerFormatLabel}
-                  </p>
-                  <div className="flex flex-wrap gap-1.5">
-                    {formatOptions.map((format) => {
-                      const isSelected = manualDraft[cardFields.primary] === format;
-                      return (
-                        <button
-                          key={format}
-                          type="button"
-                          onClick={() =>
-                            setManualDraft((prev) => ({
-                              ...prev,
-                              [cardFields.primary]: format,
-                            }))
-                          }
-                          className={`rounded-xl border px-3 py-1.5 text-xs font-medium transition-colors ${
-                            isSelected
-                              ? 'border-accent bg-accent/15 text-ink'
-                              : 'border-line bg-app text-muted hover:text-ink'
-                          }`}
-                        >
-                          {format}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
 
               <div className="border-t border-line pt-4">
                 <TactileStatusFields
@@ -680,6 +842,13 @@ export function AddScreen({ items, onAddItem, onSelectExisting }) {
                   }
                 />
               </div>
+
+              <TechnicalAtmosphereSection
+                item={manualDraft}
+                onChange={(updates) =>
+                  setManualDraft((prev) => ({ ...prev, ...updates }))
+                }
+              />
             </div>
 
             <button

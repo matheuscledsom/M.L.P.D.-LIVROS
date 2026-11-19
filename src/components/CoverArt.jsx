@@ -6,7 +6,7 @@ export function CoverArt({ item, className = '', showTitle = false, compact = fa
   const [baseColor = '#141414', accentColor = '#8B5CF6', secondaryColor = '#38BDF8'] =
     item.palette || [];
 
-  const monogram = item.monogram || item.title?.slice(0, 2).toUpperCase() || 'BG';
+  const monogram = item.monogram || item.title?.slice(0, 2).toUpperCase() || 'OB';
   const primaryBadge = item[domainConfig.cardFields.primary];
 
   return (

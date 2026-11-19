@@ -1,0 +1,207 @@
+import { ArrowRight, BookOpen, Compass, KeyRound, Sparkles } from 'lucide-react';
+import { useState } from 'react';
+import { runCollectionOracle } from '../services/geminiApi';
+import { VectorIcon } from './VectorIcon';
+
+const MOOD_PRESETS = [
+  { id: 'Imersão Épica', label: 'Imersão Épica', icon: 'Mountain' },
+  { id: 'Leitura Leve', label: 'Leitura Leve', icon: 'Feather' },
+  { id: 'Suspense Sombrio', label: 'Suspense Sombrio', icon: 'Moon' },
+  { id: 'Reflexão Profunda', label: 'Reflexão', icon: 'Compass' },
+  { id: 'Foco Acadêmico', label: 'Foco Técnico / TCC', icon: 'Cpu' },
+];
+
+export function OracleWidget({
+  items = [],
+  geminiKey = '',
+  onSelectItem,
+  onOpenGeminiSettings,
+}) {
+  const [selectedMood, setSelectedMood] = useState(MOOD_PRESETS[0].id);
+  const [customMood, setCustomMood] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const [errorMsg, setErrorMsg] = useState('');
+  const [result, setResult] = useState(null);
+
+  const backlogItems = items.filter((item) => item.inBacklog);
+  const queuedItems = backlogItems.filter((item) => item.status === 'queued');
+  const completedItems = backlogItems.filter((item) => item.status === 'completed');
+
+  const handleConsult = async () => {
+    setErrorMsg('');
+
+    if (!geminiKey) {
+      setErrorMsg(
+        'Configure sua chave gratuita do Google Gemini no Perfil para consultar o Oráculo.'
+      );
+      return;
+    }
+
+    if (queuedItems.length === 0) {
+      setErrorMsg(
+        'Adicione pelo menos uma obra em "Na Estante" para o Oráculo recomendar.'
+      );
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      const moodQuery = customMood.trim() || selectedMood;
+      const recommendation = await runCollectionOracle(geminiKey, {
+        mood: moodQuery,
+        queuedItems,
+        completedItems,
+      });
+      setResult(recommendation);
+    } catch (error) {
+      setErrorMsg(error.message || 'Erro ao consultar o Oráculo.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const primaryItem = result?.primaryId
+    ? queuedItems.find((item) => item.id === result.primaryId) ?? null
+    : null;
+
+  return (
+    <section
+      aria-label="Oráculo do Acervo"
+      className="rounded-2xl border border-line bg-card p-3.5"
+    >
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <div className="flex h-8 w-8 items-center justify-center rounded-xl border border-accent/30 bg-accent/15 text-accent">
+            <Compass className="h-4 w-4" />
+          </div>
+          <div>
+            <h2 className="text-xs font-semibold tracking-tight text-ink">
+              Oráculo do Acervo
+            </h2>
+            <p className="text-[10px] text-subtle">
+              Cruza seu humor com Na Estante ({queuedItems.length}) e notas
+            </p>
+          </div>
+        </div>
+
+        <button
+          type="button"
+          onClick={handleConsult}
+          disabled={isLoading}
+          className="inline-flex shrink-0 items-center gap-1.5 rounded-xl bg-accent px-3 py-2 text-[11px] font-semibold text-accent-ink transition-opacity hover:opacity-90 disabled:opacity-50"
+        >
+          <Sparkles className="h-3.5 w-3.5" />
+          {isLoading ? 'Analisando...' : 'Consultar Oráculo'}
+        </button>
+      </div>
+
+      <div className="mt-3 flex gap-1.5 overflow-x-auto pb-0.5 no-scrollbar">
+        {MOOD_PRESETS.map((preset) => {
+          const isSelected = !customMood.trim() && selectedMood === preset.id;
+          return (
+            <button
+              key={preset.id}
+              type="button"
+              onClick={() => {
+                setCustomMood('');
+                setSelectedMood(preset.id);
+              }}
+              className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors ${
+                isSelected
+                  ? 'border-accent bg-accent/15 text-ink'
+                  : 'border-line bg-app text-muted hover:text-ink'
+              }`}
+            >
+              <VectorIcon
+                name={preset.icon}
+                className={`h-3 w-3 ${isSelected ? 'text-accent' : 'text-subtle'}`}
+              />
+              {preset.label}
+            </button>
+          );
+        })}
+      </div>
+
+      <input
+        type="text"
+        value={customMood}
+        onChange={(e) => setCustomMood(e.target.value)}
+        placeholder="Ou descreva seu humor/objetivo (ex: fantasia curta para fim de semana)..."
+        className="mt-2.5 w-full rounded-xl border border-line bg-app px-3 py-2 text-[11px] text-ink placeholder:text-subtle focus:border-accent focus:outline-none"
+      />
+
+      {errorMsg && (
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-[11px] text-rose-400">
+          <span>{errorMsg}</span>
+          {!geminiKey && onOpenGeminiSettings && (
+            <button
+              type="button"
+              onClick={onOpenGeminiSettings}
+              className="inline-flex items-center gap-1 rounded-lg bg-accent px-2.5 py-1 text-[10px] font-semibold text-accent-ink"
+            >
+              <KeyRound className="h-3 w-3" />
+              Configurar Chave
+            </button>
+          )}
+        </div>
+      )}
+
+      {result && primaryItem && (
+        <div className="mt-3 space-y-2.5 rounded-xl border border-accent/35 bg-app p-3">
+          <div className="flex items-start justify-between gap-2">
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-accent">
+                {result.headline}
+              </p>
+              <button
+                type="button"
+                onClick={() => onSelectItem?.(primaryItem)}
+                className="mt-0.5 inline-flex items-center gap-1.5 text-left text-sm font-semibold text-ink hover:text-accent"
+              >
+                <BookOpen className="h-3.5 w-3.5 shrink-0 text-accent" />
+                <span>{primaryItem.title}</span>
+                <ArrowRight className="h-3 w-3 shrink-0" />
+              </button>
+              {primaryItem.author && (
+                <p className="text-[11px] text-muted">{primaryItem.author}</p>
+              )}
+            </div>
+          </div>
+
+          {result.reason && (
+            <p className="text-[11px] leading-relaxed text-muted">
+              {result.reason}
+            </p>
+          )}
+
+          {result.alternatives?.length > 0 && (
+            <div className="space-y-1 border-t border-line pt-2">
+              <p className="text-[10px] font-medium text-subtle">
+                Outras opções da sua estante:
+              </p>
+              {result.alternatives.map((alt) => {
+                const altItem = queuedItems.find((i) => i.id === alt.id);
+                if (!altItem) return null;
+                return (
+                  <button
+                    key={alt.id}
+                    type="button"
+                    onClick={() => onSelectItem?.(altItem)}
+                    className="flex w-full items-baseline justify-between gap-2 rounded-lg px-2 py-1 text-left text-[11px] hover:bg-card"
+                  >
+                    <span className="font-medium text-ink truncate">
+                      {altItem.title}
+                    </span>
+                    <span className="truncate text-[10px] text-subtle">
+                      {alt.why}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+    </section>
+  );
+}

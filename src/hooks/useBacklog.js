@@ -2,8 +2,8 @@ import { useCallback, useEffect, useState } from 'react';
 import { domainConfig } from '../config/domainConfig';
 import { initialItems } from '../data/mockData';
 import {
-  calculatePageProgress,
   calculateSmartRating,
+  calculateWorkProgress,
   createDefaultReviewCriteria,
   getTodayLocalISO,
   getVerdictForScore,
@@ -18,23 +18,31 @@ function normalizeRating(value) {
   return Math.max(0, Math.min(100, Math.round(parsed)));
 }
 
-function normalizePages(value) {
+function normalizeNonNegativeInt(value) {
   if (value === '' || value === null || value === undefined) return 0;
   const parsed = Number(value);
   if (Number.isNaN(parsed) || parsed < 0) return 0;
   return Math.round(parsed);
 }
 
-function normalizeNullablePages(value) {
+function normalizeNullablePositiveInt(value) {
   if (value === '' || value === null || value === undefined) return null;
   const parsed = Number(value);
   if (Number.isNaN(parsed) || parsed <= 0) return null;
   return Math.round(parsed);
 }
 
+function normalizeWorkType(value) {
+  if (value === 'manga' || value === 'academic' || value === 'book') {
+    return value;
+  }
+  return 'book';
+}
+
 function normalizeItem(rawItem) {
   const status = rawItem.status || domainConfig.ui.add.defaultNewStatus;
   const isCompleted = status === 'completed';
+  const workType = normalizeWorkType(rawItem.workType);
   const nowIso = new Date().toISOString();
   const today = getTodayLocalISO();
 
@@ -55,15 +63,24 @@ function normalizeItem(rawItem) {
     ? computedRating ?? normalizeRating(rawItem.rating)
     : normalizeRating(rawItem.rating);
 
-  const totalPages = normalizeNullablePages(rawItem.totalPages);
-  const rawCurrentPage = normalizePages(rawItem.currentPage);
-  const currentPage =
-    isCompleted && totalPages ? totalPages : rawCurrentPage;
+  const totalPages = normalizeNullablePositiveInt(rawItem.totalPages);
+  const rawCurrentPage = normalizeNonNegativeInt(rawItem.currentPage);
+  const currentPage = isCompleted && totalPages ? totalPages : rawCurrentPage;
+
+  const totalVolumes = normalizeNullablePositiveInt(rawItem.totalVolumes);
+  const rawCurrentVolume = normalizeNonNegativeInt(rawItem.currentVolume);
+  const currentVolume =
+    isCompleted && totalVolumes ? totalVolumes : rawCurrentVolume;
+
+  const totalChapters = normalizeNullablePositiveInt(rawItem.totalChapters);
+  const rawCurrentChapter = normalizeNonNegativeInt(rawItem.currentChapter);
+  const currentChapter =
+    isCompleted && totalChapters ? totalChapters : rawCurrentChapter;
 
   const format =
     rawItem.format ||
     (rawItem.access && rawItem.access !== 'Wishlist' ? rawItem.access : null) ||
-    domainConfig.formatOptions[0];
+    domainConfig.bookFormats[0];
 
   const author =
     typeof rawItem.author === 'string'
@@ -72,19 +89,51 @@ function normalizeItem(rawItem) {
         ? rawItem.creator
         : '';
 
-  return {
+  const normalized = {
     ...rawItem,
     id: String(rawItem.id),
+    workType,
     title: String(rawItem.title || ''),
     author,
     format,
     genres: Array.isArray(rawItem.genres) ? rawItem.genres : [],
     currentPage,
     totalPages,
+    currentVolume,
+    totalVolumes,
+    currentChapter,
+    totalChapters,
+    demographicOrigin:
+      rawItem.demographicOrigin || domainConfig.mangaOrigins[0],
+    publicationStatus:
+      rawItem.publicationStatus || domainConfig.mangaPubStatuses[0],
+    publisher: typeof rawItem.publisher === 'string' ? rawItem.publisher : '',
+    isbn: typeof rawItem.isbn === 'string' ? rawItem.isbn : '',
+    translator: typeof rawItem.translator === 'string' ? rawItem.translator : '',
+    seriesVolume:
+      typeof rawItem.seriesVolume === 'string' ? rawItem.seriesVolume : '',
+    synopsis: typeof rawItem.synopsis === 'string' ? rawItem.synopsis : '',
+    academicProgressMode:
+      rawItem.academicProgressMode === 'fichamento' ? 'fichamento' : 'pages',
+    fichamentoSteps:
+      rawItem.fichamentoSteps && typeof rawItem.fichamentoSteps === 'object'
+        ? rawItem.fichamentoSteps
+        : {},
+    institution:
+      typeof rawItem.institution === 'string' ? rawItem.institution : '',
+    keywords: typeof rawItem.keywords === 'string' ? rawItem.keywords : '',
+    fichamento:
+      typeof rawItem.fichamento === 'string' ? rawItem.fichamento : '',
+    abntReference:
+      typeof rawItem.abntReference === 'string' ? rawItem.abntReference : '',
+    atmosphere: Array.isArray(rawItem.atmosphere) ? rawItem.atmosphere : [],
+    tropes: Array.isArray(rawItem.tropes) ? rawItem.tropes : [],
+    quotes: Array.isArray(rawItem.quotes)
+      ? rawItem.quotes.filter((q) => q && typeof q === 'object' && q.text)
+      : [],
     rating,
     reviewCriteria,
     verdict: rawItem.verdict || getVerdictForScore(rating),
-    progress: isCompleted ? 100 : calculatePageProgress(currentPage, totalPages),
     checkpoint: typeof rawItem.checkpoint === 'string' ? rawItem.checkpoint : '',
     hype: rawItem.hype || null,
     access: rawItem.access || null,
@@ -93,7 +142,8 @@ function normalizeItem(rawItem) {
     dropReason: rawItem.dropReason || null,
     startDate,
     completedDate,
-    dropDate: status === 'dropped' ? rawItem.dropDate || today : rawItem.dropDate || null,
+    dropDate:
+      status === 'dropped' ? rawItem.dropDate || today : rawItem.dropDate || null,
     notes: typeof rawItem.notes === 'string' ? rawItem.notes : '',
     status,
     completedYear: isCompleted
@@ -107,6 +157,9 @@ function normalizeItem(rawItem) {
     createdAt: rawItem.createdAt || nowIso,
     updatedAt: rawItem.updatedAt || nowIso,
   };
+
+  normalized.progress = calculateWorkProgress(normalized);
+  return normalized;
 }
 
 function applyStatusTransitionDefaults(merged, nextStatus, prevItem) {
@@ -115,7 +168,7 @@ function applyStatusTransitionDefaults(merged, nextStatus, prevItem) {
   if (nextStatus === 'playing') {
     merged.startDate = merged.startDate || today;
     merged.completedYear = null;
-    merged.progress = calculatePageProgress(merged.currentPage, merged.totalPages);
+    merged.progress = calculateWorkProgress(merged);
   }
 
   if (nextStatus === 'completed') {
@@ -126,6 +179,10 @@ function applyStatusTransitionDefaults(merged, nextStatus, prevItem) {
     merged.progress = 100;
     if (merged.totalPages > 0) {
       merged.currentPage = merged.totalPages;
+    }
+    if (merged.workType === 'manga') {
+      if (merged.totalChapters > 0) merged.currentChapter = merged.totalChapters;
+      if (merged.totalVolumes > 0) merged.currentVolume = merged.totalVolumes;
     }
     merged.completionType =
       merged.completionType || domainConfig.tactileOptions.completionTypes[0];
@@ -140,12 +197,12 @@ function applyStatusTransitionDefaults(merged, nextStatus, prevItem) {
   if (nextStatus === 'dropped') {
     merged.dropDate = merged.dropDate || today;
     merged.completedYear = null;
-    merged.progress = calculatePageProgress(merged.currentPage, merged.totalPages);
+    merged.progress = calculateWorkProgress(merged);
   }
 
   if (nextStatus === 'queued') {
     merged.completedYear = null;
-    merged.progress = calculatePageProgress(merged.currentPage, merged.totalPages);
+    merged.progress = calculateWorkProgress(merged);
   }
 
   return merged;
@@ -196,7 +253,8 @@ export function useBacklog() {
       const existingIndex = prev.findIndex(
         (item) =>
           item.id === prepared.id ||
-          item.title.trim().toLowerCase() === normalizedTitle
+          (item.title.trim().toLowerCase() === normalizedTitle &&
+            item.workType === prepared.workType)
       );
 
       if (existingIndex !== -1) {
@@ -235,35 +293,27 @@ export function useBacklog() {
           updatedAt: nowIso,
         };
 
-        const hasCurrentPageUpdate = Object.prototype.hasOwnProperty.call(
-          updates,
-          'currentPage'
-        );
-        const hasTotalPagesUpdate = Object.prototype.hasOwnProperty.call(
-          updates,
-          'totalPages'
-        );
-
-        if (hasCurrentPageUpdate) {
-          merged.currentPage = normalizePages(updates.currentPage);
+        if (Object.prototype.hasOwnProperty.call(updates, 'workType')) {
+          merged.workType = normalizeWorkType(updates.workType);
         }
 
-        if (hasTotalPagesUpdate) {
-          merged.totalPages = normalizeNullablePages(updates.totalPages);
+        if (Object.prototype.hasOwnProperty.call(updates, 'currentPage')) {
+          merged.currentPage = normalizeNonNegativeInt(updates.currentPage);
         }
-
-        if (hasCurrentPageUpdate || hasTotalPagesUpdate) {
-          if (nextStatus === 'completed') {
-            merged.progress = 100;
-            if (hasTotalPagesUpdate && merged.totalPages > 0) {
-              merged.currentPage = merged.totalPages;
-            }
-          } else {
-            merged.progress = calculatePageProgress(
-              merged.currentPage,
-              merged.totalPages
-            );
-          }
+        if (Object.prototype.hasOwnProperty.call(updates, 'totalPages')) {
+          merged.totalPages = normalizeNullablePositiveInt(updates.totalPages);
+        }
+        if (Object.prototype.hasOwnProperty.call(updates, 'currentVolume')) {
+          merged.currentVolume = normalizeNonNegativeInt(updates.currentVolume);
+        }
+        if (Object.prototype.hasOwnProperty.call(updates, 'totalVolumes')) {
+          merged.totalVolumes = normalizeNullablePositiveInt(updates.totalVolumes);
+        }
+        if (Object.prototype.hasOwnProperty.call(updates, 'currentChapter')) {
+          merged.currentChapter = normalizeNonNegativeInt(updates.currentChapter);
+        }
+        if (Object.prototype.hasOwnProperty.call(updates, 'totalChapters')) {
+          merged.totalChapters = normalizeNullablePositiveInt(updates.totalChapters);
         }
 
         if (Object.prototype.hasOwnProperty.call(updates, 'access')) {
@@ -292,9 +342,22 @@ export function useBacklog() {
 
         if (statusChanged) {
           merged = applyStatusTransitionDefaults(merged, nextStatus, item);
-        } else if (nextStatus === 'completed' && merged.completedDate) {
-          merged.completedYear =
-            Number(merged.completedDate.slice(0, 4)) || domainConfig.currentYear;
+        } else {
+          if (nextStatus === 'completed') {
+            merged.progress = 100;
+            if (
+              Object.prototype.hasOwnProperty.call(updates, 'totalPages') &&
+              merged.totalPages > 0
+            ) {
+              merged.currentPage = merged.totalPages;
+            }
+            if (merged.completedDate) {
+              merged.completedYear =
+                Number(merged.completedDate.slice(0, 4)) || domainConfig.currentYear;
+            }
+          } else {
+            merged.progress = calculateWorkProgress(merged);
+          }
         }
 
         return merged;
@@ -309,7 +372,7 @@ export function useBacklog() {
   const exportBackup = useCallback(
     (extra = {}) => {
       const payload = {
-        version: 2,
+        version: 3,
         domain: domainConfig.domainKey,
         exportedAt: new Date().toISOString(),
         items,
@@ -354,6 +417,7 @@ export function useBacklog() {
         count: validItems.length,
         profile: parsed?.profile || null,
         posts: Array.isArray(parsed?.posts) ? parsed.posts : null,
+        streak: parsed?.streak || null,
       };
     } catch {
       return { ok: false, error: domainConfig.ui.profile.backup.importError };

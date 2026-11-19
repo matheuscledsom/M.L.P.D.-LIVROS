@@ -91,12 +91,19 @@ export function MediaCarousel({
                   </button>
                 )}
 
-                {slide.type === 'image' ? (
-                  <img
-                    src={slide.url}
-                    alt={`Mídia ${index + 1}`}
-                    className="h-full w-full object-cover"
-                  />
+                {slide.type === 'image' || slide.type === 'gif' ? (
+                  <>
+                    <img
+                      src={slide.url}
+                      alt={`Mídia ${index + 1}`}
+                      className="h-full w-full object-cover"
+                    />
+                    {slide.type === 'gif' && (
+                      <span className="absolute left-2.5 top-2.5 rounded-md border border-white/15 bg-black/70 px-1.5 py-0.5 text-[10px] font-semibold tracking-wider text-accent backdrop-blur-xs">
+                        GIF
+                      </span>
+                    )}
+                  </>
                 ) : isDirectVideoFile(slide.url) ? (
                   <video
                     src={slide.url}

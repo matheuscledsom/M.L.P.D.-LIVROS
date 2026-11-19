@@ -1,4 +1,4 @@
-import { BookOpen, Send, Trash2, X } from 'lucide-react';
+import { Bookmark, BookOpen, Send, Trash2, X } from 'lucide-react';
 import { useState } from 'react';
 import { domainConfig } from '../config/domainConfig';
 import { MediaCarousel } from './MediaCarousel';
@@ -131,6 +131,12 @@ export function PostDetailModal({
               {formatShortDateTime(post.createdAt)}
             </span>
           </div>
+          {post.progressMarker && (
+            <span className="inline-flex items-center gap-1 rounded-full border border-accent/40 bg-accent/15 px-2 py-0.5 text-[10px] font-semibold text-accent">
+              <Bookmark className="h-2.5 w-2.5" />
+              {post.progressMarker}
+            </span>
+          )}
           {post.caption && (
             <p className="text-xs leading-relaxed text-muted">{post.caption}</p>
           )}

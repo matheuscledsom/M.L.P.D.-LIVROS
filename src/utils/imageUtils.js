@@ -1,3 +1,16 @@
+export function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    if (!file) {
+      reject(new Error('Arquivo inválido'));
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.onerror = () => reject(new Error('Falha ao ler o arquivo'));
+    reader.readAsDataURL(file);
+  });
+}
+
 export function compressImageFile(
   file,
   { maxWidth = 960, maxHeight = 960, quality = 0.72 } = {}

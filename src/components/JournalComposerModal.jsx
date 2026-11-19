@@ -1,8 +1,25 @@
-import { Film, ImagePlus, Plus, X } from 'lucide-react';
+import { Bookmark, Film, ImagePlus, Plus, Search, Sparkles, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { domainConfig } from '../config/domainConfig';
-import { compressImageFile } from '../utils/imageUtils';
+import { isDirectGifUrl, searchOpenverseGifs } from '../services/gifApi';
+import { compressImageFile, readFileAsDataUrl } from '../utils/imageUtils';
 import { MediaCarousel } from './MediaCarousel';
+
+function deriveDefaultMarker(item) {
+  if (!item) return '';
+  if (item.workType === 'manga') {
+    if (item.currentVolume > 0 || item.currentChapter > 0) {
+      return `Vol. ${item.currentVolume || 0} · Cap. ${item.currentChapter || 0}`;
+    }
+    return item.checkpoint || '';
+  }
+  if (item.currentPage > 0) {
+    return item.totalPages > 0
+      ? `Pág. ${item.currentPage}/${item.totalPages}`
+      : `Pág. ${item.currentPage}`;
+  }
+  return item.checkpoint || '';
+}
 
 export function JournalComposerModal({
   isOpen,
@@ -21,22 +38,39 @@ export function JournalComposerModal({
   }, [items]);
 
   const [selectedItemId, setSelectedItemId] = useState('');
+  const [progressMarker, setProgressMarker] = useState('');
   const [title, setTitle] = useState('');
   const [caption, setCaption] = useState('');
   const [media, setMedia] = useState([]);
+  const [gifQuery, setGifQuery] = useState('');
+  const [gifResults, setGifResults] = useState([]);
+  const [isSearchingGif, setIsSearchingGif] = useState(false);
+  const [gifFeedback, setGifFeedback] = useState('');
   const [videoInput, setVideoInput] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
+
   const fileInputRef = useRef(null);
+  const gifAbortRef = useRef(null);
 
   useEffect(() => {
     if (!isOpen) return;
-    const defaultId =
-      initialItemId || backlogItems[0]?.id || '';
+    const defaultId = initialItemId || backlogItems[0]?.id || '';
+    const defaultItem = backlogItems.find((i) => i.id === defaultId) ?? null;
+
     setSelectedItemId(defaultId);
+    setProgressMarker(deriveDefaultMarker(defaultItem));
     setTitle('');
     setCaption('');
     setMedia([]);
+    setGifQuery('');
+    setGifResults([]);
+    setGifFeedback('');
+    setIsSearchingGif(false);
     setVideoInput('');
+
+    return () => {
+      gifAbortRef.current?.abort();
+    };
   }, [isOpen, initialItemId, backlogItems]);
 
   if (!isOpen) return null;
@@ -45,6 +79,12 @@ export function JournalComposerModal({
   const selectedItem =
     backlogItems.find((item) => item.id === selectedItemId) ?? null;
 
+  const handleSelectLinkedItem = (nextId) => {
+    setSelectedItemId(nextId);
+    const nextItem = backlogItems.find((i) => i.id === nextId) ?? null;
+    setProgressMarker(deriveDefaultMarker(nextItem));
+  };
+
   const handleFilesSelected = async (event) => {
     const files = Array.from(event.target.files || []);
     event.target.value = '';
@@ -52,8 +92,17 @@ export function JournalComposerModal({
 
     setIsProcessing(true);
     try {
-      const compressed = await Promise.all(
+      const processed = await Promise.all(
         files.map(async (file, index) => {
+          const isGif = file.type === 'image/gif';
+          if (isGif) {
+            const url = await readFileAsDataUrl(file);
+            return {
+              id: `gif-${Date.now()}-${index}`,
+              type: 'gif',
+              url,
+            };
+          }
           const url = await compressImageFile(file, {
             maxWidth: 960,
             maxHeight: 960,
@@ -66,21 +115,83 @@ export function JournalComposerModal({
           };
         })
       );
-      setMedia((prev) => [...prev, ...compressed]);
+      setMedia((prev) => [...prev, ...processed]);
     } catch {
-      // Ignora imagens inválidas
+      // Ignora arquivos inválidos
     } finally {
       setIsProcessing(false);
     }
   };
 
+  const handleGifAction = async () => {
+    const clean = gifQuery.trim();
+    if (!clean) return;
+
+    if (/^https?:\/\//i.test(clean) || isDirectGifUrl(clean)) {
+      setMedia((prev) => [
+        ...prev,
+        { id: `gif-${Date.now()}`, type: 'gif', url: clean },
+      ]);
+      setGifQuery('');
+      setGifResults([]);
+      setGifFeedback('');
+      return;
+    }
+
+    gifAbortRef.current?.abort();
+    const controller = new AbortController();
+    gifAbortRef.current = controller;
+
+    setIsSearchingGif(true);
+    setGifFeedback('');
+    try {
+      const found = await searchOpenverseGifs(clean, {
+        signal: controller.signal,
+      });
+      setGifResults(found);
+      if (found.length === 0) {
+        setGifFeedback(
+          'Nenhum GIF encontrado na busca. Cole um link .gif direto se preferir.'
+        );
+      }
+    } catch (error) {
+      if (error.name !== 'AbortError') {
+        setGifResults([]);
+        setGifFeedback(
+          'Busca de GIF indisponível no momento. Você pode colar um link .gif direto.'
+        );
+      }
+    } finally {
+      if (!controller.signal.aborted) {
+        setIsSearchingGif(false);
+      }
+    }
+  };
+
+  const handlePickGif = (gif) => {
+    setMedia((prev) => [
+      ...prev,
+      { id: `gif-${Date.now()}-${gif.id}`, type: 'gif', url: gif.url },
+    ]);
+    setGifResults([]);
+    setGifQuery('');
+    setGifFeedback('');
+  };
+
   const handleAddVideo = () => {
     const cleanUrl = videoInput.trim();
     if (!cleanUrl) return;
-    setMedia((prev) => [
-      ...prev,
-      { id: `vid-${Date.now()}`, type: 'video', url: cleanUrl },
-    ]);
+    if (isDirectGifUrl(cleanUrl)) {
+      setMedia((prev) => [
+        ...prev,
+        { id: `gif-${Date.now()}`, type: 'gif', url: cleanUrl },
+      ]);
+    } else {
+      setMedia((prev) => [
+        ...prev,
+        { id: `vid-${Date.now()}`, type: 'video', url: cleanUrl },
+      ]);
+    }
     setVideoInput('');
   };
 
@@ -105,12 +216,16 @@ export function JournalComposerModal({
             format: selectedItem[domainConfig.cardFields.primary],
           }
         : null,
+      progressMarker: progressMarker.trim(),
       title: title.trim(),
       caption: caption.trim(),
       media,
     });
     onClose();
   };
+
+  const isGifUrlMode =
+    /^https?:\/\//i.test(gifQuery.trim()) || isDirectGifUrl(gifQuery.trim());
 
   return (
     <div
@@ -140,22 +255,38 @@ export function JournalComposerModal({
 
         <div className="mt-4 space-y-4">
           {backlogItems.length > 0 ? (
-            <label className="block">
-              <span className="mb-1 block text-xs font-medium text-muted">
-                {journalComposer.itemLabel}
-              </span>
-              <select
-                value={selectedItemId}
-                onChange={(e) => setSelectedItemId(e.target.value)}
-                className="w-full rounded-xl border border-line bg-app px-3 py-2.5 text-xs font-medium text-ink focus:border-accent focus:outline-none"
-              >
-                {backlogItems.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.title}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+              <label className="block">
+                <span className="mb-1 block text-xs font-medium text-muted">
+                  {journalComposer.itemLabel}
+                </span>
+                <select
+                  value={selectedItemId}
+                  onChange={(e) => handleSelectLinkedItem(e.target.value)}
+                  className="w-full rounded-xl border border-line bg-app px-3 py-2.5 text-xs font-medium text-ink focus:border-accent focus:outline-none"
+                >
+                  {backlogItems.map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.title}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="block">
+                <span className="mb-1 flex items-center gap-1 text-xs font-medium text-muted">
+                  <Bookmark className="h-3 w-3 text-accent" />
+                  Página ou Capítulo
+                </span>
+                <input
+                  type="text"
+                  value={progressMarker}
+                  onChange={(e) => setProgressMarker(e.target.value)}
+                  placeholder="Ex: Pág. 142 ou Cap. 8"
+                  className="w-full rounded-xl border border-line bg-app px-3 py-2.5 text-xs text-ink placeholder:text-subtle focus:border-accent focus:outline-none"
+                />
+              </label>
+            </div>
           ) : (
             <p className="rounded-xl border border-line bg-app px-3 py-2.5 text-xs text-muted">
               {journalComposer.noItemsHint}
@@ -165,7 +296,7 @@ export function JournalComposerModal({
           {/* Mídias e Preview Carrossel */}
           <div className="space-y-2.5">
             <span className="block text-xs font-medium text-muted">
-              {journalComposer.mediaLabel}
+              Fotos, GIFs ou Vídeos
             </span>
 
             {media.length > 0 && (
@@ -184,7 +315,7 @@ export function JournalComposerModal({
                 className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-xl border border-accent/40 bg-accent/10 py-2.5 text-xs font-medium text-accent transition-colors hover:bg-accent/20"
               >
                 <ImagePlus className="h-4 w-4" />
-                {isProcessing ? 'Comprimindo...' : journalComposer.addPhotosLabel}
+                {isProcessing ? 'Processando...' : 'Adicionar Fotos / GIF'}
               </button>
               <input
                 ref={fileInputRef}
@@ -194,6 +325,85 @@ export function JournalComposerModal({
                 onChange={handleFilesSelected}
                 className="hidden"
               />
+            </div>
+
+            {/* Busca rápida de GIFs (Openverse) ou URL .gif direta */}
+            <div className="space-y-2 rounded-2xl border border-line bg-app p-2.5">
+              <div className="flex gap-2">
+                <div className="relative flex-1">
+                  <Sparkles className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-accent" />
+                  <input
+                    type="text"
+                    value={gifQuery}
+                    onChange={(e) => setGifQuery(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        handleGifAction();
+                      }
+                    }}
+                    placeholder="Buscar GIF (ex: reading) ou colar link .gif"
+                    className="w-full rounded-xl border border-line bg-card py-2 pl-8 pr-3 text-xs text-ink placeholder:text-subtle focus:border-accent focus:outline-none"
+                  />
+                </div>
+                <button
+                  type="button"
+                  disabled={isSearchingGif || !gifQuery.trim()}
+                  onClick={handleGifAction}
+                  className="inline-flex shrink-0 items-center gap-1 rounded-xl border border-accent/40 bg-accent/15 px-3 py-2 text-xs font-medium text-accent hover:bg-accent/25 disabled:opacity-45"
+                >
+                  {isGifUrlMode ? (
+                    <>
+                      <Plus className="h-3.5 w-3.5" />
+                      Anexar GIF
+                    </>
+                  ) : (
+                    <>
+                      <Search className="h-3.5 w-3.5" />
+                      {isSearchingGif ? 'Buscando...' : 'Buscar GIF'}
+                    </>
+                  )}
+                </button>
+              </div>
+
+              {isSearchingGif && (
+                <div className="grid grid-cols-3 gap-1.5" aria-hidden="true">
+                  {Array.from({ length: 6 }).map((_, i) => (
+                    <div
+                      key={i}
+                      className="aspect-square animate-pulse rounded-xl bg-elevated"
+                    />
+                  ))}
+                </div>
+              )}
+
+              {!isSearchingGif && gifResults.length > 0 && (
+                <div className="grid max-h-44 grid-cols-3 gap-1.5 overflow-y-auto no-scrollbar">
+                  {gifResults.map((gif) => (
+                    <button
+                      key={gif.id}
+                      type="button"
+                      onClick={() => handlePickGif(gif)}
+                      title={gif.title}
+                      className="group relative aspect-square overflow-hidden rounded-xl border border-line bg-card focus:outline-none hover:border-accent"
+                    >
+                      <img
+                        src={gif.thumbnailUrl || gif.url}
+                        alt={gif.title}
+                        loading="lazy"
+                        className="h-full w-full object-cover transition-transform duration-150 group-hover:scale-105"
+                      />
+                      <span className="absolute bottom-1 right-1 rounded bg-black/70 px-1 py-0.5 text-[9px] font-semibold text-accent">
+                        GIF
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {gifFeedback && (
+                <p className="px-1 text-[11px] text-subtle">{gifFeedback}</p>
+              )}
             </div>
 
             <div className="flex gap-2">

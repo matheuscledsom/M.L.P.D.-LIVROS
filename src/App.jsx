@@ -1,8 +1,11 @@
 import { useMemo, useState } from 'react';
 import { BottomNav } from './components/BottomNav';
+import { GeminiConfigModal } from './components/GeminiConfigModal';
 import { ItemDetailSheet } from './components/ItemDetailSheet';
 import { JournalComposerModal } from './components/JournalComposerModal';
 import { useBacklog } from './hooks/useBacklog';
+import { useGeminiKey } from './hooks/useGeminiKey';
+import { useReadingStreak } from './hooks/useReadingStreak';
 import { useSocialProfile } from './hooks/useSocialProfile';
 import { useTheme } from './hooks/useTheme';
 import { AddScreen } from './screens/AddScreen';
@@ -14,12 +17,30 @@ import { StatsScreen } from './screens/StatsScreen';
 export function App() {
   const [activeTab, setActiveTab] = useState('home');
   const [selectedItemId, setSelectedItemId] = useState(null);
+  const [geminiModalOpen, setGeminiModalOpen] = useState(false);
   const [journalComposer, setJournalComposer] = useState({
     open: false,
     itemId: null,
   });
 
-  const { mode, accent, setMode, setAccent } = useTheme();
+  const {
+    mode,
+    font,
+    presetId,
+    bgColor,
+    accentColor,
+    hasCustomBg,
+    setMode,
+    setFont,
+    applyPreset,
+    setCustomBgColor,
+    setCustomAccentColor,
+    resetCustomColors,
+  } = useTheme();
+
+  const { apiKey: geminiKey, hasGeminiKey, saveApiKey, clearApiKey } =
+    useGeminiKey();
+
   const {
     items,
     addItem,
@@ -38,6 +59,15 @@ export function App() {
     deletePostComment,
     restoreSocialBackup,
   } = useSocialProfile();
+  const {
+    streakData,
+    streakCount,
+    loggedToday,
+    isPaused,
+    history,
+    registerToday,
+    restoreStreakBackup,
+  } = useReadingStreak();
 
   const selectedItem = useMemo(
     () => items.find((item) => item.id === selectedItemId) ?? null,
@@ -54,15 +84,24 @@ export function App() {
   };
 
   const handleExportBackup = () => {
-    exportBackup({ profile, posts });
+    exportBackup({ profile, posts, streak: streakData });
   };
 
   const handleImportBackup = async (file) => {
     const result = await importBackup(file);
     if (result.ok) {
       restoreSocialBackup({ profile: result.profile, posts: result.posts });
+      restoreStreakBackup(result.streak);
     }
     return result;
+  };
+
+  const streakProps = {
+    streakCount,
+    loggedToday,
+    isPaused,
+    history,
+    onRegisterToday: registerToday,
   };
 
   return (
@@ -73,24 +112,32 @@ export function App() {
             <HomeScreen
               items={items}
               profile={profile}
+              streakProps={streakProps}
+              geminiKey={geminiKey}
               onSelectItem={(item) => setSelectedItemId(item.id)}
               onNavigateList={() => setActiveTab('list')}
               onNavigateAdd={() => setActiveTab('add')}
+              onOpenGeminiSettings={() => setGeminiModalOpen(true)}
             />
           )}
           {activeTab === 'stats' && <StatsScreen items={items} />}
           {activeTab === 'add' && (
             <AddScreen
               items={items}
+              geminiKey={geminiKey}
               onAddItem={addItem}
               onSelectExisting={(item) => setSelectedItemId(item.id)}
+              onOpenGeminiSettings={() => setGeminiModalOpen(true)}
             />
           )}
           {activeTab === 'list' && (
             <ListScreen
               items={items}
+              streakProps={streakProps}
+              geminiKey={geminiKey}
               onSelectItem={(item) => setSelectedItemId(item.id)}
               onNavigateAdd={() => setActiveTab('add')}
+              onOpenGeminiSettings={() => setGeminiModalOpen(true)}
             />
           )}
           {activeTab === 'profile' && (
@@ -98,10 +145,22 @@ export function App() {
               items={items}
               profile={profile}
               posts={posts}
-              themeMode={mode}
-              themeAccent={accent}
-              onSelectThemeMode={setMode}
-              onSelectThemeAccent={setAccent}
+              hasGeminiKey={hasGeminiKey}
+              onOpenGeminiSettings={() => setGeminiModalOpen(true)}
+              themeProps={{
+                mode,
+                font,
+                presetId,
+                bgColor,
+                accentColor,
+                hasCustomBg,
+                onSelectMode: setMode,
+                onSelectFont: setFont,
+                onApplyPreset: applyPreset,
+                onChangeBgColor: setCustomBgColor,
+                onChangeAccentColor: setCustomAccentColor,
+                onResetTheme: resetCustomColors,
+              }}
               onUpdateProfile={updateProfile}
               onSelectItem={(item) => setSelectedItemId(item.id)}
               onOpenJournalComposer={handleOpenJournalComposer}
@@ -118,10 +177,13 @@ export function App() {
 
         <ItemDetailSheet
           item={selectedItem}
+          posts={posts}
+          geminiKey={geminiKey}
           onClose={() => setSelectedItemId(null)}
           onUpdateItem={updateItem}
           onRemoveItem={removeItem}
           onOpenJournal={handleOpenJournalComposer}
+          onOpenGeminiSettings={() => setGeminiModalOpen(true)}
         />
 
         <JournalComposerModal
@@ -130,6 +192,14 @@ export function App() {
           items={items}
           initialItemId={journalComposer.itemId}
           onPublish={handlePublishPost}
+        />
+
+        <GeminiConfigModal
+          isOpen={geminiModalOpen}
+          onClose={() => setGeminiModalOpen(false)}
+          apiKey={geminiKey}
+          onSaveKey={saveApiKey}
+          onClearKey={clearApiKey}
         />
       </div>
     </div>

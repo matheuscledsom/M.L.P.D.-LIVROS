@@ -85,6 +85,7 @@ export function useSocialProfile() {
       itemId: postData.itemId || null,
       itemTitle: postData.itemTitle || '',
       itemSnapshot: postData.itemSnapshot || null,
+      progressMarker: String(postData.progressMarker || '').trim(),
       title: String(postData.title || '').trim(),
       caption: String(postData.caption || '').trim(),
       media: Array.isArray(postData.media) ? postData.media : [],

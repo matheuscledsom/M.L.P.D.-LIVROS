@@ -2,34 +2,114 @@ import { useEffect, useState } from 'react';
 
 const THEME_STORAGE_KEY = 'mlpd_livros_theme';
 
+function normalizeHex(hex) {
+  if (typeof hex !== 'string') return null;
+  const clean = hex.trim();
+  if (/^#[0-9A-Fa-f]{6}$/.test(clean)) return clean.toUpperCase();
+  if (/^#[0-9A-Fa-f]{3}$/.test(clean)) {
+    const [, r, g, b] = clean;
+    return `#${r}${r}${g}${g}${b}${b}`.toUpperCase();
+  }
+  return null;
+}
+
+function hexToRgb(hex) {
+  const valid = normalizeHex(hex) || '#000000';
+  return {
+    r: parseInt(valid.slice(1, 3), 16),
+    g: parseInt(valid.slice(3, 5), 16),
+    b: parseInt(valid.slice(5, 7), 16),
+  };
+}
+
+function rgbToHex(r, g, b) {
+  const clamp = (v) => Math.max(0, Math.min(255, Math.round(v)));
+  return `#${[clamp(r), clamp(g), clamp(b)]
+    .map((v) => v.toString(16).padStart(2, '0'))
+    .join('')}`.toUpperCase();
+}
+
+function mixHex(hexA, hexB, weightB = 0.5) {
+  const a = hexToRgb(hexA);
+  const b = hexToRgb(hexB);
+  const w = Math.max(0, Math.min(1, weightB));
+  return rgbToHex(
+    a.r + (b.r - a.r) * w,
+    a.g + (b.g - a.g) * w,
+    a.b + (b.b - a.b) * w
+  );
+}
+
+function getRelativeLuminance(hex) {
+  const { r, g, b } = hexToRgb(hex);
+  const linear = [r, g, b].map((v) => {
+    const s = v / 255;
+    return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+  });
+  return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2];
+}
+
+function buildSurfaceVarsFromBg(bgHex, cardHexOverride = null) {
+  const bg = normalizeHex(bgHex) || '#000000';
+  const isLight = getRelativeLuminance(bg) > 0.42;
+
+  const card =
+    normalizeHex(cardHexOverride) ||
+    (isLight ? mixHex(bg, '#000000', 0.05) : mixHex(bg, '#FFFFFF', 0.055));
+  const elevated = isLight
+    ? mixHex(bg, '#000000', 0.1)
+    : mixHex(bg, '#FFFFFF', 0.11);
+  const border = isLight
+    ? mixHex(bg, '#000000', 0.13)
+    : mixHex(bg, '#FFFFFF', 0.14);
+
+  return {
+    isLight,
+    vars: {
+      '--bg-app': bg,
+      '--bg-card': card,
+      '--bg-elevated': elevated,
+      '--border-subtle': border,
+      '--text-primary': isLight ? '#18181B' : '#F4F4F5',
+      '--text-muted': isLight ? '#52525B' : '#A1A1AA',
+      '--text-subtle': isLight ? '#71717A' : '#737373',
+    },
+  };
+}
+
+function getContrastForAccent(accentHex) {
+  const hex = normalizeHex(accentHex) || '#8B5CF6';
+  return getRelativeLuminance(hex) > 0.45 ? '#09090B' : '#FFFFFF';
+}
+
 export const THEME_MODES = [
   {
-    id: 'light',
-    label: 'Claro',
-    previewBg: '#FFFFFF',
-    previewCard: '#F4F4F5',
+    id: 'parchment',
+    label: 'Papel Pergaminho',
+    previewBg: '#FAF8F5',
+    previewCard: '#F0EDE6',
     vars: {
-      '--bg-app': '#FFFFFF',
-      '--bg-card': '#F4F4F5',
-      '--bg-elevated': '#E4E4E7',
-      '--border-subtle': '#E4E4E7',
-      '--text-primary': '#09090B',
-      '--text-muted': '#52525B',
-      '--text-subtle': '#71717A',
+      '--bg-app': '#FAF8F5',
+      '--bg-card': '#F0EDE6',
+      '--bg-elevated': '#E5E0D5',
+      '--border-subtle': '#DDD7C8',
+      '--text-primary': '#1C1917',
+      '--text-muted': '#57534E',
+      '--text-subtle': '#78716C',
     },
     isLight: true,
   },
   {
-    id: 'dark',
-    label: 'Escuro Padrão',
-    previewBg: '#121212',
-    previewCard: '#1E1E1E',
+    id: 'night_library',
+    label: 'Biblioteca Noturna',
+    previewBg: '#121316',
+    previewCard: '#1B1D22',
     vars: {
-      '--bg-app': '#121212',
-      '--bg-card': '#1E1E1E',
-      '--bg-elevated': '#27272A',
-      '--border-subtle': '#2E2E32',
-      '--text-primary': '#FFFFFF',
+      '--bg-app': '#121316',
+      '--bg-card': '#1B1D22',
+      '--bg-elevated': '#24272E',
+      '--border-subtle': '#2E313A',
+      '--text-primary': '#F4F4F5',
       '--text-muted': '#A1A1AA',
       '--text-subtle': '#71717A',
     },
@@ -37,7 +117,7 @@ export const THEME_MODES = [
   },
   {
     id: 'oled',
-    label: 'Preto OLED',
+    label: 'Tinta OLED',
     previewBg: '#000000',
     previewCard: '#0A0A0A',
     vars: {
@@ -53,59 +133,116 @@ export const THEME_MODES = [
   },
 ];
 
-export const ACCENT_PRESETS = [
-  { id: 'purple', label: 'Roxo Neon', color: '#8B5CF6', contrast: '#FFFFFF' },
-  { id: 'playstation', label: 'Azul PlayStation', color: '#0070D1', contrast: '#FFFFFF' },
-  { id: 'xbox', label: 'Verde Xbox/Steam', color: '#10B981', contrast: '#FFFFFF' },
-  { id: 'nintendo', label: 'Vermelho Nintendo', color: '#E60012', contrast: '#FFFFFF' },
-  { id: 'platinum', label: 'Dourado Platina', color: '#F59E0B', contrast: '#09090B' },
-  { id: 'mono', label: 'Monocromático', color: '#FFFFFF', lightColor: '#18181B', contrast: '#09090B', lightContrast: '#FFFFFF' },
+export const FONT_PRESETS = [
+  {
+    id: 'inter',
+    label: 'Sans Moderna (Inter)',
+    shortLabel: 'Sans Moderna',
+    fontName: 'Inter',
+    cssValue: '"Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+  },
+  {
+    id: 'lora',
+    label: 'Editorial / Livro (Lora)',
+    shortLabel: 'Editorial / Livro',
+    fontName: 'Lora',
+    cssValue: '"Lora", Georgia, serif',
+  },
+  {
+    id: 'jetbrains',
+    label: 'Monospace / Fichamento (JetBrains Mono)',
+    shortLabel: 'Monospace / Fichamento',
+    fontName: 'JetBrains Mono',
+    cssValue: '"JetBrains Mono", ui-monospace, monospace',
+  },
 ];
+
+export const EDITORIAL_PRESETS = [
+  { id: 'kindle-paperwhite', label: 'Kindle Paperwhite', bg: '#FAF8F5', card: '#F0EDE6', accent: '#2B5B84' },
+  { id: 'dark-academia', label: 'Dark Academia', bg: '#161310', card: '#211D18', accent: '#C89B54' },
+  { id: 'fantasia-epica', label: 'Fantasia Épica', bg: '#12111A', card: '#1B1926', accent: '#A855F7' },
+  { id: 'cyberpunk-scifi', label: 'Cyberpunk / Sci-Fi', bg: '#090B14', card: '#111524', accent: '#00E5FF' },
+  { id: 'terror-gotico', label: 'Terror Gótico', bg: '#0D090B', card: '#181114', accent: '#DC2626' },
+  { id: 'romance-classico', label: 'Romance Clássico', bg: '#FAF4F4', card: '#F1E6E8', accent: '#BE4B66' },
+  { id: 'biblioteca-alexandria', label: 'Biblioteca de Alexandria', bg: '#1C1712', card: '#272019', accent: '#D97706' },
+  { id: 'floresta-elfica', label: 'Floresta Élfica', bg: '#0E1612', card: '#15221B', accent: '#10B981' },
+  { id: 'manga-ink', label: 'Mangá Ink', bg: '#000000', card: '#0A0A0A', accent: '#FFFFFF' },
+  { id: 'minimalismo-nordico', label: 'Minimalismo Nórdico', bg: '#F4F6F8', card: '#E8ECEF', accent: '#334155' },
+  { id: 'misterio-noir', label: 'Mistério Noir', bg: '#121316', card: '#1B1D22', accent: '#EAB308' },
+  { id: 'poesia-crepusculo', label: 'Poesia Crepúsculo', bg: '#17121F', card: '#211A2C', accent: '#F472B6' },
+  { id: 'cafe-chuva', label: 'Café & Chuva', bg: '#1B1614', card: '#261F1C', accent: '#D98254' },
+  { id: 'arquivo-academico', label: 'Arquivo Acadêmico', bg: '#F6F7F4', card: '#EAECE6', accent: '#1D4ED8' },
+];
+
+const DEFAULT_THEME = {
+  mode: 'oled',
+  font: 'inter',
+  presetId: null,
+  customBgColor: null,
+  customCardColor: null,
+  customAccentColor: '#8B5CF6',
+};
 
 function loadSavedTheme() {
   try {
     const raw = localStorage.getItem(THEME_STORAGE_KEY);
-    if (!raw) return { mode: 'oled', accent: 'purple' };
+    if (!raw) return DEFAULT_THEME;
     const parsed = JSON.parse(raw);
+
+    const mode = THEME_MODES.some((m) => m.id === parsed?.mode)
+      ? parsed.mode
+      : 'oled';
+    const font = FONT_PRESETS.some((f) => f.id === parsed?.font)
+      ? parsed.font
+      : 'inter';
+    const presetId = EDITORIAL_PRESETS.some((p) => p.id === parsed?.presetId)
+      ? parsed.presetId
+      : null;
+
     return {
-      mode: THEME_MODES.some((m) => m.id === parsed?.mode) ? parsed.mode : 'oled',
-      accent: ACCENT_PRESETS.some((a) => a.id === parsed?.accent) ? parsed.accent : 'purple',
+      mode,
+      font,
+      presetId,
+      customBgColor: normalizeHex(parsed?.customBgColor),
+      customCardColor: normalizeHex(parsed?.customCardColor),
+      customAccentColor:
+        normalizeHex(parsed?.customAccentColor) || '#8B5CF6',
     };
   } catch {
-    return { mode: 'oled', accent: 'purple' };
+    return DEFAULT_THEME;
   }
 }
 
 export function useTheme() {
   const [theme, setTheme] = useState(loadSavedTheme);
 
-  useEffect(() => {
-    const modeConfig =
-      THEME_MODES.find((m) => m.id === theme.mode) ?? THEME_MODES[2];
-    const accentConfig =
-      ACCENT_PRESETS.find((a) => a.id === theme.accent) ?? ACCENT_PRESETS[0];
+  const modeConfig =
+    THEME_MODES.find((m) => m.id === theme.mode) ?? THEME_MODES[2];
+  const fontConfig =
+    FONT_PRESETS.find((f) => f.id === theme.font) ?? FONT_PRESETS[0];
 
+  const surface = theme.customBgColor
+    ? buildSurfaceVarsFromBg(theme.customBgColor, theme.customCardColor)
+    : { isLight: modeConfig.isLight, vars: modeConfig.vars };
+
+  const activeBgColor = surface.vars['--bg-app'];
+  const activeAccentColor = normalizeHex(theme.customAccentColor) || '#8B5CF6';
+  const accentContrast = getContrastForAccent(activeAccentColor);
+
+  useEffect(() => {
     const root = document.documentElement;
-    Object.entries(modeConfig.vars).forEach(([key, value]) => {
+    Object.entries(surface.vars).forEach(([key, value]) => {
       root.style.setProperty(key, value);
     });
 
-    const accentColor =
-      modeConfig.isLight && accentConfig.lightColor
-        ? accentConfig.lightColor
-        : accentConfig.color;
-    const accentContrast =
-      modeConfig.isLight && accentConfig.lightContrast
-        ? accentConfig.lightContrast
-        : accentConfig.contrast;
-
-    root.style.setProperty('--accent-color', accentColor);
+    root.style.setProperty('--accent-color', activeAccentColor);
     root.style.setProperty('--accent-contrast', accentContrast);
-    root.classList.toggle('dark', !modeConfig.isLight);
+    root.style.setProperty('--font-app', fontConfig.cssValue);
+    root.classList.toggle('dark', !surface.isLight);
 
     const metaTheme = document.querySelector('meta[name="theme-color"]');
     if (metaTheme) {
-      metaTheme.setAttribute('content', modeConfig.vars['--bg-app']);
+      metaTheme.setAttribute('content', activeBgColor);
     }
 
     try {
@@ -113,15 +250,78 @@ export function useTheme() {
     } catch {
       // Ignora erro de persistência
     }
-  }, [theme]);
+  }, [theme, surface, activeBgColor, activeAccentColor, accentContrast, fontConfig]);
 
-  const setMode = (mode) => setTheme((prev) => ({ ...prev, mode }));
-  const setAccent = (accent) => setTheme((prev) => ({ ...prev, accent }));
+  const setMode = (mode) =>
+    setTheme((prev) => ({
+      ...prev,
+      mode,
+      presetId: null,
+      customBgColor: null,
+      customCardColor: null,
+    }));
+
+  const setFont = (font) =>
+    setTheme((prev) => ({
+      ...prev,
+      font,
+    }));
+
+  const applyPreset = (presetId) => {
+    const preset = EDITORIAL_PRESETS.find((p) => p.id === presetId);
+    if (!preset) return;
+    setTheme((prev) => ({
+      ...prev,
+      presetId: preset.id,
+      customBgColor: preset.bg,
+      customCardColor: preset.card,
+      customAccentColor: preset.accent,
+    }));
+  };
+
+  const setCustomBgColor = (hex) => {
+    const valid = normalizeHex(hex);
+    if (!valid) return;
+    setTheme((prev) => ({
+      ...prev,
+      presetId: null,
+      customBgColor: valid,
+      customCardColor: null,
+    }));
+  };
+
+  const setCustomAccentColor = (hex) => {
+    const valid = normalizeHex(hex);
+    if (!valid) return;
+    setTheme((prev) => ({
+      ...prev,
+      presetId: null,
+      customAccentColor: valid,
+    }));
+  };
+
+  const resetCustomColors = () =>
+    setTheme((prev) => ({
+      ...prev,
+      mode: 'oled',
+      presetId: null,
+      customBgColor: null,
+      customCardColor: null,
+      customAccentColor: '#8B5CF6',
+    }));
 
   return {
     mode: theme.mode,
-    accent: theme.accent,
+    font: theme.font,
+    presetId: theme.presetId,
+    bgColor: activeBgColor,
+    accentColor: activeAccentColor,
+    hasCustomBg: Boolean(theme.customBgColor),
     setMode,
-    setAccent,
+    setFont,
+    applyPreset,
+    setCustomBgColor,
+    setCustomAccentColor,
+    resetCustomColors,
   };
 }
