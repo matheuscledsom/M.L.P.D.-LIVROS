@@ -269,10 +269,17 @@ export function getVerdictForScore(score) {
   return matched ? matched.id : null;
 }
 
+const LEGACY_VERDICT_MAP = {
+  Bom: 'Muito Bom',
+  Mediano: 'Regular',
+  Decepção: 'Abaixo do Esperado',
+};
+
 export function getVerdictMeta(verdictId) {
   if (!verdictId) return null;
+  const normalized = LEGACY_VERDICT_MAP[verdictId] || verdictId;
   return (
-    domainConfig.tactileOptions.verdicts.find((v) => v.id === verdictId) ?? null
+    domainConfig.tactileOptions.verdicts.find((v) => v.id === normalized) ?? null
   );
 }
 

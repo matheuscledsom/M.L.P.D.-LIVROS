@@ -35,7 +35,13 @@ export function ToastProvider({ children }) {
   }, []);
 
   const showToast = useCallback(
-    ({ message, type = 'success', sound = true, duration = 2800 } = {}) => {
+    ({
+      message,
+      type = 'success',
+      sound = true,
+      duration = 3200,
+      action = null,
+    } = {}) => {
       if (!message) return;
       const id = `toast-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
 
@@ -45,7 +51,7 @@ export function ToastProvider({ children }) {
         );
       }
 
-      setToasts((prev) => [...prev.slice(-2), { id, message, type }]);
+      setToasts((prev) => [...prev.slice(-2), { id, message, type, action }]);
 
       const timer = setTimeout(() => {
         dismissToast(id);
@@ -84,19 +90,34 @@ export function ToastProvider({ children }) {
                     className={`h-4 w-4 shrink-0 ${
                       isError ? 'text-rose-400' : 'text-accent'
                     }`}
+                    strokeWidth={1.5}
                   />
                   <span className="truncate text-xs font-medium text-ink">
                     {toast.message}
                   </span>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => dismissToast(toast.id)}
-                  aria-label="Fechar notificação"
-                  className="rounded-full p-0.5 text-subtle hover:text-ink"
-                >
-                  <X className="h-3.5 w-3.5" />
-                </button>
+                <div className="flex shrink-0 items-center gap-1.5">
+                  {toast.action?.label && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        toast.action.onClick?.();
+                        dismissToast(toast.id);
+                      }}
+                      className="rounded-lg border border-accent/40 bg-accent/15 px-2.5 py-1 text-[11px] font-semibold text-accent hover:bg-accent hover:text-accent-ink"
+                    >
+                      {toast.action.label}
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => dismissToast(toast.id)}
+                    aria-label="Fechar notificação"
+                    className="rounded-full p-1 text-subtle hover:text-ink"
+                  >
+                    <X className="h-4 w-4" strokeWidth={1.5} />
+                  </button>
+                </div>
               </div>
             );
           })}

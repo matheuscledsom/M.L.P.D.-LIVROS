@@ -4,10 +4,13 @@ import {
   Camera,
   Check,
   CheckCircle2,
+  ChevronDown,
+  ChevronUp,
   Copy,
   FileText,
   RotateCcw,
   Star,
+  ThumbsUp,
 } from 'lucide-react';
 import { useState } from 'react';
 import { domainConfig } from '../config/domainConfig';
@@ -19,6 +22,7 @@ import {
   getCompletionPace,
   getDropReasonMeta,
   getVerdictForScore,
+  getVerdictMeta,
 } from '../utils/backlogHelpers';
 import { useToast } from '../context/ToastContext';
 import { playTactileSound } from '../utils/soundEffects';
@@ -418,6 +422,221 @@ function AcademicMetadataAndAbntBlock({ item, onChange }) {
           onChange={(e) => onChange({ abntReference: e.target.value })}
           className="w-full resize-none rounded-lg border border-line bg-app px-2.5 py-2 text-[11px] leading-relaxed text-muted focus:border-accent focus:text-ink focus:outline-none"
         />
+      </div>
+    </div>
+  );
+}
+
+function EditorialReviewBlock({ item, onChange }) {
+  const [criteriaOpen, setCriteriaOpen] = useState(false);
+  const { detail } = domainConfig.ui;
+  const { tactileOptions } = domainConfig;
+
+  const currentScore =
+    typeof item.rating === 'number' && !Number.isNaN(item.rating)
+      ? Math.max(0, Math.min(100, Math.round(item.rating)))
+      : 80;
+
+  const criteria =
+    item.reviewCriteria || createDefaultReviewCriteria(currentScore);
+  const criteriaAverage = calculateSmartRating(criteria);
+  const autoVerdictId = getVerdictForScore(currentScore);
+  const verdictMeta = getVerdictMeta(autoVerdictId);
+  const ignoreCharacters = Boolean(
+    criteria.ignoreCharacters ?? criteria.ignoreStory
+  );
+
+  const handleSliderChange = (nextScore) => {
+    const clamped = Math.max(0, Math.min(100, Math.round(nextScore)));
+    onChange({
+      rating: clamped,
+      verdict: getVerdictForScore(clamped),
+    });
+  };
+
+  const updateCriterion = (key, val) => {
+    const nextCriteria = { ...criteria, [key]: val };
+    onChange({ reviewCriteria: nextCriteria });
+  };
+
+  const handleApplyAverage = () => {
+    const avg = calculateSmartRating(criteria);
+    onChange({
+      reviewCriteria: criteria,
+      rating: avg,
+      verdict: getVerdictForScore(avg),
+    });
+  };
+
+  return (
+    <div className="space-y-3 rounded-2xl border border-line bg-app p-3.5">
+      <div className="flex items-center justify-between gap-2">
+        <div>
+          <p className="text-xs font-semibold text-ink">
+            {detail.smartReviewTitle}
+          </p>
+          <p className="text-[10px] text-subtle">{detail.finalScoreLabel}</p>
+        </div>
+
+        <div className="flex items-center gap-2">
+          {verdictMeta && (
+            <span
+              className={`rounded-full border px-2.5 py-0.5 text-[11px] font-semibold ${verdictMeta.badgeClass}`}
+            >
+              {verdictMeta.id}
+            </span>
+          )}
+          <span className="rounded-xl border border-accent/40 bg-accent/15 px-3 py-1 text-base font-bold text-ink tabular-nums">
+            {currentScore}
+            <span className="text-[11px] font-normal text-muted">/100</span>
+          </span>
+        </div>
+      </div>
+
+      {/* Slider contínuo 0–100 com trilho de 4px e marcas 0/25/50/75/100 */}
+      <div className="pt-1">
+        <input
+          type="range"
+          min="0"
+          max="100"
+          step="1"
+          value={currentScore}
+          onChange={(e) => handleSliderChange(Number(e.target.value))}
+          aria-label="Nota editorial de 0 a 100"
+          className="h-1 w-full cursor-pointer appearance-none rounded-full bg-line accent-accent"
+          style={{
+            background: `linear-gradient(to right, var(--accent-color) 0%, var(--accent-color) ${currentScore}%, var(--border-subtle) ${currentScore}%, var(--border-subtle) 100%)`,
+          }}
+        />
+        <div
+          aria-hidden="true"
+          className="mt-1.5 flex items-center justify-between text-[10px] font-medium text-subtle tabular-nums"
+        >
+          <span>0</span>
+          <span>25</span>
+          <span>50</span>
+          <span>75</span>
+          <span>100</span>
+        </div>
+      </div>
+
+      {/* Toggle "Recomendo esta obra" */}
+      <button
+        type="button"
+        role="switch"
+        aria-checked={Boolean(item.recommended)}
+        onClick={() => onChange({ recommended: !item.recommended })}
+        className={`flex min-h-[44px] w-full items-center justify-between rounded-xl border px-3 py-2 text-xs font-medium transition-colors ${
+          item.recommended
+            ? 'border-accent/60 bg-accent/15 text-ink'
+            : 'border-line bg-card text-muted hover:text-ink'
+        }`}
+      >
+        <span className="inline-flex items-center gap-2">
+          <ThumbsUp
+            className={`h-4 w-4 ${
+              item.recommended ? 'text-accent' : 'text-subtle'
+            }`}
+            strokeWidth={1.5}
+          />
+          Recomendo esta obra
+        </span>
+        <span
+          className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+            item.recommended
+              ? 'bg-accent text-accent-ink'
+              : 'bg-elevated text-subtle'
+          }`}
+        >
+          {item.recommended ? 'Sim' : 'Não'}
+        </span>
+      </button>
+
+      {/* Critérios opcionais colapsáveis com "Aplicar Média" */}
+      <div className="rounded-xl border border-line bg-card overflow-hidden">
+        <button
+          type="button"
+          onClick={() => setCriteriaOpen((prev) => !prev)}
+          aria-expanded={criteriaOpen}
+          className="flex min-h-[44px] w-full items-center justify-between px-3 py-2 text-left text-xs font-medium text-muted hover:text-ink"
+        >
+          <span>Critérios opcionais (média: {criteriaAverage}/100)</span>
+          {criteriaOpen ? (
+            <ChevronUp className="h-4 w-4 text-accent" strokeWidth={1.5} />
+          ) : (
+            <ChevronDown className="h-4 w-4 text-accent" strokeWidth={1.5} />
+          )}
+        </button>
+
+        {criteriaOpen && (
+          <div className="space-y-3 border-t border-line px-3 py-3">
+            <div className="space-y-2.5">
+              {tactileOptions.reviewCriteria.map((criterion) => {
+                const isExcluded = criterion.canExclude && ignoreCharacters;
+                const val =
+                  criteria[criterion.key] ??
+                  (criterion.key === 'plot'
+                    ? criteria.gameplay
+                    : criterion.key === 'characters'
+                      ? criteria.story
+                      : criterion.key === 'writing'
+                        ? criteria.audiovisual
+                        : undefined) ??
+                  80;
+
+                return (
+                  <div key={criterion.key}>
+                    {!isExcluded && (
+                      <>
+                        <div className="mb-1 flex items-center justify-between text-[11px]">
+                          <span className="text-muted">{criterion.label}</span>
+                          <span className="font-semibold text-ink">{val}</span>
+                        </div>
+                        <input
+                          type="range"
+                          min="0"
+                          max="100"
+                          step="1"
+                          value={val}
+                          onChange={(e) =>
+                            updateCriterion(criterion.key, Number(e.target.value))
+                          }
+                          aria-label={criterion.label}
+                          className="h-1 w-full cursor-pointer accent-accent"
+                        />
+                      </>
+                    )}
+                    {criterion.canExclude && (
+                      <label
+                        className={`flex min-h-[36px] cursor-pointer items-center gap-2 text-[11px] text-muted ${
+                          isExcluded ? 'py-1' : 'mt-1.5'
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={ignoreCharacters}
+                          onChange={(e) =>
+                            updateCriterion('ignoreCharacters', e.target.checked)
+                          }
+                          className="h-4 w-4 rounded border-line bg-card accent-accent"
+                        />
+                        <span>{detail.nonFictionToggleLabel}</span>
+                      </label>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            <button
+              type="button"
+              onClick={handleApplyAverage}
+              className="inline-flex min-h-[44px] w-full items-center justify-center rounded-xl bg-accent px-3 py-2 text-xs font-semibold text-accent-ink transition-opacity hover:opacity-90"
+            >
+              Aplicar Média ({criteriaAverage}/100)
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -999,29 +1218,11 @@ export function TactileStatusFields({
   }
 
   if (status === 'completed') {
-    const criteria =
-      item.reviewCriteria || createDefaultReviewCriteria(item.rating ?? 80);
-    const liveScore = calculateSmartRating(criteria);
-    const activeVerdict = item.verdict || getVerdictForScore(liveScore);
     const totalPages = Number(item.totalPages) || Number(item.currentPage) || 0;
     const pace =
       workType === 'manga'
         ? null
         : getCompletionPace(item.startDate, item.completedDate, totalPages);
-
-    const updateCriterion = (key, val) => {
-      const nextCriteria = { ...criteria, [key]: val };
-      const score = calculateSmartRating(nextCriteria);
-      onChange({
-        reviewCriteria: nextCriteria,
-        rating: score,
-        verdict: getVerdictForScore(score),
-      });
-    };
-
-    const ignoreCharacters = Boolean(
-      criteria.ignoreCharacters ?? criteria.ignoreStory
-    );
 
     return (
       <div className="space-y-4">
@@ -1186,102 +1387,7 @@ export function TactileStatusFields({
 
         <WorkTypeMetadataBlock item={item} onChange={onChange} />
 
-        <div className="space-y-3 rounded-2xl border border-line bg-app p-3.5">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-xs font-semibold text-ink">
-                {detail.smartReviewTitle}
-              </p>
-              <p className="text-[10px] text-subtle">{detail.finalScoreLabel}</p>
-            </div>
-            <span className="rounded-xl border border-accent/40 bg-accent/15 px-3 py-1 text-base font-bold text-ink">
-              {liveScore}
-              <span className="text-[11px] font-normal text-muted">/100</span>
-            </span>
-          </div>
-
-          <div className="space-y-2.5">
-            {tactileOptions.reviewCriteria.map((criterion) => {
-              const isExcluded = criterion.canExclude && ignoreCharacters;
-              const val =
-                criteria[criterion.key] ??
-                (criterion.key === 'plot'
-                  ? criteria.gameplay
-                  : criterion.key === 'characters'
-                    ? criteria.story
-                    : criterion.key === 'writing'
-                      ? criteria.audiovisual
-                      : undefined) ??
-                80;
-
-              return (
-                <div key={criterion.key}>
-                  {!isExcluded && (
-                    <>
-                      <div className="mb-1 flex items-center justify-between text-[11px]">
-                        <span className="text-muted">{criterion.label}</span>
-                        <span className="font-semibold text-ink">{val}</span>
-                      </div>
-                      <input
-                        type="range"
-                        min="0"
-                        max="100"
-                        step="1"
-                        value={val}
-                        onChange={(e) =>
-                          updateCriterion(criterion.key, Number(e.target.value))
-                        }
-                        className="w-full cursor-pointer accent-accent"
-                      />
-                    </>
-                  )}
-                  {criterion.canExclude && (
-                    <label
-                      className={`flex cursor-pointer items-center gap-2 text-[11px] text-muted ${
-                        isExcluded ? 'py-1' : 'mt-1.5'
-                      }`}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={ignoreCharacters}
-                        onChange={(e) =>
-                          updateCriterion('ignoreCharacters', e.target.checked)
-                        }
-                        className="h-3.5 w-3.5 rounded border-line bg-card accent-accent"
-                      />
-                      <span>{detail.nonFictionToggleLabel}</span>
-                    </label>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-
-          <div className="pt-1">
-            <p className="mb-2 text-[11px] font-medium text-muted">
-              {detail.verdictLabel}
-            </p>
-            <div className="flex flex-wrap gap-1.5">
-              {tactileOptions.verdicts.map((verdict) => {
-                const isSelected = activeVerdict === verdict.id;
-                return (
-                  <button
-                    key={verdict.id}
-                    type="button"
-                    onClick={() => onChange({ verdict: verdict.id })}
-                    className={`rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors ${
-                      isSelected
-                        ? verdict.badgeClass
-                        : 'border-line bg-card text-muted hover:text-ink'
-                    }`}
-                  >
-                    {verdict.id}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        </div>
+        <EditorialReviewBlock item={item} onChange={onChange} />
 
         {showAiActions && (
           <SynthesisReviewAction

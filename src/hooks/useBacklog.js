@@ -398,15 +398,18 @@ export function useBacklog() {
           }
         }
 
-        if (Object.prototype.hasOwnProperty.call(updates, 'reviewCriteria')) {
-          const score = calculateSmartRating(updates.reviewCriteria);
-          merged.rating = score;
-          merged.verdict = getVerdictForScore(score);
-        } else if (Object.prototype.hasOwnProperty.call(updates, 'rating')) {
+        if (Object.prototype.hasOwnProperty.call(updates, 'rating')) {
           merged.rating = normalizeRating(updates.rating);
           if (!Object.prototype.hasOwnProperty.call(updates, 'verdict')) {
             merged.verdict = getVerdictForScore(merged.rating);
           }
+        } else if (
+          Object.prototype.hasOwnProperty.call(updates, 'reviewCriteria') &&
+          (merged.rating === null || merged.rating === undefined)
+        ) {
+          const score = calculateSmartRating(updates.reviewCriteria);
+          merged.rating = score;
+          merged.verdict = getVerdictForScore(score);
         }
 
         if (statusChanged) {

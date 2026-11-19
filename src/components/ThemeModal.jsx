@@ -65,11 +65,11 @@ export function ThemeModal({
           </div>
         </div>
 
-        {/* 6 Tipografias Globais */}
+        {/* 10 Tipografias Globais */}
         <div className="mt-5">
           <p className="mb-2.5 flex items-center gap-1.5 text-xs font-medium text-muted">
-            <Type className="h-3.5 w-3.5 text-accent" />
-            Tipografia Global (6 Fontes)
+            <Type className="h-4 w-4 text-accent" strokeWidth={1.5} />
+            Tipografia Global (10 Fontes)
           </p>
           <div className="grid grid-cols-2 gap-2">
             {FONT_PRESETS.map((f) => {
@@ -80,7 +80,7 @@ export function ThemeModal({
                   type="button"
                   onClick={() => onSelectFont(f.id)}
                   style={{ fontFamily: f.cssValue }}
-                  className={`flex items-center justify-between gap-2 rounded-xl border px-3 py-2.5 text-left transition-colors ${
+                  className={`flex min-h-[44px] items-center justify-between gap-2 rounded-xl border px-3 py-2.5 text-left transition-colors ${
                     isSelected
                       ? 'border-accent bg-accent/15 text-ink'
                       : 'border-line bg-app text-muted hover:text-ink'
@@ -91,12 +91,12 @@ export function ThemeModal({
                       {f.shortLabel}
                     </span>
                     <span className="mt-0.5 block truncate text-[10px] text-subtle">
-                      Abc · Editorial
+                      Abc · {f.fontName}
                     </span>
                   </div>
                   {isSelected && (
                     <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-accent text-accent-ink">
-                      <Check className="h-2.5 w-2.5" />
+                      <Check className="h-3 w-3" strokeWidth={1.5} />
                     </span>
                   )}
                 </button>

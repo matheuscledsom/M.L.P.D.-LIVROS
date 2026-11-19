@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useMemo, useState } from 'react';
 import { BottomNav } from './components/BottomNav';
 import { GeminiConfigModal } from './components/GeminiConfigModal';
 import { ItemDetailSheet } from './components/ItemDetailSheet';
@@ -10,18 +10,35 @@ import { useGeminiKey } from './hooks/useGeminiKey';
 import { useReadingStreak } from './hooks/useReadingStreak';
 import { useSocialProfile } from './hooks/useSocialProfile';
 import { useTheme } from './hooks/useTheme';
-import { buildCodiceDatabase, persistCodiceDatabase } from './services/codiceDatabase';
+import {
+  buildCodiceDatabase,
+  createUuid,
+  persistCodiceDatabase,
+} from './services/codiceDatabase';
+import { deleteBookFile, listStoredBookIds } from './services/readerStorage';
 import { AddScreen } from './screens/AddScreen';
 import { HomeScreen } from './screens/HomeScreen';
 import { ListScreen } from './screens/ListScreen';
 import { ProfileScreen } from './screens/ProfileScreen';
 import { StatsScreen } from './screens/StatsScreen';
 
+const ReaderShell = lazy(() =>
+  import('./components/reader/ReaderShell').then((m) => ({
+    default: m.ReaderShell,
+  }))
+);
+
 export function App() {
   const [activeTab, setActiveTab] = useState('home');
   const [selectedItemId, setSelectedItemId] = useState(null);
   const [geminiModalOpen, setGeminiModalOpen] = useState(false);
   const [onboardingReopened, setOnboardingReopened] = useState(false);
+  const [storedReaderWorkIds, setStoredReaderWorkIds] = useState([]);
+  const [readerSession, setReaderSession] = useState({
+    open: false,
+    workId: null,
+    initialFile: null,
+  });
   const [journalComposer, setJournalComposer] = useState({
     open: false,
     itemId: null,
@@ -86,6 +103,102 @@ export function App() {
     [items, selectedItemId]
   );
 
+  const readerWork = useMemo(
+    () => items.find((item) => item.id === readerSession.workId) ?? null,
+    [items, readerSession.workId]
+  );
+
+  useEffect(() => {
+    listStoredBookIds()
+      .then((ids) => setStoredReaderWorkIds(ids))
+      .catch(() => {});
+  }, [readerSession.open]);
+
+  const handleOpenReaderForWork = useCallback((work, file = null) => {
+    if (!work) return;
+    setSelectedItemId(null);
+    setReaderSession({ open: true, workId: work.id, initialFile: file });
+  }, []);
+
+  const handleOpenQuickReader = useCallback((file = null) => {
+    setSelectedItemId(null);
+    setReaderSession({ open: true, workId: null, initialFile: file });
+  }, []);
+
+  const handlePersistReaderState = useCallback(
+    (workId, nextReaderState) => {
+      updateItem(workId, { readerState: nextReaderState });
+    },
+    [updateItem]
+  );
+
+  const handleSyncWorkProgress = useCallback(
+    (work, endPosition) => {
+      if (!work?.id || !endPosition) return;
+      const prevSnapshot = {
+        currentPage: work.currentPage,
+        totalPages: work.totalPages,
+        progress: work.progress,
+        status: work.status,
+        completedDate: work.completedDate,
+      };
+
+      const nextPage = Math.max(0, Number(endPosition.page) || 0);
+      const nextTotal =
+        Number(endPosition.totalPages) > 0
+          ? Number(endPosition.totalPages)
+          : work.totalPages;
+      const nextPct = Math.max(
+        0,
+        Math.min(100, Number(endPosition.progressPct) || 0)
+      );
+
+      const updates = {
+        currentPage: nextPage,
+        ...(nextTotal && !work.totalPages ? { totalPages: nextTotal } : {}),
+        ...(work.status === 'queued' && nextPage > 0 ? { status: 'playing' } : {}),
+      };
+
+      updateItem(work.id, updates);
+
+      const summaryLabel =
+        nextPage > 0
+          ? `Pág. ${nextPage}${nextTotal ? `/${nextTotal}` : ''}`
+          : `${nextPct}%`;
+
+      showToast({
+        message: `Atualizar progresso da obra (${summaryLabel})`,
+        type: 'info',
+        duration: 5000,
+        action: {
+          label: 'Desfazer',
+          onClick: () => {
+            updateItem(work.id, prevSnapshot);
+          },
+        },
+      });
+    },
+    [updateItem, showToast]
+  );
+
+  const handleSaveQuoteFromReader = useCallback(
+    (work, quotePayload) => {
+      if (!work?.id || !quotePayload?.text) return;
+      const existingQuotes = Array.isArray(work.quotes) ? work.quotes : [];
+      const newQuote = {
+        id: createUuid(),
+        text: quotePayload.text,
+        location: quotePayload.location || '',
+        cfi: quotePayload.cfi || '',
+        color: quotePayload.color || 'accent',
+        note: '',
+        createdAt: new Date().toISOString(),
+      };
+      updateItem(work.id, { quotes: [newQuote, ...existingQuotes] });
+    },
+    [updateItem]
+  );
+
   const handleAddItem = (newItem) => {
     addItem(newItem);
     showToast({
@@ -110,6 +223,7 @@ export function App() {
 
   const handleRemoveItem = (id) => {
     removeItem(id);
+    deleteBookFile(id);
     showToast({ message: 'Obra removida do acervo', type: 'info' });
   };
 
@@ -190,8 +304,35 @@ export function App() {
           ? 'app-texture-glow'
           : '';
 
+  const handleGlobalDrop = (e) => {
+    if (readerSession.open) return;
+    const dropped = e.dataTransfer?.files?.[0];
+    if (!dropped) return;
+    const isBookCandidate =
+      /\.(pdf|epub|cbz|cbr|txt|md|markdown)$/i.test(dropped.name || '') ||
+      dropped.type === 'application/pdf' ||
+      dropped.type === 'application/epub+zip' ||
+      dropped.type === 'text/plain' ||
+      dropped.type === 'text/markdown';
+    if (!isBookCandidate) return;
+    e.preventDefault();
+    if (selectedItem) {
+      handleOpenReaderForWork(selectedItem, dropped);
+    } else {
+      handleOpenQuickReader(dropped);
+    }
+  };
+
   return (
-    <div className="relative min-h-screen bg-app text-ink transition-colors duration-200">
+    <div
+      onDragOver={(e) => {
+        if (!readerSession.open && e.dataTransfer?.types?.includes('Files')) {
+          e.preventDefault();
+        }
+      }}
+      onDrop={handleGlobalDrop}
+      className="relative min-h-screen bg-app text-ink transition-colors duration-200"
+    >
       {textureClass && (
         <div
           aria-hidden="true"
@@ -206,7 +347,10 @@ export function App() {
               profile={profile}
               streakProps={streakProps}
               geminiKey={geminiKey}
+              storedReaderWorkIds={storedReaderWorkIds}
               onSelectItem={(item) => setSelectedItemId(item.id)}
+              onOpenReader={handleOpenReaderForWork}
+              onOpenQuickReader={handleOpenQuickReader}
               onNavigateList={() => setActiveTab('list')}
               onNavigateAdd={() => setActiveTab('add')}
               onOpenGeminiSettings={() => setGeminiModalOpen(true)}
@@ -280,12 +424,39 @@ export function App() {
           item={selectedItem}
           posts={posts}
           geminiKey={geminiKey}
+          hasStoredFile={Boolean(
+            selectedItem && storedReaderWorkIds.includes(selectedItem.id)
+          )}
           onClose={() => setSelectedItemId(null)}
           onUpdateItem={handleUpdateItem}
           onRemoveItem={handleRemoveItem}
           onOpenJournal={handleOpenJournalComposer}
+          onOpenReader={handleOpenReaderForWork}
           onOpenGeminiSettings={() => setGeminiModalOpen(true)}
         />
+
+        {readerSession.open && (
+          <Suspense
+            fallback={
+              <div className="fixed inset-0 z-50 flex items-center justify-center bg-app text-xs text-muted">
+                Carregando Leitor Códice...
+              </div>
+            }
+          >
+            <ReaderShell
+              isOpen={readerSession.open}
+              work={readerWork}
+              initialFile={readerSession.initialFile}
+              onClose={() =>
+                setReaderSession({ open: false, workId: null, initialFile: null })
+              }
+              onPersistReaderState={handlePersistReaderState}
+              onRecordSession={addReadingSession}
+              onSyncWorkProgress={handleSyncWorkProgress}
+              onSaveQuoteFromReader={handleSaveQuoteFromReader}
+            />
+          </Suspense>
+        )}
 
         <JournalComposerModal
           isOpen={journalComposer.open}

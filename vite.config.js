@@ -14,6 +14,18 @@ export default defineConfig({
           if (id.includes('node_modules/lucide-react')) {
             return 'vendor-icons';
           }
+          if (id.includes('node_modules/pdfjs-dist')) {
+            return 'reader-pdf';
+          }
+          if (id.includes('node_modules/epubjs')) {
+            return 'reader-epub';
+          }
+          if (id.includes('node_modules/jszip')) {
+            return 'reader-zip';
+          }
+          if (id.includes('node_modules/marked') || id.includes('node_modules/dompurify')) {
+            return 'reader-text';
+          }
         },
       },
     },

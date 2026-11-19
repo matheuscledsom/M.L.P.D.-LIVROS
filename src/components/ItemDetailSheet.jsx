@@ -1,4 +1,4 @@
-import { BookOpen, Bookmark, Heart, Quote, Star, Trash2, X } from 'lucide-react';
+import { BookOpen, Bookmark, FileText, Heart, Quote, Star, Trash2, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { domainConfig, getStatusList } from '../config/domainConfig';
 import { getVerdictMeta } from '../utils/backlogHelpers';
@@ -15,10 +15,12 @@ export function ItemDetailSheet({
   item,
   posts = [],
   geminiKey = '',
+  hasStoredFile = false,
   onClose,
   onUpdateItem,
   onRemoveItem,
   onOpenJournal,
+  onOpenReader,
   onOpenGeminiSettings,
 }) {
   const [activeSheetTab, setActiveSheetTab] = useState('catalog');
@@ -92,6 +94,22 @@ export function ItemDetailSheet({
             </div>
           </div>
         </div>
+
+        {/* Botão Abrir Arquivo / Ler Agora */}
+        {onOpenReader && (
+          <button
+            type="button"
+            onClick={() => onOpenReader(item)}
+            className="mt-4 flex min-h-[44px] w-full items-center justify-center gap-2 rounded-2xl bg-accent px-4 py-3 text-xs font-semibold text-accent-ink shadow-md transition-opacity hover:opacity-90"
+          >
+            <FileText className="h-4 w-4" strokeWidth={1.5} />
+            <span>
+              {hasStoredFile
+                ? 'Ler Agora (Arquivo Offline Salvo)'
+                : 'Abrir Arquivo / Ler Agora'}
+            </span>
+          </button>
+        )}
 
         {/* Seletor de Abas da Obra: Catalogação vs Citações & Fichamento */}
         <div className="mt-4 grid grid-cols-2 gap-1.5 rounded-2xl border border-line bg-app p-1">

@@ -126,9 +126,9 @@ export const domainConfig = {
     verdicts: [
       { id: 'Obra-Prima', minScore: 90, badgeClass: 'border-amber-400/40 bg-amber-400/15 text-amber-400' },
       { id: 'Excelente', minScore: 80, badgeClass: 'border-accent/40 bg-accent/15 text-accent' },
-      { id: 'Bom', minScore: 65, badgeClass: 'border-emerald-400/40 bg-emerald-400/15 text-emerald-400' },
-      { id: 'Mediano', minScore: 45, badgeClass: 'border-line bg-elevated text-muted' },
-      { id: 'Decepção', minScore: 0, badgeClass: 'border-rose-500/40 bg-rose-500/15 text-rose-400' },
+      { id: 'Muito Bom', minScore: 70, badgeClass: 'border-emerald-400/40 bg-emerald-400/15 text-emerald-400' },
+      { id: 'Regular', minScore: 50, badgeClass: 'border-line bg-elevated text-muted' },
+      { id: 'Abaixo do Esperado', minScore: 0, badgeClass: 'border-rose-500/40 bg-rose-500/15 text-rose-400' },
     ],
     dropReasons: [
       { id: 'Leitura arrastada', label: 'Leitura arrastada', icon: 'Moon' },
