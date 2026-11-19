@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { domainConfig } from '../config/domainConfig';
 import { initialItems } from '../data/mockData';
+import { exportSignedBackupPayload } from '../services/backupEngine';
 import {
   buildCodiceDatabase,
   createUuid,
@@ -8,6 +9,7 @@ import {
   hydrateAppSnapshotFromDatabase,
   loadStoredCodiceDatabase,
   parseAndValidateBackupText,
+  triggerFileDownload,
 } from '../services/codiceDatabase';
 import {
   calculatePercentProgress,
@@ -533,15 +535,25 @@ export function useBacklog() {
   }, []);
 
   const exportBackup = useCallback(
-    (extra = {}) => {
+    async (extra = {}) => {
       const db = buildCodiceDatabase({
         items,
         profile: extra.profile || null,
         posts: extra.posts || [],
         streak: extra.streak || null,
         readingSessions,
+        follows: extra.follows || [],
+        wallPosts: extra.wallPosts || [],
+        directMessages: extra.directMessages || [],
       });
-      exportDatabaseDownloads(db).json();
+      const signed = await exportSignedBackupPayload(db);
+      const stamp = getTodayLocalISO();
+      triggerFileDownload(
+        JSON.stringify(signed, null, 2),
+        `codice-banco-relacional-${stamp}.json`,
+        'application/json;charset=utf-8'
+      );
+      return signed;
     },
     [items, readingSessions]
   );

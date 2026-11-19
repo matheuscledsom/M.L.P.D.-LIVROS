@@ -1,5 +1,6 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AuthModal } from './components/auth/AuthModal';
+import { BackupRestoreModal } from './components/BackupRestoreModal';
 import { BottomNav } from './components/BottomNav';
 import { GeminiConfigModal } from './components/GeminiConfigModal';
 import { ItemDetailSheet } from './components/ItemDetailSheet';
@@ -12,6 +13,10 @@ import { useGeminiKey } from './hooks/useGeminiKey';
 import { useReadingStreak } from './hooks/useReadingStreak';
 import { useSocialProfile } from './hooks/useSocialProfile';
 import { useTheme } from './hooks/useTheme';
+import {
+  mergeSnapshots,
+  saveAutoSnapshot,
+} from './services/backupEngine';
 import {
   bootstrapBackend,
   getBackendMode,
@@ -41,6 +46,7 @@ export function App() {
   const [selectedItemId, setSelectedItemId] = useState(null);
   const [geminiModalOpen, setGeminiModalOpen] = useState(false);
   const [authModalOpen, setAuthModalOpen] = useState(false);
+  const [backupModalOpen, setBackupModalOpen] = useState(false);
   const [digitalShelfOpen, setDigitalShelfOpen] = useState(false);
   const [onboardingReopened, setOnboardingReopened] = useState(false);
   const [storedReaderWorkIds, setStoredReaderWorkIds] = useState([]);
@@ -470,9 +476,12 @@ export function App() {
     showToast({ message: 'Momento publicado no Diário', type: 'success' });
   };
 
-  const handleExportBackup = () => {
-    exportBackup({ profile, posts, streak: streakData });
-    showToast({ message: 'Banco relacional (.json) exportado', type: 'success' });
+  const handleExportBackup = async () => {
+    await exportBackup({ profile, posts, streak: streakData });
+    showToast({
+      message: 'Backup v4.0 (.json + SHA-256) exportado',
+      type: 'success',
+    });
   };
 
   const handleExportCsv = () => {
@@ -504,6 +513,64 @@ export function App() {
     return result;
   };
 
+  const handleApplyRestoreSnapshot = useCallback(
+    async (incomingSnapshot, mode = 'merge') => {
+      if (!incomingSnapshot) return;
+      if (mode === 'replace') {
+        await saveAutoSnapshot(
+          { items, profile, posts, streak: streakData, readingSessions },
+          { reason: 'pre-restore', label: 'Pré-restauração automática', force: true }
+        ).catch(() => {});
+
+        replaceWorkspaceData({
+          items: incomingSnapshot.items || [],
+          readingSessions: incomingSnapshot.readingSessions || [],
+        });
+        restoreSocialBackup({
+          profile: incomingSnapshot.profile,
+          posts: incomingSnapshot.posts || [],
+        });
+        restoreStreakBackup(
+          incomingSnapshot.streak || { count: 0, lastDate: null, history: [] }
+        );
+        showToast({
+          message: `Acervo restaurado (${incomingSnapshot.items?.length || 0} obras)`,
+          type: 'success',
+        });
+        return;
+      }
+
+      const merged = mergeSnapshots(
+        { items, profile, posts, streak: streakData, readingSessions },
+        incomingSnapshot
+      );
+      replaceWorkspaceData({
+        items: merged.items,
+        readingSessions: merged.readingSessions,
+      });
+      restoreSocialBackup({
+        profile: merged.profile,
+        posts: merged.posts,
+      });
+      restoreStreakBackup(merged.streak);
+      showToast({
+        message: `Backup mesclado com sucesso (${merged.items.length} obras no acervo)`,
+        type: 'success',
+      });
+    },
+    [
+      items,
+      profile,
+      posts,
+      streakData,
+      readingSessions,
+      replaceWorkspaceData,
+      restoreSocialBackup,
+      restoreStreakBackup,
+      showToast,
+    ]
+  );
+
   useEffect(() => {
     const db = buildCodiceDatabase({
       items,
@@ -513,6 +580,17 @@ export function App() {
       readingSessions,
     });
     persistCodiceDatabase(db);
+  }, [items, profile, posts, streakData, readingSessions]);
+
+  useEffect(() => {
+    if (!items || items.length === 0) return undefined;
+    const timer = setTimeout(() => {
+      saveAutoSnapshot(
+        { items, profile, posts, streak: streakData, readingSessions },
+        { reason: 'auto', label: 'Auto-snapshot automático' }
+      ).catch(() => {});
+    }, 8000);
+    return () => clearTimeout(timer);
   }, [items, profile, posts, streakData, readingSessions]);
 
   const handleRegisterToday = () => {
@@ -650,6 +728,7 @@ export function App() {
               onExportCsv={handleExportCsv}
               onExportBibtex={handleExportBibtex}
               onImportBackup={handleImportBackup}
+              onOpenBackupModal={() => setBackupModalOpen(true)}
             />
           )}
         </main>
@@ -741,6 +820,22 @@ export function App() {
             setOnboardingReopened(false);
           }}
           onDismiss={() => setOnboardingReopened(false)}
+        />
+
+        <BackupRestoreModal
+          isOpen={backupModalOpen}
+          onClose={() => setBackupModalOpen(false)}
+          currentWorkspace={{
+            items,
+            profile,
+            posts,
+            streak: streakData,
+            readingSessions,
+          }}
+          onExportBackup={handleExportBackup}
+          onExportCsv={handleExportCsv}
+          onExportBibtex={handleExportBibtex}
+          onApplyRestore={handleApplyRestoreSnapshot}
         />
 
         <DigitalShelfModal

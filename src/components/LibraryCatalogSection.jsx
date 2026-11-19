@@ -33,6 +33,9 @@ export function LibraryCatalogSection({
     item.advisor,
     item.issn,
     item.doi,
+    item.originalTitle,
+    item.loanedTo,
+    item.loanedAt,
   ].filter((v) => v !== undefined && v !== null && String(v).trim() !== '').length;
 
   const suggestion = suggestLibraryClassification(item);
@@ -266,6 +269,47 @@ export function LibraryCatalogSection({
                 className="w-full rounded-xl border border-line bg-card px-2.5 py-2 text-xs text-ink placeholder:text-subtle focus:border-accent focus:outline-none"
               />
             </label>
+
+            {/* Edição Bilíngue & Controle de Empréstimo */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+              <label className="block sm:col-span-3">
+                <span className="mb-1 block text-[10px] font-medium text-subtle">
+                  Título Original (Edição Bilíngue / Idioma Nativo)
+                </span>
+                <input
+                  type="text"
+                  value={item.originalTitle || ''}
+                  onChange={(e) => onChange({ originalTitle: e.target.value })}
+                  placeholder="Ex: The Trial / Der Process"
+                  className="w-full rounded-xl border border-line bg-card px-2.5 py-2 text-xs text-ink placeholder:text-subtle focus:border-accent focus:outline-none"
+                />
+              </label>
+
+              <label className="block sm:col-span-2">
+                <span className="mb-1 block text-[10px] font-medium text-subtle">
+                  Emprestado para
+                </span>
+                <input
+                  type="text"
+                  value={item.loanedTo || ''}
+                  onChange={(e) => onChange({ loanedTo: e.target.value })}
+                  placeholder="Nome do amigo ou colega"
+                  className="w-full rounded-xl border border-line bg-card px-2.5 py-2 text-xs text-ink placeholder:text-subtle focus:border-accent focus:outline-none"
+                />
+              </label>
+
+              <label className="block">
+                <span className="mb-1 block text-[10px] font-medium text-subtle">
+                  Data do empréstimo
+                </span>
+                <input
+                  type="date"
+                  value={item.loanedAt || ''}
+                  onChange={(e) => onChange({ loanedAt: e.target.value || null })}
+                  className="w-full rounded-xl border border-line bg-card px-2.5 py-2 text-xs text-ink focus:border-accent focus:outline-none"
+                />
+              </label>
+            </div>
 
             <div>
               <p className="mb-1.5 text-[10px] font-medium text-subtle">

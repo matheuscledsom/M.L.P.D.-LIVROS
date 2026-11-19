@@ -133,6 +133,7 @@ export function ProfileScreen({
   onExportCsv,
   onExportBibtex,
   onImportBackup,
+  onOpenBackupModal,
 }) {
   const { ui, cardFields } = domainConfig;
   const { profile: profileCfg } = ui;
@@ -459,11 +460,22 @@ export function ProfileScreen({
               </button>
               <button
                 type="button"
-                onClick={() => fileInputRef.current?.click()}
+                onClick={() => {
+                  setMenuOpen(false);
+                  if (onOpenBackupModal) {
+                    onOpenBackupModal();
+                  } else {
+                    fileInputRef.current?.click();
+                  }
+                }}
                 className="flex min-h-[44px] w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-xs font-medium text-ink transition-colors hover:bg-elevated"
               >
                 <Upload className="h-4 w-4 shrink-0 text-accent" strokeWidth={1.5} />
-                <span>{profileCfg.backup.importLabel}</span>
+                <span>
+                  {onOpenBackupModal
+                    ? 'Restaurar Backup e Snapshots'
+                    : profileCfg.backup.importLabel}
+                </span>
               </button>
             </div>
           )}

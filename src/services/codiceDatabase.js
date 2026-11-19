@@ -1,13 +1,17 @@
 import { buildPublicProfileLink, domainConfig } from '../config/domainConfig.js';
 import {
+  calculatePercentProgress,
   calculateSmartRating,
   calculateWorkProgress,
   getTodayLocalISO,
   getVerdictForScore,
+  normalizeProgressMode,
 } from '../utils/backlogHelpers.js';
 
-export const CODICE_SCHEMA_VERSION = '3.0-codice-sql';
-export const CODICE_DB_STORAGE_KEY = 'codice_relational_db_v3';
+export const CODICE_SCHEMA_VERSION = '4.0-codice-sql';
+export const CODICE_V3_SCHEMA_VERSION = '3.0-codice-sql';
+export const CODICE_DB_STORAGE_KEY = 'codice_relational_db_v4';
+export const CODICE_V3_STORAGE_KEY = 'codice_relational_db_v3';
 
 export function createUuid() {
   if (typeof globalThis !== 'undefined' && globalThis.crypto?.randomUUID) {
@@ -102,11 +106,21 @@ export function detectSchemaVersion(rawData) {
   if (
     typeof rawData === 'object' &&
     !Array.isArray(rawData) &&
-    rawData.schemaVersion === CODICE_SCHEMA_VERSION &&
     rawData.tables &&
     typeof rawData.tables === 'object'
   ) {
-    return 3;
+    if (
+      rawData.schemaVersion === CODICE_SCHEMA_VERSION ||
+      Number(rawData.schemaNumericVersion) >= 4
+    ) {
+      return 4;
+    }
+    if (
+      rawData.schemaVersion === CODICE_V3_SCHEMA_VERSION ||
+      Number(rawData.schemaNumericVersion) === 3
+    ) {
+      return 3;
+    }
   }
   if (
     typeof rawData === 'object' &&
@@ -324,11 +338,25 @@ export function migrateV2ToV3(v2Data) {
       physicalLocation: String(rawItem.physicalLocation || '').trim(),
       acquisitionType: String(rawItem.acquisitionType || '').trim(),
       conservationState: String(rawItem.conservationState || '').trim(),
+      originalTitle: String(rawItem.originalTitle || '').trim(),
+      loanedTo: String(rawItem.loanedTo || '').trim(),
+      loanedAt: rawItem.loanedAt || null,
       format:
         rawItem.format ||
         (rawItem.access && rawItem.access !== 'Wishlist' ? rawItem.access : null) ||
         domainConfig.bookFormats[0],
       access: rawItem.access || null,
+      progressMode: normalizeProgressMode(rawItem.progressMode),
+      progressPercent:
+        rawItem.progressPercent !== null &&
+        rawItem.progressPercent !== undefined &&
+        rawItem.progressPercent !== ''
+          ? calculatePercentProgress(rawItem.progressPercent)
+          : status === 'completed'
+            ? 100
+            : null,
+      locCurrent: Math.max(0, Number(rawItem.locCurrent) || 0),
+      locTotal: Number(rawItem.locTotal) > 0 ? Number(rawItem.locTotal) : null,
       currentPage: Math.max(0, Number(rawItem.currentPage) || 0),
       totalPages:
         Number(rawItem.totalPages) > 0 ? Number(rawItem.totalPages) : null,
@@ -509,7 +537,7 @@ export function migrateV2ToV3(v2Data) {
   const user_profile = buildDefaultUserProfile(v2Data?.profile || null);
 
   return {
-    schemaVersion: CODICE_SCHEMA_VERSION,
+    schemaVersion: CODICE_V3_SCHEMA_VERSION,
     schemaNumericVersion: 3,
     domain: domainConfig.domainKey,
     exportedAt: v2Data?.exportedAt || fallbackNow,
@@ -522,6 +550,11 @@ export function migrateV2ToV3(v2Data) {
       quotes_notes,
       journal_entries,
       user_profile,
+      follows: Array.isArray(v2Data?.follows) ? v2Data.follows : [],
+      wall_posts: Array.isArray(v2Data?.wallPosts) ? v2Data.wallPosts : [],
+      direct_messages: Array.isArray(v2Data?.directMessages)
+        ? v2Data.directMessages
+        : [],
     },
     metadata: {
       streak: v2Data?.streak || { count: 0, lastDate: null, history: [] },
@@ -529,17 +562,45 @@ export function migrateV2ToV3(v2Data) {
   };
 }
 
-function normalizeV3Database(v3Data) {
+function normalizeWorkRowV4(work = {}) {
+  if (!work || typeof work !== 'object') return work;
+  const status = work.status || domainConfig.ui.add.defaultNewStatus;
+  const locTotal = Number(work.locTotal) > 0 ? Number(work.locTotal) : null;
+  const locCurrent = Math.max(0, Number(work.locCurrent) || 0);
+  const hasPct =
+    work.progressPercent !== null &&
+    work.progressPercent !== undefined &&
+    work.progressPercent !== '';
+
+  return {
+    ...work,
+    originalTitle: String(work.originalTitle || '').trim(),
+    loanedTo: String(work.loanedTo || '').trim(),
+    loanedAt: work.loanedAt || null,
+    progressMode: normalizeProgressMode(work.progressMode),
+    progressPercent: hasPct
+      ? calculatePercentProgress(work.progressPercent)
+      : status === 'completed'
+        ? 100
+        : null,
+    locCurrent: status === 'completed' && locTotal ? locTotal : locCurrent,
+    locTotal,
+  };
+}
+
+export function migrateV3ToV4(v3Data) {
   const tables = v3Data?.tables || {};
-  const fallbackNow = v3Data?.exportedAt || new Date().toISOString();
+  const fallbackNow = v3Data?.exportedAt || '2026-01-01T00:00:00.000Z';
+
+  const rawWorks = Array.isArray(tables.works) ? tables.works : [];
 
   return {
     schemaVersion: CODICE_SCHEMA_VERSION,
-    schemaNumericVersion: 3,
+    schemaNumericVersion: 4,
     domain: domainConfig.domainKey,
     exportedAt: v3Data?.exportedAt || fallbackNow,
     tables: {
-      works: Array.isArray(tables.works) ? tables.works : [],
+      works: rawWorks.map(normalizeWorkRowV4),
       authors: Array.isArray(tables.authors) ? tables.authors : [],
       work_authors: Array.isArray(tables.work_authors) ? tables.work_authors : [],
       reading_sessions: Array.isArray(tables.reading_sessions)
@@ -551,6 +612,11 @@ function normalizeV3Database(v3Data) {
         ? tables.journal_entries
         : [],
       user_profile: buildDefaultUserProfile(tables.user_profile || null),
+      follows: Array.isArray(tables.follows) ? tables.follows : [],
+      wall_posts: Array.isArray(tables.wall_posts) ? tables.wall_posts : [],
+      direct_messages: Array.isArray(tables.direct_messages)
+        ? tables.direct_messages
+        : [],
     },
     metadata: {
       streak: v3Data?.metadata?.streak || { count: 0, lastDate: null, history: [] },
@@ -560,14 +626,14 @@ function normalizeV3Database(v3Data) {
 
 export function migrateDatabase(rawData) {
   const detectedVersion = detectSchemaVersion(rawData);
-  if (detectedVersion === 3) {
-    return normalizeV3Database(rawData);
+  if (detectedVersion === 4 || detectedVersion === 3) {
+    return migrateV3ToV4(rawData);
   }
   if (detectedVersion === 2) {
-    return migrateV2ToV3(rawData);
+    return migrateV3ToV4(migrateV2ToV3(rawData));
   }
   const v2 = migrateV1ToV2(rawData);
-  return migrateV2ToV3(v2);
+  return migrateV3ToV4(migrateV2ToV3(v2));
 }
 
 export function validateReferentialIntegrity(db) {
@@ -652,8 +718,11 @@ export function buildCodiceDatabase({
   posts = [],
   streak = null,
   readingSessions = [],
+  follows = [],
+  wallPosts = [],
+  directMessages = [],
 } = {}) {
-  return migrateV2ToV3({
+  const v3 = migrateV2ToV3({
     version: 2,
     domain: domainConfig.domainKey,
     exportedAt: new Date().toISOString(),
@@ -662,11 +731,15 @@ export function buildCodiceDatabase({
     posts,
     streak: streak || { count: 0, lastDate: null, history: [] },
     readingSessions,
+    follows,
+    wallPosts,
+    directMessages,
   });
+  return migrateV3ToV4(v3);
 }
 
 export function hydrateAppSnapshotFromDatabase(db) {
-  const normalized = normalizeV3Database(db);
+  const normalized = migrateV3ToV4(db);
   const {
     works,
     authors,
@@ -676,6 +749,9 @@ export function hydrateAppSnapshotFromDatabase(db) {
     quotes_notes,
     journal_entries,
     user_profile,
+    follows,
+    wall_posts,
+    direct_messages,
   } = normalized.tables;
 
   const authorMap = new Map(authors.map((a) => [a.id, a]));
@@ -741,6 +817,9 @@ export function hydrateAppSnapshotFromDatabase(db) {
     posts,
     streak: normalized.metadata?.streak || { count: 0, lastDate: null, history: [] },
     readingSessions: reading_sessions,
+    follows: follows || [],
+    wallPosts: wall_posts || [],
+    directMessages: direct_messages || [],
   };
 }
 
@@ -756,7 +835,9 @@ export function persistCodiceDatabase(db) {
 export function loadStoredCodiceDatabase() {
   try {
     if (typeof localStorage === 'undefined') return null;
-    const raw = localStorage.getItem(CODICE_DB_STORAGE_KEY);
+    const raw =
+      localStorage.getItem(CODICE_DB_STORAGE_KEY) ||
+      localStorage.getItem(CODICE_V3_STORAGE_KEY);
     if (!raw) return null;
     return migrateDatabase(JSON.parse(raw));
   } catch {
@@ -803,6 +884,9 @@ export function generateCatalogCsv(db) {
     'Localização Física',
     'Aquisição',
     'Conservação',
+    'Título Original',
+    'Emprestado Para',
+    'Modo de Progresso',
   ];
 
   const rows = items.map((item) => [
@@ -834,6 +918,9 @@ export function generateCatalogCsv(db) {
     item.physicalLocation,
     item.acquisitionType,
     item.conservationState,
+    item.originalTitle || '',
+    item.loanedTo || '',
+    item.progressMode || 'pages',
   ]);
 
   const lines = [
