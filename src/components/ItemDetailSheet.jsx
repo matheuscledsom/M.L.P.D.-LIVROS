@@ -1,0 +1,219 @@
+import { Bookmark, Heart, Star, Trash2, X } from 'lucide-react';
+import { domainConfig, getStatusList } from '../config/domainConfig';
+import { getVerdictMeta } from '../utils/backlogHelpers';
+import { CoverArt } from './CoverArt';
+import { StatusBadge } from './StatusBadge';
+import { TactileStatusFields } from './TactileStatusFields';
+
+export function ItemDetailSheet({
+  item,
+  onClose,
+  onUpdateItem,
+  onRemoveItem,
+  onOpenJournal,
+}) {
+  if (!item) return null;
+
+  const statuses = getStatusList();
+  const { ui, cardFields, formatOptions } = domainConfig;
+  const availableFormats = Array.from(
+    new Set([...(item.format ? [item.format] : []), ...formatOptions])
+  );
+
+  const formatKey = cardFields.primary;
+  const notesKey = cardFields.notes;
+  const genres = item[cardFields.genres] || [];
+  const verdictMeta = item.verdict ? getVerdictMeta(item.verdict) : null;
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 backdrop-blur-xs"
+      onClick={onClose}
+    >
+      <div
+        className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-t-3xl border-x border-t border-line bg-card p-5 pb-8 shadow-2xl no-scrollbar"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-line" />
+
+        <div className="flex gap-4">
+          <CoverArt item={item} compact className="h-28 w-21 shrink-0 rounded-xl" />
+          <div className="min-w-0 flex-1">
+            <div className="flex items-start justify-between gap-2">
+              <h3 className="text-base font-semibold leading-snug text-ink">
+                {item.title}
+              </h3>
+              <button
+                type="button"
+                onClick={onClose}
+                aria-label={ui.detail.closeLabel}
+                className="rounded-full p-1 text-muted hover:bg-elevated hover:text-ink"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <p className="mt-0.5 text-xs text-muted">
+              {[item[cardFields.creator], item[cardFields.year]]
+                .filter(Boolean)
+                .join(' • ')}
+            </p>
+            {genres.length > 0 && (
+              <p className="mt-1 truncate text-[11px] text-subtle">
+                {genres.slice(0, 3).join(' · ')}
+              </p>
+            )}
+            <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
+              <StatusBadge statusId={item.status} />
+              {item.isPlatinum && (
+                <span className="inline-flex items-center gap-1 rounded-full border border-amber-400/40 bg-amber-400/15 px-2 py-0.5 text-[10px] font-semibold text-amber-400">
+                  <Star className="h-3 w-3 fill-amber-400 text-amber-400" />
+                  5 Estrelas
+                </span>
+              )}
+              {item.status === 'completed' && verdictMeta && (
+                <span
+                  className={`rounded-full border px-2 py-0.5 text-[10px] font-medium ${verdictMeta.badgeClass}`}
+                >
+                  {verdictMeta.id}
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-5">
+          <p className="mb-2 text-xs font-medium text-muted">
+            {ui.detail.statusTitle}
+          </p>
+          <div className="grid grid-cols-2 gap-2">
+            {statuses.map((status) => {
+              const isSelected = item.inBacklog && item.status === status.id;
+              return (
+                <button
+                  key={status.id}
+                  type="button"
+                  onClick={() =>
+                    onUpdateItem(item.id, { status: status.id, inBacklog: true })
+                  }
+                  className={`flex items-center gap-2 rounded-xl border px-3 py-2 text-xs font-medium transition-colors ${
+                    isSelected
+                      ? 'border-accent bg-accent/15 text-ink'
+                      : 'border-line bg-app text-muted hover:text-ink'
+                  }`}
+                >
+                  <span className={`h-2 w-2 rounded-full ${status.dotClass}`} />
+                  {status.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {item.status !== 'queued' && (
+          <div className="mt-4">
+            <p className="mb-2 text-xs font-medium text-muted">
+              {ui.detail.formatTitle}
+            </p>
+            <div className="flex flex-wrap gap-1.5">
+              {availableFormats.map((format) => {
+                const isSelected = item[formatKey] === format;
+                return (
+                  <button
+                    key={format}
+                    type="button"
+                    onClick={() =>
+                      onUpdateItem(item.id, { [formatKey]: format })
+                    }
+                    className={`rounded-lg border px-2.5 py-1 text-xs font-medium transition-colors ${
+                      isSelected
+                        ? 'border-accent bg-accent/15 text-ink'
+                        : 'border-line bg-app text-muted hover:text-ink'
+                    }`}
+                  >
+                    {format}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        <div className="mt-4 border-t border-line pt-4">
+          <TactileStatusFields
+            item={item}
+            onChange={(updates) => onUpdateItem(item.id, updates)}
+            onOpenJournal={() => {
+              onClose();
+              onOpenJournal?.(item.id);
+            }}
+          />
+        </div>
+
+        <label className="mt-4 block">
+          <span className="mb-1.5 block text-xs font-medium text-muted">
+            {ui.detail.notesLabel}
+          </span>
+          <textarea
+            rows={3}
+            value={item[notesKey] || ''}
+            onChange={(e) =>
+              onUpdateItem(item.id, { [notesKey]: e.target.value })
+            }
+            placeholder={ui.detail.notesPlaceholder}
+            className="w-full resize-none rounded-xl border border-line bg-app px-3 py-2.5 text-xs leading-relaxed text-ink placeholder:text-subtle focus:border-accent focus:outline-none"
+          />
+        </label>
+
+        <div className="mt-4 grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            onClick={() =>
+              onUpdateItem(item.id, { isFavorite: !item.isFavorite })
+            }
+            className={`flex items-center justify-center gap-2 rounded-xl border py-2.5 text-xs font-medium transition-colors ${
+              item.isFavorite
+                ? 'border-accent/60 bg-accent/15 text-accent'
+                : 'border-line bg-app text-muted hover:text-ink'
+            }`}
+          >
+            <Heart
+              className="h-3.5 w-3.5"
+              fill={item.isFavorite ? 'currentColor' : 'none'}
+            />
+            {ui.detail.favoriteLabel}
+          </button>
+
+          <button
+            type="button"
+            onClick={() =>
+              onUpdateItem(item.id, { isWishlist: !item.isWishlist })
+            }
+            className={`flex items-center justify-center gap-2 rounded-xl border py-2.5 text-xs font-medium transition-colors ${
+              item.isWishlist
+                ? 'border-accent/60 bg-accent/15 text-accent'
+                : 'border-line bg-app text-muted hover:text-ink'
+            }`}
+          >
+            <Bookmark
+              className="h-3.5 w-3.5"
+              fill={item.isWishlist ? 'currentColor' : 'none'}
+            />
+            {ui.detail.wishlistLabel}
+          </button>
+        </div>
+
+        <button
+          type="button"
+          onClick={() => {
+            onRemoveItem(item.id);
+            onClose();
+          }}
+          className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-xl border border-rose-500/20 bg-rose-500/10 py-2.5 text-xs font-medium text-rose-400 transition-colors hover:bg-rose-500/20"
+        >
+          <Trash2 className="h-3.5 w-3.5" />
+          {ui.detail.removeLabel}
+        </button>
+      </div>
+    </div>
+  );
+}
