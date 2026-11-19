@@ -98,16 +98,16 @@ export function ReaderSettings({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4"
-      style={{ backgroundColor: 'rgba(0, 0, 0, 0.45)' }}
+      className="fixed inset-0 z-50 flex items-end justify-end p-0"
+      style={{ backgroundColor: 'rgba(0, 0, 0, 0.22)' }}
       onClick={onClose}
     >
       <div
         role="dialog"
         aria-modal="true"
-        aria-label="Ajustes de leitura"
+        aria-label="Ajustes de leitura ao vivo"
         onClick={(e) => e.stopPropagation()}
-        className="max-h-[88vh] w-full max-w-md overflow-y-auto rounded-t-[6px] sm:rounded-[6px] border px-5 py-4 no-scrollbar"
+        className="max-h-[65vh] sm:max-h-full sm:h-full w-full sm:w-[380px] overflow-y-auto rounded-t-[6px] sm:rounded-none border-t sm:border-t-0 sm:border-l px-5 py-4 no-scrollbar"
         style={{
           backgroundColor: 'var(--reader-bg)',
           color: 'var(--reader-ink)',
@@ -286,7 +286,7 @@ export function ReaderSettings({
                 />
               </SettingRow>
 
-              <SettingRow label="Margens">
+              <SettingRow label="Margens e largura">
                 <SegmentedTextControl
                   value={settings.marginLevel}
                   options={[

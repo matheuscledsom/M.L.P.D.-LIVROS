@@ -1,12 +1,12 @@
 import {
   ArrowLeft,
   Bookmark,
+  Contrast,
   HelpCircle,
   ListTree,
   Maximize2,
   Minimize2,
   Search,
-  Settings2,
 } from 'lucide-react';
 import { useState } from 'react';
 import { formatExactPercent } from './useReaderProgress';
@@ -22,9 +22,11 @@ export function ReaderToolbar({
   chapters = [],
   isBookmarked = false,
   isFullscreen = false,
+  activeThemeId = 'app',
   onBack,
   onToggleToc,
   onOpenSearch,
+  onCycleQuickTheme,
   onToggleSettings,
   onToggleBookmark,
   onToggleFullscreen,
@@ -167,13 +169,52 @@ export function ReaderToolbar({
 
             <button
               type="button"
-              onClick={onToggleSettings}
-              aria-label="Ajustes de leitura e tema"
-              title="Ajustes do leitor"
-              className="flex min-h-[40px] min-w-[40px] items-center justify-center rounded-[4px] transition-colors duration-150 ease-out"
-              style={{ color: 'var(--reader-muted)' }}
+              onClick={onCycleQuickTheme}
+              aria-label="Alternar tema rápido entre White, Sépia e OLED"
+              title="Alternar tema (White / Sépia / OLED)"
+              className="flex min-h-[40px] items-center gap-1 rounded-[4px] border px-2 text-[11px] font-medium transition-colors duration-150 ease-out"
+              style={{
+                borderColor: 'var(--reader-border)',
+                color:
+                  activeThemeId === 'white' ||
+                  activeThemeId === 'sepia' ||
+                  activeThemeId === 'oled'
+                    ? 'var(--reader-accent)'
+                    : 'var(--reader-muted)',
+              }}
             >
-              <Settings2 className="h-4 w-4" strokeWidth={1.5} />
+              <Contrast className="h-3.5 w-3.5" strokeWidth={1.5} />
+              <span className="hidden sm:inline">
+                {activeThemeId === 'sepia'
+                  ? 'Sépia'
+                  : activeThemeId === 'oled'
+                    ? 'OLED'
+                    : activeThemeId === 'white'
+                      ? 'White'
+                      : 'Tema'}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={onToggleSettings}
+              aria-label="Abrir configurações de tipografia e leitura (Aa)"
+              title="Tipografia e tema (A)"
+              className="flex min-h-[40px] items-center gap-1 rounded-[4px] border px-2.5 text-xs font-medium transition-colors duration-150 ease-out"
+              style={{
+                borderColor: 'var(--reader-border)',
+                color: 'var(--reader-ink)',
+              }}
+            >
+              <span className="font-serif text-[13px] font-semibold leading-none tracking-tight">
+                Aa
+              </span>
+              <span
+                className="hidden md:inline text-[11px] font-normal"
+                style={{ color: 'var(--reader-muted)' }}
+              >
+                Tipografia
+              </span>
             </button>
 
             <button

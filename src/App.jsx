@@ -5,6 +5,7 @@ import { GeminiConfigModal } from './components/GeminiConfigModal';
 import { ItemDetailSheet } from './components/ItemDetailSheet';
 import { JournalComposerModal } from './components/JournalComposerModal';
 import { OnboardingFlow } from './components/OnboardingFlow';
+import { DigitalShelfModal } from './components/reader/DigitalShelfModal';
 import { useToast } from './context/ToastContext';
 import { useBacklog } from './hooks/useBacklog';
 import { useGeminiKey } from './hooks/useGeminiKey';
@@ -40,6 +41,7 @@ export function App() {
   const [selectedItemId, setSelectedItemId] = useState(null);
   const [geminiModalOpen, setGeminiModalOpen] = useState(false);
   const [authModalOpen, setAuthModalOpen] = useState(false);
+  const [digitalShelfOpen, setDigitalShelfOpen] = useState(false);
   const [onboardingReopened, setOnboardingReopened] = useState(false);
   const [storedReaderWorkIds, setStoredReaderWorkIds] = useState([]);
   const [backendReady, setBackendReady] = useState(false);
@@ -52,6 +54,7 @@ export function App() {
   const [readerSession, setReaderSession] = useState({
     open: false,
     workId: null,
+    initialBookId: null,
     initialFile: null,
   });
   const [journalComposer, setJournalComposer] = useState({
@@ -224,21 +227,47 @@ export function App() {
     [items, readerSession.workId]
   );
 
-  useEffect(() => {
+  const refreshStoredBookIds = useCallback(() => {
     listStoredBookIds()
       .then((ids) => setStoredReaderWorkIds(ids))
       .catch(() => {});
-  }, [readerSession.open]);
+  }, []);
+
+  useEffect(() => {
+    refreshStoredBookIds();
+  }, [readerSession.open, refreshStoredBookIds]);
 
   const handleOpenReaderForWork = useCallback((work, file = null) => {
     if (!work) return;
     setSelectedItemId(null);
-    setReaderSession({ open: true, workId: work.id, initialFile: file });
+    setReaderSession({
+      open: true,
+      workId: work.id,
+      initialBookId: null,
+      initialFile: file,
+    });
   }, []);
 
   const handleOpenQuickReader = useCallback((file = null) => {
     setSelectedItemId(null);
-    setReaderSession({ open: true, workId: null, initialFile: file });
+    setReaderSession({
+      open: true,
+      workId: null,
+      initialBookId: null,
+      initialFile: file,
+    });
+  }, []);
+
+  const handleOpenStoredBook = useCallback((entry) => {
+    if (!entry) return;
+    setSelectedItemId(null);
+    setDigitalShelfOpen(false);
+    setReaderSession({
+      open: true,
+      workId: entry.workId || null,
+      initialBookId: entry.workId ? null : entry.bookId,
+      initialFile: null,
+    });
   }, []);
 
   const handlePersistReaderState = useCallback(
@@ -555,6 +584,7 @@ export function App() {
               onSelectItem={(item) => setSelectedItemId(item.id)}
               onOpenReader={handleOpenReaderForWork}
               onOpenQuickReader={handleOpenQuickReader}
+              onOpenDigitalShelf={() => setDigitalShelfOpen(true)}
               onNavigateList={() => setActiveTab('list')}
               onNavigateAdd={() => setActiveTab('add')}
               onOpenGeminiSettings={() => setGeminiModalOpen(true)}
@@ -577,6 +607,7 @@ export function App() {
               streakProps={streakProps}
               geminiKey={geminiKey}
               onSelectItem={(item) => setSelectedItemId(item.id)}
+              onOpenDigitalShelf={() => setDigitalShelfOpen(true)}
               onNavigateAdd={() => setActiveTab('add')}
               onOpenGeminiSettings={() => setGeminiModalOpen(true)}
             />
@@ -651,9 +682,15 @@ export function App() {
             <ReaderShell
               isOpen={readerSession.open}
               work={readerWork}
+              initialBookId={readerSession.initialBookId}
               initialFile={readerSession.initialFile}
               onClose={() =>
-                setReaderSession({ open: false, workId: null, initialFile: null })
+                setReaderSession({
+                  open: false,
+                  workId: null,
+                  initialBookId: null,
+                  initialFile: null,
+                })
               }
               onPersistReaderState={handlePersistReaderState}
               onRecordSession={addReadingSession}
@@ -704,6 +741,19 @@ export function App() {
             setOnboardingReopened(false);
           }}
           onDismiss={() => setOnboardingReopened(false)}
+        />
+
+        <DigitalShelfModal
+          isOpen={digitalShelfOpen}
+          onClose={() => setDigitalShelfOpen(false)}
+          works={items}
+          onOpenStoredBook={handleOpenStoredBook}
+          onSyncLinkedWork={(targetWork, extractedPosition) => {
+            if (extractedPosition) {
+              handleSyncWorkProgress(targetWork, extractedPosition);
+            }
+          }}
+          onShelfMutated={refreshStoredBookIds}
         />
 
         <AuthModal

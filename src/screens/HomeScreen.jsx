@@ -1,4 +1,4 @@
-import { ArrowRight, BookOpen, Clock, FileUp, Play, Plus, Sparkles, Star, Target } from 'lucide-react';
+import { ArrowRight, BookOpen, Clock, FileUp, Library, Play, Plus, Sparkles, Star, Target } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { CoverArt } from '../components/CoverArt';
 import { OracleWidget } from '../components/OracleWidget';
@@ -63,6 +63,7 @@ export function HomeScreen({
   onSelectItem,
   onOpenReader,
   onOpenQuickReader,
+  onOpenDigitalShelf,
   onNavigateList,
   onNavigateAdd,
   onOpenGeminiSettings,
@@ -181,14 +182,24 @@ export function HomeScreen({
             {domainConfig.signature}
           </p>
         </div>
-        <button
-          type="button"
-          onClick={() => onOpenQuickReader?.(null)}
-          className="inline-flex min-h-[44px] shrink-0 items-center gap-1.5 rounded-2xl border border-accent/40 bg-accent/15 px-3 py-2 text-xs font-semibold text-accent transition-colors hover:bg-accent hover:text-accent-ink"
-        >
-          <FileUp className="h-4 w-4" strokeWidth={1.5} />
-          <span>Leitor Rápido</span>
-        </button>
+        <div className="flex shrink-0 items-center gap-1.5">
+          <button
+            type="button"
+            onClick={() => onOpenDigitalShelf?.()}
+            className="inline-flex min-h-[44px] shrink-0 items-center gap-1.5 rounded-[6px] border border-line bg-card px-2.5 py-2 text-xs font-medium text-ink transition-colors hover:border-accent"
+          >
+            <Library className="h-4 w-4 text-accent" strokeWidth={1.5} />
+            <span className="hidden sm:inline">Meus EPUBs</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => onOpenQuickReader?.(null)}
+            className="inline-flex min-h-[44px] shrink-0 items-center gap-1.5 rounded-[6px] border border-accent/40 bg-accent/15 px-3 py-2 text-xs font-semibold text-accent transition-colors hover:bg-accent hover:text-accent-ink"
+          >
+            <FileUp className="h-4 w-4" strokeWidth={1.5} />
+            <span>Leitor Rápido</span>
+          </button>
+        </div>
       </header>
 
       {profile?.gamificationEnabled !== false && streakProps && (

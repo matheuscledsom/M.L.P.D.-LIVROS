@@ -18,7 +18,9 @@ import {
 } from 'react';
 import { useToast } from '../../context/ToastContext';
 import {
+  buildQuickReaderBookId,
   getBookFileRecord,
+  markStoredBookOpened,
   pickFileViaSystemAccess,
   resolveStoredFileBlob,
   saveBookFile,
@@ -52,6 +54,7 @@ const TextView = lazy(() =>
 const KEYBOARD_SHORTCUTS = [
   { keys: '← / → ou PageUp / PageDown', desc: 'página anterior / próxima' },
   { keys: 'Espaço', desc: 'avançar página' },
+  { keys: 'A', desc: 'tipografia e tema (Aa)' },
   { keys: 'F', desc: 'alternar tela cheia' },
   { keys: 'T', desc: 'abrir índice e notas' },
   { keys: '/', desc: 'buscar no texto' },
@@ -94,6 +97,7 @@ function ReaderSkeleton({ label = 'carregando leitura...' }) {
 export function ReaderShell({
   isOpen,
   work = null,
+  initialBookId = null,
   initialFile = null,
   onClose,
   onPersistReaderState,
@@ -127,9 +131,14 @@ export function ReaderShell({
   const [rulerY, setRulerY] = useState(48);
 
   const quickStorageKey = useMemo(() => {
-    if (work?.id || !fileBlob) return '';
-    return `quick:${fileName || fileBlob.name || 'arquivo'}:${fileBlob.size}`;
-  }, [work?.id, fileBlob, fileName]);
+    if (work?.id) return '';
+    if (initialBookId) return String(initialBookId);
+    if (!fileBlob) return '';
+    return buildQuickReaderBookId(
+      fileName || fileBlob.name || 'arquivo',
+      fileBlob.size
+    );
+  }, [work?.id, initialBookId, fileBlob, fileName]);
 
   const {
     settings,
@@ -226,13 +235,18 @@ export function ReaderShell({
           return;
         }
 
-        if (work?.id) {
-          await saveBookFile(work.id, {
+        const targetStorageId =
+          work?.id ||
+          initialBookId ||
+          buildQuickReaderBookId(file.name, file.size);
+        if (targetStorageId) {
+          await saveBookFile(targetStorageId, {
             blob: persistCopy ? file : null,
             fileHandle: persistCopy ? null : fileHandle,
             fileName: file.name,
             format: detection.format,
             size: file.size,
+            lastOpenedAt: new Date().toISOString(),
           });
         }
 
@@ -248,7 +262,7 @@ export function ReaderShell({
         setIsLoadingFile(false);
       }
     },
-    [work?.id]
+    [work?.id, initialBookId]
   );
 
   // Hidrata arquivo inicial (arrastado) ou salvo em IndexedDB para a obra
@@ -269,17 +283,19 @@ export function ReaderShell({
 
     const hydrate = async () => {
       if (initialFile) {
-        await loadSelectedFile(initialFile, { persistCopy: Boolean(work?.id) });
+        await loadSelectedFile(initialFile, { persistCopy: true });
         return;
       }
 
-      if (!work?.id) return;
+      const targetBookId = work?.id || initialBookId;
+      if (!targetBookId) return;
       setIsLoadingFile(true);
       setErrorMsg('');
       try {
-        const record = await getBookFileRecord(work.id);
+        const record = await getBookFileRecord(targetBookId);
         if (cancelled) return;
         if (record) {
+          await markStoredBookOpened(targetBookId);
           const blob = await resolveStoredFileBlob(record);
           if (cancelled) return;
           if (blob) {
@@ -291,7 +307,7 @@ export function ReaderShell({
             }
             setFileBlob(blob);
             setFileFormat(record.format || detection.format);
-            setFileName(record.fileName || work.title);
+            setFileName(record.fileName || work?.title || 'Leitura Códice');
           }
         }
       } catch (err) {
@@ -309,7 +325,7 @@ export function ReaderShell({
     return () => {
       cancelled = true;
     };
-  }, [isOpen, work?.id, initialFile, loadSelectedFile]);
+  }, [isOpen, work?.id, work?.title, initialBookId, initialFile, loadSelectedFile]);
 
   const handleCloseReader = useCallback(() => {
     if (document.fullscreenElement) {
@@ -340,6 +356,14 @@ export function ReaderShell({
     onSyncWorkProgress,
     onClose,
   ]);
+
+  const handleCycleQuickTheme = useCallback(() => {
+    const order = ['white', 'sepia', 'oled'];
+    const idx = order.indexOf(settings.theme);
+    const nextTheme = order[(idx + 1) % order.length];
+    updateSettings({ theme: nextTheme });
+    revealBars();
+  }, [settings.theme, updateSettings, revealBars]);
 
   const handleToggleFullscreen = useCallback(() => {
     const el = rootRef.current;
@@ -406,6 +430,9 @@ export function ReaderShell({
       } else if (e.key === ' ') {
         e.preventDefault();
         engineRef.current?.nextPage?.();
+      } else if (e.key.toLowerCase() === 'a') {
+        e.preventDefault();
+        setSettingsOpen((prev) => !prev);
       } else if (e.key.toLowerCase() === 'f') {
         e.preventDefault();
         handleToggleFullscreen();
@@ -492,7 +519,7 @@ export function ReaderShell({
     setIsDraggingOver(false);
     const dropped = e.dataTransfer?.files?.[0];
     if (dropped) {
-      await loadSelectedFile(dropped, { persistCopy: Boolean(work?.id) });
+      await loadSelectedFile(dropped, { persistCopy: true });
     }
   };
 
@@ -617,6 +644,7 @@ export function ReaderShell({
         chapters={tocItems}
         isBookmarked={isBookmarkedHere}
         isFullscreen={isFullscreen}
+        activeThemeId={settings.theme}
         onBack={handleCloseReader}
         onToggleToc={() => {
           setTocInitialTab('toc');
@@ -626,7 +654,8 @@ export function ReaderShell({
           setTocInitialTab('search');
           setTocOpen(true);
         }}
-        onToggleSettings={() => setSettingsOpen(true)}
+        onCycleQuickTheme={handleCycleQuickTheme}
+        onToggleSettings={() => setSettingsOpen((prev) => !prev)}
         onToggleBookmark={() =>
           toggleBookmark({
             label:
@@ -981,7 +1010,7 @@ export function ReaderShell({
           const file = e.target.files?.[0];
           e.target.value = '';
           if (file) {
-            loadSelectedFile(file, { persistCopy: Boolean(work?.id) });
+            loadSelectedFile(file, { persistCopy: true });
           }
         }}
         className="hidden"

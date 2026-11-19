@@ -5,6 +5,7 @@ import {
   FolderTree,
   LayoutGrid,
   LayoutList,
+  Library,
   MapPin,
   Plus,
   Star,
@@ -74,6 +75,7 @@ export function ListScreen({
   streakProps,
   geminiKey = '',
   onSelectItem,
+  onOpenDigitalShelf,
   onNavigateAdd,
   onOpenGeminiSettings,
 }) {
@@ -242,13 +244,25 @@ export function ListScreen({
 
   return (
     <div className="space-y-4 pb-24">
-      <header className="flex items-baseline justify-between pt-2">
-        <h1 className="text-xl font-semibold tracking-tight text-ink">
-          {list.title}
-        </h1>
-        <span className="text-xs text-subtle">
-          {filteredAndSortedItems.length} {countLabel}
-        </span>
+      <header className="flex items-center justify-between gap-2 pt-2">
+        <div className="flex items-baseline gap-2.5">
+          <h1 className="text-xl font-semibold tracking-tight text-ink">
+            {list.title}
+          </h1>
+          <span className="text-xs tabular-nums text-subtle">
+            {filteredAndSortedItems.length} {countLabel}
+          </span>
+        </div>
+        {onOpenDigitalShelf && (
+          <button
+            type="button"
+            onClick={onOpenDigitalShelf}
+            className="inline-flex min-h-[40px] items-center gap-1.5 rounded-[4px] border border-line bg-card px-2.5 py-1.5 text-xs font-medium text-ink transition-colors hover:border-accent"
+          >
+            <Library className="h-3.5 w-3.5 text-accent" strokeWidth={1.5} />
+            <span>Meus EPUBs</span>
+          </button>
+        )}
       </header>
 
       {profile?.gamificationEnabled !== false && streakProps && (
