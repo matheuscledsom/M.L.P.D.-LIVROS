@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { domainConfig } from '../config/domainConfig';
+import { buildPublicProfileLink, domainConfig } from '../config/domainConfig';
 
 const PROFILE_KEY = domainConfig.profileStorageKey;
 const POSTS_KEY = domainConfig.postsStorageKey;
@@ -33,7 +33,7 @@ function loadProfile() {
     if (!raw) return fallback;
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== 'object') return fallback;
-    return {
+    const merged = {
       ...fallback,
       ...parsed,
       annualGoal: Math.max(1, Number(parsed.annualGoal) || fallback.annualGoal),
@@ -45,6 +45,14 @@ function loadProfile() {
           ? Boolean(parsed.onboardingCompleted)
           : Boolean(parsed.displayName && parsed.displayName !== fallback.displayName),
     };
+
+    if (!merged.linkLabel || /^mlpd\.livros\//i.test(merged.linkLabel)) {
+      const publicLink = buildPublicProfileLink(merged.handle);
+      merged.linkLabel = publicLink.label;
+      merged.linkUrl = publicLink.url;
+    }
+
+    return merged;
   } catch {
     return fallback;
   }
@@ -96,6 +104,15 @@ export function useSocialProfile() {
       }
       if (updates.handle && !updates.handle.startsWith('@')) {
         next.handle = `@${updates.handle.trim()}`;
+      }
+      if (
+        updates.handle !== undefined &&
+        updates.linkLabel === undefined &&
+        (!prev.linkLabel || /^codice\.app\/@/i.test(prev.linkLabel))
+      ) {
+        const publicLink = buildPublicProfileLink(next.handle);
+        next.linkLabel = publicLink.label;
+        next.linkUrl = publicLink.url;
       }
       if (updates.annualGoal !== undefined) {
         next.annualGoal = Math.max(1, Number(updates.annualGoal) || 12);

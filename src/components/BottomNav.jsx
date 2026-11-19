@@ -15,7 +15,7 @@ export function BottomNav({ activeTab, onChangeTab }) {
       aria-label="Navegação principal"
       className="fixed bottom-0 left-0 right-0 z-40"
     >
-      <div className="mx-auto max-w-md border-t border-line bg-app/90 backdrop-blur-md pb-[env(safe-area-inset-bottom)]">
+      <div className="mx-auto max-w-md md:max-w-2xl lg:max-w-4xl border-t border-line bg-app/90 backdrop-blur-md pb-[env(safe-area-inset-bottom)]">
         <div className="grid h-16 grid-cols-5 items-center px-2">
           {domainConfig.navigation.map((item) => {
             const Icon = ICONS[item.icon] || Home;

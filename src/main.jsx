@@ -6,7 +6,7 @@ import { domainConfig } from './config/domainConfig';
 import { ToastProvider } from './context/ToastContext';
 import './index.css';
 
-document.title = domainConfig.appName;
+document.title = domainConfig.appFullTitle || domainConfig.appName;
 
 if (import.meta.env.PROD && 'serviceWorker' in navigator) {
   let hadController = Boolean(navigator.serviceWorker.controller);

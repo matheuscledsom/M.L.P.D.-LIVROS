@@ -2,7 +2,11 @@ export const domainConfig = {
   domainKey: 'livros',
   domain: 'Livros',
   domainSingular: 'Obra',
-  appName: 'M.L.P.D.-LIVROS',
+  appName: 'Códice',
+  appSubtitle: 'Arquivo Literário & Pesquisa',
+  appFullTitle: 'Códice — Arquivo Literário & Pesquisa',
+  signature: 'Projeto Códice',
+  publicHost: 'codice.app',
   storageKey: 'mlpd_livros_backlog',
   profileStorageKey: 'mlpd_livros_profile',
   postsStorageKey: 'mlpd_livros_posts',
@@ -168,14 +172,23 @@ export const domainConfig = {
   ui: {
     home: {
       greetingPrefix: 'Olá,',
-      subtitle: 'M.L.P.D.-LIVROS',
+      subtitle: 'Arquivo Literário & Pesquisa',
+      signature: 'Projeto Códice',
+      annualGoalTitle: 'Meta Anual',
+      continueReadingTitle: 'Continuar lendo',
+      resumeLabel: 'Retomar',
+      highlightsTitle: 'Destaques & Últimas Leituras',
+      highlightsEmptyTitle: 'Sua vitrine editorial começa aqui',
+      highlightsEmptyDescription:
+        'Favorite obras com 5 estrelas ou avance suas leituras para destacá-las na capa.',
       summaryCards: {
         total: 'Total no Acervo',
         completedYear: 'Concluídos no Ano',
         playingNow: 'Em Leitura',
       },
       activeSectionTitle: 'Em Leitura Atualmente',
-      emptyActiveMessage: 'Nenhuma obra em leitura agora.',
+      emptyActiveMessage: 'Nenhuma leitura ativa no momento.',
+      emptyActiveCta: 'Escolher próxima leitura',
       seeAllLabel: 'Ver acervo',
       emptyBacklogTitle: 'Seu acervo está vazio',
       emptyBacklogDescription:
@@ -271,8 +284,8 @@ export const domainConfig = {
       avatarUrl: '',
       coverUrl: '',
       bio: 'Explorando livros, mangás, light novels e pesquisas acadêmicas em dia.',
-      linkLabel: 'mlpd.livros/aihkaze',
-      linkUrl: 'https://mlpd.livros/aihkaze',
+      linkLabel: 'codice.app/@aihkaze',
+      linkUrl: 'https://codice.app/@aihkaze',
       xpConfig: {
         perPage: 1,
         perCompleted: 150,
@@ -415,6 +428,17 @@ export function getWorkTypeConfig(workTypeId) {
     domainConfig.workTypes.find((type) => type.id === workTypeId) ??
     domainConfig.workTypes[0]
   );
+}
+
+export function buildPublicProfileLink(handle = '@leitor') {
+  const cleanHandle = String(handle || '@leitor')
+    .trim()
+    .replace(/^@+/, '');
+  const safeHandle = cleanHandle ? `@${cleanHandle}` : '@leitor';
+  return {
+    label: `${domainConfig.publicHost}/${safeHandle}`,
+    url: `https://${domainConfig.publicHost}/${safeHandle}`,
+  };
 }
 
 export function formatFieldValue(fieldKey, value) {

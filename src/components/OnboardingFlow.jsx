@@ -29,6 +29,7 @@ import {
   X,
 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
+import { domainConfig } from '../config/domainConfig';
 
 const FOCUS_OPTIONS = [
   { id: 'Leitor Casual', icon: BookOpen },
@@ -255,10 +256,13 @@ export function OnboardingFlow({
         {/* Barra superior de progresso */}
         <header className="px-4 pt-4 pb-3 border-b border-line">
           <div className="flex items-center justify-between gap-2 mb-3">
-            <div className="flex items-center gap-2">
-              <BookOpen className="h-4 w-4 text-accent" />
+            <div className="flex items-center gap-2 min-w-0">
+              <BookOpen className="h-4 w-4 shrink-0 text-accent" strokeWidth={1.5} />
               <span className="text-xs font-semibold tracking-tight text-ink">
-                M.L.P.D.-LIVROS
+                {domainConfig.appName}
+              </span>
+              <span className="hidden sm:inline text-[11px] text-subtle truncate">
+                {domainConfig.signature}
               </span>
               <span className="rounded-full border border-line bg-card px-2 py-0.5 text-[10px] font-medium text-muted">
                 Etapa {step}/5
@@ -655,10 +659,10 @@ export function OnboardingFlow({
             <div className="space-y-4">
               <div>
                 <h2 className="text-lg font-semibold tracking-tight text-ink">
-                  Guia Rápido do M.L.P.D.-LIVROS
+                  Guia Rápido do {domainConfig.appName}
                 </h2>
                 <p className="mt-1 text-xs text-muted">
-                  Tudo o que você pode explorar na sua estante editorial:
+                  Tudo o que você pode explorar no seu {domainConfig.appSubtitle.toLowerCase()}:
                 </p>
               </div>
 

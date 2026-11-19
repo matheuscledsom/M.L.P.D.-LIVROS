@@ -185,25 +185,25 @@ export function ProfileScreen({
 
   return (
     <div className="space-y-4 pb-24">
-      <header className="relative flex items-center justify-between pt-2">
+      <header className="relative flex items-center justify-between gap-2 pt-2">
         <div className="flex items-center gap-2 min-w-0">
           <h1 className="truncate text-base font-semibold tracking-tight text-ink">
             {profile.handle}
           </h1>
-          <span className="shrink-0 rounded-full border border-line bg-card px-2 py-0.5 text-[10px] font-medium text-muted">
-            {domainConfig.domain}
+          <span className="hidden sm:inline-flex shrink-0 rounded-full border border-line bg-card px-2 py-0.5 text-[10px] font-medium text-muted">
+            {domainConfig.signature}
           </span>
         </div>
 
-        <div className="flex items-center gap-1.5" ref={menuRef}>
+        <div className="flex items-center gap-1" ref={menuRef}>
           <button
             type="button"
             onClick={() => onOpenJournalComposer(null)}
             aria-label={profileCfg.newPostLabel}
             title={profileCfg.newPostLabel}
-            className="flex h-8 w-8 items-center justify-center rounded-full border border-accent/40 bg-accent/15 text-accent transition-colors hover:bg-accent hover:text-accent-ink"
+            className="flex h-11 w-11 items-center justify-center rounded-full border border-accent/40 bg-accent/15 text-accent transition-colors hover:bg-accent hover:text-accent-ink"
           >
-            <Plus className="h-4 w-4" />
+            <Plus className="h-4 w-4" strokeWidth={1.5} />
           </button>
 
           <button
@@ -214,9 +214,9 @@ export function ProfileScreen({
             }}
             aria-label={ui.theme.title}
             title={ui.theme.title}
-            className="flex h-8 w-8 items-center justify-center rounded-full border border-line bg-card text-accent transition-colors hover:border-accent/50"
+            className="flex h-11 w-11 items-center justify-center rounded-full border border-line bg-card text-accent transition-colors hover:border-accent/50"
           >
-            <Palette className="h-4 w-4" />
+            <Palette className="h-4 w-4" strokeWidth={1.5} />
           </button>
 
           <button
@@ -227,13 +227,13 @@ export function ProfileScreen({
             }}
             aria-label="Chave Google Gemini"
             title="Chave Google Gemini"
-            className={`flex h-8 w-8 items-center justify-center rounded-full border transition-colors ${
+            className={`flex h-11 w-11 items-center justify-center rounded-full border transition-colors ${
               hasGeminiKey
                 ? 'border-accent/50 bg-accent/15 text-accent'
                 : 'border-line bg-card text-muted hover:border-accent/50 hover:text-ink'
             }`}
           >
-            <Sparkles className="h-4 w-4" />
+            <Sparkles className="h-4 w-4" strokeWidth={1.5} />
           </button>
 
           <button
@@ -241,9 +241,9 @@ export function ProfileScreen({
             onClick={() => setMenuOpen((prev) => !prev)}
             aria-label={profileCfg.backup.menuLabel}
             aria-expanded={menuOpen}
-            className="flex h-8 w-8 items-center justify-center rounded-full border border-line bg-card text-muted transition-colors hover:border-accent/50 hover:text-ink"
+            className="flex h-11 w-11 items-center justify-center rounded-full border border-line bg-card text-muted transition-colors hover:border-accent/50 hover:text-ink"
           >
-            <Settings className="h-4 w-4" />
+            <Settings className="h-4 w-4" strokeWidth={1.5} />
           </button>
 
           {menuOpen && (
@@ -350,8 +350,8 @@ export function ProfileScreen({
       )}
 
       {/* Banner de Capa */}
-      <section className="-mx-4">
-        <div className="relative h-28 w-full overflow-hidden border-y border-line bg-card">
+      <section className="-mx-4 sm:-mx-6">
+        <div className="relative h-28 sm:h-36 md:h-40 w-full overflow-hidden border-y border-line bg-card">
           {profile.coverUrl ? (
             <img
               src={profile.coverUrl}
@@ -364,36 +364,34 @@ export function ProfileScreen({
           <button
             type="button"
             onClick={() => setEditModalOpen(true)}
-            className="absolute right-3 top-2.5 inline-flex items-center gap-1 rounded-full bg-black/55 px-2.5 py-1 text-[10px] font-medium text-white backdrop-blur-xs transition-colors hover:bg-black/80"
+            className="absolute right-3 top-2.5 inline-flex min-h-[36px] items-center gap-1 rounded-full bg-black/65 px-3 py-1.5 text-[11px] font-medium text-white backdrop-blur-xs transition-colors hover:bg-black/85"
           >
-            <PenLine className="h-3 w-3" />
+            <PenLine className="h-3.5 w-3.5" strokeWidth={1.5} />
             {profileCfg.editProfileLabel}
           </button>
         </div>
 
-        {/* Avatar circular + 3 Métricas lado a lado */}
-        <div className="px-4">
-          <div className="flex items-end gap-5">
-            <div className="-mt-9 shrink-0 rounded-full bg-accent p-[2.5px] shadow-lg">
-              <div className="flex h-20 w-20 items-center justify-center overflow-hidden rounded-full border-3 border-app bg-card">
-                {profile.avatarUrl ? (
-                  <img
-                    src={profile.avatarUrl}
-                    alt={profile.displayName}
-                    className="h-full w-full object-cover"
-                  />
-                ) : (
-                  <span className="text-lg font-bold tracking-tight text-ink">
-                    {profile.avatarInitials || 'AK'}
-                  </span>
-                )}
-              </div>
+        {/* Avatar circular sobre a junção capa/contadores + 3 Métricas lado a lado */}
+        <div className="px-4 sm:px-6">
+          <div className="flex items-end gap-4 sm:gap-6">
+            <div className="-mt-10 relative z-10 flex h-20 w-20 sm:h-24 sm:w-24 shrink-0 items-center justify-center overflow-hidden rounded-full border-2 border-accent bg-card ring-4 ring-[var(--bg-app)] shadow-lg">
+              {profile.avatarUrl ? (
+                <img
+                  src={profile.avatarUrl}
+                  alt={profile.displayName || profile.handle}
+                  className="h-full w-full object-cover"
+                />
+              ) : (
+                <span className="text-lg sm:text-xl font-bold tracking-tight text-ink">
+                  {profile.avatarInitials || 'AK'}
+                </span>
+              )}
             </div>
 
-            <div className="grid flex-1 grid-cols-3 pb-1 text-center">
+            <div className="grid flex-1 grid-cols-3 pt-2 pb-1 text-center">
               {statsData.metrics.map((metric) => (
                 <div key={metric.id} className="px-1">
-                  <span className="block text-base font-semibold tracking-tight text-ink">
+                  <span className="block text-base sm:text-lg font-semibold tracking-tight text-ink">
                     {metric.value}
                   </span>
                   <span className="block text-[11px] text-muted">
@@ -454,7 +452,7 @@ export function ProfileScreen({
       </section>
 
       {/* 3 Abas internas estilo feed do Instagram */}
-      <section className="-mx-4 pt-1">
+      <section className="-mx-4 sm:-mx-6 pt-1">
         <div className="grid grid-cols-3 border-y border-line">
           {profileCfg.tabs.map((tab) => {
             const Icon = TAB_ICONS[tab.icon] || Grid3X3;

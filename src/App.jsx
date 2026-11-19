@@ -168,8 +168,8 @@ export function App() {
           className={`app-texture-overlay ${textureClass}`}
         />
       )}
-      <div className="relative z-10 mx-auto min-h-screen max-w-md bg-transparent sm:border-x sm:border-line/60">
-        <main className="px-4 pt-4 pb-[env(safe-area-inset-bottom)]">
+      <div className="relative z-10 mx-auto min-h-screen max-w-md md:max-w-2xl lg:max-w-4xl bg-transparent sm:border-x sm:border-line/60">
+        <main className="px-4 sm:px-6 pt-4 pb-[env(safe-area-inset-bottom)]">
           {activeTab === 'home' && (
             <HomeScreen
               items={items}

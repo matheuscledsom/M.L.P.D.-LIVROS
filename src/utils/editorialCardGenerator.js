@@ -1,3 +1,5 @@
+import { domainConfig } from '../config/domainConfig';
+
 function parseHexToRgba(hex, alpha = 1) {
   const clean = String(hex || '').trim();
   const match = clean.match(/^#([0-9a-f]{6})$/i);
@@ -160,7 +162,11 @@ export async function generateEditorialQuoteCard({
   ctx.fillStyle = textMuted;
   ctx.font = `600 20px ${fontFamily}`;
   ctx.textBaseline = 'middle';
-  ctx.fillText('M.L.P.D.-LIVROS', INNER_X + 28, HEADER_Y - 6);
+  ctx.fillText(
+    `${domainConfig.appName.toUpperCase()} · ${domainConfig.signature.toUpperCase()}`,
+    INNER_X + 28,
+    HEADER_Y - 6
+  );
 
   if (location.trim()) {
     const locLabel = location.trim();
