@@ -6,18 +6,14 @@ import { ReadingStreakWidget } from '../components/ReadingStreakWidget';
 import { StatusBadge } from '../components/StatusBadge';
 import { VectorIcon } from '../components/VectorIcon';
 import { domainConfig, getWorkTypeConfig } from '../config/domainConfig';
+import {
+  calculateWorkProgress,
+  formatFlexibleProgressMetric,
+  normalizeProgressMode,
+} from '../utils/backlogHelpers';
 
 function getProgressMetricLabel(item) {
-  if (item.workType === 'manga') {
-    return `Vol. ${item.currentVolume || 0} · Cap. ${item.currentChapter || 0}`;
-  }
-  if (item.workType === 'academic' && item.academicProgressMode === 'fichamento') {
-    return `${item.progress || 0}% fich.`;
-  }
-  if (item.totalPages > 0) {
-    return `${item.currentPage || 0}/${item.totalPages}p`;
-  }
-  return `${item.currentPage || 0} págs`;
+  return formatFlexibleProgressMetric(item);
 }
 
 function formatDurationMinutes(minutes) {
@@ -47,6 +43,12 @@ function estimateRemainingTime(item) {
     const remainingPages = Math.max(0, totalPages - currentPage);
     if (remainingPages === 0) return 'Quase concluído';
     return formatDurationMinutes(remainingPages * 1.6);
+  }
+
+  const pct = calculateWorkProgress(item);
+  if (pct > 0 || normalizeProgressMode(item.progressMode) !== 'pages') {
+    if (pct >= 100) return 'Quase concluído';
+    return `${pct}% lido`;
   }
 
   return 'Informe o total de págs para estimar';

@@ -80,11 +80,43 @@ export function getStreakState(streakData, todayIso = getTodayLocalISO()) {
   };
 }
 
+export function roundProgressPct(value) {
+  const num = Number(value);
+  if (Number.isNaN(num)) return 0;
+  const clamped = Math.max(0, Math.min(100, num));
+  return Math.round(clamped * 10) / 10;
+}
+
+export function normalizeProgressMode(mode) {
+  if (mode === 'percent' || mode === 'loc' || mode === 'pages') {
+    return mode;
+  }
+  return 'pages';
+}
+
 export function calculatePageProgress(currentPage, totalPages) {
   const current = Math.max(0, Number(currentPage) || 0);
   const total = Number(totalPages) || 0;
   if (total <= 0) return 0;
   return Math.max(0, Math.min(100, Math.round((current / total) * 100)));
+}
+
+export function calculatePercentProgress(progressPercent) {
+  if (
+    progressPercent === null ||
+    progressPercent === undefined ||
+    progressPercent === ''
+  ) {
+    return 0;
+  }
+  return roundProgressPct(progressPercent);
+}
+
+export function calculateLocProgress(locCurrent, locTotal) {
+  const current = Math.max(0, Number(locCurrent) || 0);
+  const total = Number(locTotal) || 0;
+  if (total <= 0) return 0;
+  return roundProgressPct((current / total) * 100);
 }
 
 export function calculateMangaProgress(
@@ -134,7 +166,134 @@ export function calculateWorkProgress(item) {
     return calculateAcademicFichamentoProgress(item.fichamentoSteps);
   }
 
-  return calculatePageProgress(item.currentPage, item.totalPages);
+  const mode = normalizeProgressMode(item.progressMode);
+  const hasExplicitPercent =
+    item.progressPercent !== null &&
+    item.progressPercent !== undefined &&
+    item.progressPercent !== '' &&
+    !Number.isNaN(Number(item.progressPercent));
+
+  if (mode === 'percent') {
+    if (hasExplicitPercent) {
+      return calculatePercentProgress(item.progressPercent);
+    }
+    return calculatePageProgress(item.currentPage, item.totalPages);
+  }
+
+  if (mode === 'loc') {
+    if (Number(item.locTotal) > 0) {
+      return calculateLocProgress(item.locCurrent, item.locTotal);
+    }
+    if (hasExplicitPercent) {
+      return calculatePercentProgress(item.progressPercent);
+    }
+    return calculatePageProgress(item.currentPage, item.totalPages);
+  }
+
+  if (Number(item.totalPages) > 0) {
+    return calculatePageProgress(item.currentPage, item.totalPages);
+  }
+  if (hasExplicitPercent) {
+    return calculatePercentProgress(item.progressPercent);
+  }
+  return 0;
+}
+
+export function buildProgressPatchForMode(item, { mode, currentPage, totalPages, progressPercent, locCurrent, locTotal }) {
+  const nextMode = normalizeProgressMode(mode ?? item?.progressMode);
+  const nextTotalPages =
+    totalPages !== undefined ? totalPages : Number(item?.totalPages) || null;
+  const totalPagesNum = Number(nextTotalPages) || 0;
+
+  if (nextMode === 'percent') {
+    const pct = calculatePercentProgress(
+      progressPercent !== undefined ? progressPercent : calculateWorkProgress(item)
+    );
+    const nextCurrentPage =
+      totalPagesNum > 0
+        ? Math.round((pct / 100) * totalPagesNum)
+        : Math.max(0, Number(item?.currentPage) || 0);
+    return {
+      progressMode: 'percent',
+      progressPercent: pct,
+      totalPages: nextTotalPages,
+      currentPage: nextCurrentPage,
+      progress: pct,
+    };
+  }
+
+  if (nextMode === 'loc') {
+    const curLoc = Math.max(
+      0,
+      Number(locCurrent !== undefined ? locCurrent : item?.locCurrent) || 0
+    );
+    const rawTotLoc = locTotal !== undefined ? locTotal : item?.locTotal;
+    const totLoc =
+      rawTotLoc !== null && rawTotLoc !== undefined && rawTotLoc !== '' && Number(rawTotLoc) > 0
+        ? Math.round(Number(rawTotLoc))
+        : null;
+    const pct = totLoc ? calculateLocProgress(curLoc, totLoc) : calculatePercentProgress(item?.progressPercent);
+    const nextCurrentPage =
+      totalPagesNum > 0 && totLoc
+        ? Math.round((pct / 100) * totalPagesNum)
+        : Math.max(0, Number(item?.currentPage) || 0);
+    return {
+      progressMode: 'loc',
+      locCurrent: curLoc,
+      locTotal: totLoc,
+      progressPercent: totLoc ? pct : item?.progressPercent ?? null,
+      totalPages: nextTotalPages,
+      currentPage: nextCurrentPage,
+      progress: pct,
+    };
+  }
+
+  const curPage = Math.max(
+    0,
+    Number(currentPage !== undefined ? currentPage : item?.currentPage) || 0
+  );
+  const pct =
+    totalPagesNum > 0
+      ? Math.round((Math.min(totalPagesNum, curPage) / totalPagesNum) * 1000) / 10
+      : null;
+
+  return {
+    progressMode: 'pages',
+    currentPage: curPage,
+    totalPages: nextTotalPages,
+    ...(pct !== null ? { progressPercent: pct } : {}),
+    progress: totalPagesNum > 0 ? calculatePageProgress(curPage, totalPagesNum) : calculatePercentProgress(item?.progressPercent),
+  };
+}
+
+export function formatFlexibleProgressMetric(item) {
+  if (!item) return '0 págs';
+  if (item.workType === 'manga') {
+    return `Vol. ${item.currentVolume || 0} · Cap. ${item.currentChapter || 0}`;
+  }
+  if (item.workType === 'academic' && item.academicProgressMode === 'fichamento') {
+    return `${calculateWorkProgress(item)}% fich.`;
+  }
+
+  const mode = normalizeProgressMode(item.progressMode);
+  const pct = calculateWorkProgress(item);
+
+  if (mode === 'loc') {
+    const locCur = Math.max(0, Number(item.locCurrent) || 0);
+    const locTot = Number(item.locTotal) || 0;
+    return locTot > 0 ? `Loc ${locCur}/${locTot}` : `Loc ${locCur}`;
+  }
+
+  if (mode === 'percent' || (!(Number(item.totalPages) > 0) && item.progressPercent > 0)) {
+    return Number(item.totalPages) > 0
+      ? `${pct}% (${item.currentPage || 0}/${item.totalPages}p)`
+      : `${pct}%`;
+  }
+
+  if (Number(item.totalPages) > 0) {
+    return `${item.currentPage || 0}/${item.totalPages}p`;
+  }
+  return `${item.currentPage || 0} págs`;
 }
 
 export function getPagesRead(item) {

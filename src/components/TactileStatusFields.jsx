@@ -6,8 +6,10 @@ import {
   CheckCircle2,
   ChevronDown,
   ChevronUp,
+  Compass,
   Copy,
   FileText,
+  Percent,
   RotateCcw,
   Star,
   ThumbsUp,
@@ -15,14 +17,19 @@ import {
 import { useState } from 'react';
 import { domainConfig } from '../config/domainConfig';
 import {
-  calculateWorkProgress,
+  buildProgressPatchForMode,
   calculateSmartRating,
+  calculateWorkProgress,
   createDefaultReviewCriteria,
   formatAbntReference,
+  formatFlexibleProgressMetric,
   getCompletionPace,
   getDropReasonMeta,
+  getTodayLocalISO,
   getVerdictForScore,
   getVerdictMeta,
+  normalizeProgressMode,
+  roundProgressPct,
 } from '../utils/backlogHelpers';
 import { useToast } from '../context/ToastContext';
 import { playTactileSound } from '../utils/soundEffects';
@@ -33,12 +40,68 @@ import {
 import { VectorIcon } from './VectorIcon';
 
 function QuickPageButtons({ item, onChange }) {
+  const mode = normalizeProgressMode(item.progressMode);
   const current = Math.max(0, Number(item.currentPage) || 0);
   const total = Number(item.totalPages) || 0;
+  const currentPct = calculateWorkProgress(item);
+
+  const handleQuickPlusFivePercent = () => {
+    playTactileSound('page');
+    const nextPct = Math.min(100, roundProgressPct(currentPct + 5));
+    const patch = buildProgressPatchForMode(item, {
+      mode: 'percent',
+      progressPercent: nextPct,
+    });
+    const locTotal = Number(item.locTotal) || 0;
+    onChange({
+      ...patch,
+      progressMode: total > 0 || mode !== 'pages' ? mode : 'percent',
+      ...(mode === 'loc' && locTotal > 0
+        ? { locCurrent: Math.round((nextPct / 100) * locTotal) }
+        : {}),
+    });
+  };
+
+  if (mode === 'loc') {
+    const curLoc = Math.max(0, Number(item.locCurrent) || 0);
+    const locTot = Number(item.locTotal) || 0;
+    return (
+      <div className="flex flex-wrap gap-1.5">
+        {[50, 150].map((inc) => {
+          const nextLoc = locTot > 0 ? Math.min(locTot, curLoc + inc) : curLoc + inc;
+          return (
+            <button
+              key={inc}
+              type="button"
+              onClick={() => {
+                playTactileSound('page');
+                onChange(
+                  buildProgressPatchForMode(item, {
+                    mode: 'loc',
+                    locCurrent: nextLoc,
+                  })
+                );
+              }}
+              className="rounded-[4px] border border-line bg-card px-2.5 py-1 text-[11px] font-medium tabular-nums text-ink transition-colors hover:border-accent"
+            >
+              +{inc} Loc
+            </button>
+          );
+        })}
+        <button
+          type="button"
+          onClick={handleQuickPlusFivePercent}
+          className="rounded-[4px] border border-line bg-card px-2.5 py-1 text-[11px] font-medium tabular-nums text-accent transition-colors hover:border-accent"
+        >
+          +5%
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-wrap gap-1.5">
-      {domainConfig.tactileOptions.quickPages.map((inc) => {
+      {[10, 25].map((inc) => {
         const nextPage = total > 0 ? Math.min(total, current + inc) : current + inc;
         return (
           <button
@@ -46,20 +109,26 @@ function QuickPageButtons({ item, onChange }) {
             type="button"
             onClick={() => {
               playTactileSound('page');
+              const pct =
+                total > 0 ? roundProgressPct((nextPage / total) * 100) : null;
               onChange({
                 currentPage: nextPage,
-                progress: calculateWorkProgress({
-                  ...item,
-                  currentPage: nextPage,
-                }),
+                ...(pct !== null ? { progressPercent: pct, progress: pct } : {}),
               });
             }}
-            className="rounded-lg border border-line bg-card px-2.5 py-1 text-[11px] font-medium text-accent transition-colors hover:border-accent/50 hover:bg-accent/15"
+            className="rounded-[4px] border border-line bg-card px-2.5 py-1 text-[11px] font-medium tabular-nums text-ink transition-colors hover:border-accent"
           >
-            +{inc}
+            +{inc} págs
           </button>
         );
       })}
+      <button
+        type="button"
+        onClick={handleQuickPlusFivePercent}
+        className="rounded-[4px] border border-line bg-card px-2.5 py-1 text-[11px] font-medium tabular-nums text-accent transition-colors hover:border-accent"
+      >
+        +5%
+      </button>
     </div>
   );
 }
@@ -847,6 +916,15 @@ export function TactileStatusFields({
     const progressValue = calculateWorkProgress(item);
     const currentPage = Math.max(0, Number(item.currentPage) || 0);
     const totalPages = Number(item.totalPages) || 0;
+    const progressMode = normalizeProgressMode(item.progressMode);
+    const currentLoc = Math.max(0, Number(item.locCurrent) || 0);
+    const locTotal = Number(item.locTotal) || 0;
+    const currentPercent =
+      item.progressPercent !== null &&
+      item.progressPercent !== undefined &&
+      item.progressPercent !== ''
+        ? roundProgressPct(item.progressPercent)
+        : progressValue;
     const currentVolume = Math.max(0, Number(item.currentVolume) || 0);
     const currentChapter = Math.max(0, Number(item.currentChapter) || 0);
     const academicMode = item.academicProgressMode || 'pages';
@@ -1094,87 +1172,328 @@ export function TactileStatusFields({
           </div>
         ) : (
           <>
-            <div className="grid grid-cols-2 gap-2.5">
-              <div className="rounded-xl border border-line bg-app px-3 py-2">
-                <span className="flex items-center gap-1 text-[10px] uppercase tracking-wider text-subtle">
-                  <BookOpen className="h-3 w-3 text-accent" />
-                  {detail.currentPageLabel}
-                </span>
-                <div className="mt-1 flex items-center justify-between gap-1">
-                  <input
-                    type="number"
-                    min="0"
-                    value={item.currentPage ?? 0}
-                    onChange={(e) => {
-                      const nextPage = Math.max(0, Number(e.target.value) || 0);
-                      onChange({
-                        currentPage: nextPage,
-                        progress: calculateWorkProgress({
-                          ...item,
-                          currentPage: nextPage,
-                        }),
-                      });
-                    }}
-                    className="w-full bg-transparent text-sm font-medium text-ink focus:outline-none"
-                  />
-                  <span className="text-[11px] text-subtle">pág</span>
-                </div>
-              </div>
-
-              <div className="rounded-xl border border-line bg-app px-3 py-2">
-                <span className="flex items-center gap-1 text-[10px] uppercase tracking-wider text-subtle">
-                  <FileText className="h-3 w-3 text-accent" />
-                  {detail.totalPagesLabel}
-                </span>
-                <div className="mt-1 flex items-center justify-between gap-1">
-                  <input
-                    type="number"
-                    min="0"
-                    placeholder="0"
-                    value={item.totalPages ?? ''}
-                    onChange={(e) => {
-                      const nextTotal =
-                        e.target.value === ''
-                          ? null
-                          : Math.max(0, Number(e.target.value) || 0);
-                      onChange({
-                        totalPages: nextTotal,
-                        progress: calculateWorkProgress({
-                          ...item,
-                          totalPages: nextTotal,
-                        }),
-                      });
-                    }}
-                    className="w-full bg-transparent text-sm font-medium text-ink placeholder:text-subtle focus:outline-none"
-                  />
-                  <span className="text-[11px] text-subtle">págs</span>
-                </div>
+            <div className="flex items-center justify-between gap-2 rounded-[6px] border border-line bg-app px-2.5 py-1.5">
+              <span className="text-[11px] font-medium text-muted">
+                Unidade
+              </span>
+              <div
+                role="tablist"
+                aria-label="Unidade de progresso da leitura"
+                className="flex gap-1"
+              >
+                {[
+                  { id: 'pages', label: 'Páginas' },
+                  { id: 'percent', label: 'Porcentagem (%)' },
+                  { id: 'loc', label: 'Posição (Loc)' },
+                ].map((unit) => {
+                  const active = progressMode === unit.id;
+                  return (
+                    <button
+                      key={unit.id}
+                      type="button"
+                      role="tab"
+                      aria-selected={active}
+                      onClick={() => {
+                        playTactileSound('tick');
+                        if (unit.id === 'percent') {
+                          onChange(
+                            buildProgressPatchForMode(item, {
+                              mode: 'percent',
+                              progressPercent: currentPercent,
+                            })
+                          );
+                        } else if (unit.id === 'loc') {
+                          onChange(
+                            buildProgressPatchForMode(item, {
+                              mode: 'loc',
+                              locCurrent: currentLoc,
+                              locTotal: item.locTotal ?? null,
+                            })
+                          );
+                        } else {
+                          onChange(
+                            buildProgressPatchForMode(item, {
+                              mode: 'pages',
+                              currentPage,
+                              totalPages: item.totalPages ?? null,
+                            })
+                          );
+                        }
+                      }}
+                      className={`rounded-[4px] border px-2 py-1 text-[11px] font-medium transition-colors ${
+                        active
+                          ? 'border-accent bg-accent/15 text-accent'
+                          : 'border-transparent text-muted hover:text-ink'
+                      }`}
+                    >
+                      {unit.label}
+                    </button>
+                  );
+                })}
               </div>
             </div>
 
-            <div className="flex items-center justify-between gap-2 rounded-xl border border-line bg-app px-3 py-2">
+            {progressMode === 'pages' && (
+              <div className="grid grid-cols-2 gap-2.5">
+                <div className="rounded-[6px] border border-line bg-app px-3 py-2">
+                  <span className="flex items-center gap-1 text-[10px] uppercase tracking-wider text-subtle">
+                    <BookOpen className="h-3 w-3 text-muted" strokeWidth={1.5} />
+                    {detail.currentPageLabel}
+                  </span>
+                  <div className="mt-1 flex items-center justify-between gap-1">
+                    <input
+                      type="number"
+                      min="0"
+                      value={item.currentPage ?? 0}
+                      onChange={(e) => {
+                        const nextPage = Math.max(0, Number(e.target.value) || 0);
+                        onChange(
+                          buildProgressPatchForMode(item, {
+                            mode: 'pages',
+                            currentPage: nextPage,
+                          })
+                        );
+                      }}
+                      className="w-full bg-transparent text-sm font-medium tabular-nums text-ink focus:outline-none"
+                    />
+                    <span className="text-[11px] text-subtle">pág</span>
+                  </div>
+                </div>
+
+                <div className="rounded-[6px] border border-line bg-app px-3 py-2">
+                  <span className="flex items-center gap-1 text-[10px] uppercase tracking-wider text-subtle">
+                    <FileText className="h-3 w-3 text-muted" strokeWidth={1.5} />
+                    {detail.totalPagesLabel}
+                  </span>
+                  <div className="mt-1 flex items-center justify-between gap-1">
+                    <input
+                      type="number"
+                      min="0"
+                      placeholder="0"
+                      value={item.totalPages ?? ''}
+                      onChange={(e) => {
+                        const nextTotal =
+                          e.target.value === ''
+                            ? null
+                            : Math.max(0, Number(e.target.value) || 0);
+                        onChange(
+                          buildProgressPatchForMode(item, {
+                            mode: 'pages',
+                            totalPages: nextTotal,
+                          })
+                        );
+                      }}
+                      className="w-full bg-transparent text-sm font-medium tabular-nums text-ink placeholder:text-subtle focus:outline-none"
+                    />
+                    <span className="text-[11px] text-subtle">págs</span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {progressMode === 'percent' && (
+              <div className="space-y-2.5 rounded-[6px] border border-line bg-app p-3">
+                <div className="grid grid-cols-2 gap-2.5">
+                  <div>
+                    <span className="flex items-center gap-1 text-[10px] uppercase tracking-wider text-subtle">
+                      <Percent className="h-3 w-3 text-accent" strokeWidth={1.5} />
+                      Porcentagem (%)
+                    </span>
+                    <div className="mt-1 flex items-center gap-1">
+                      <input
+                        type="number"
+                        min="0"
+                        max="100"
+                        step="0.5"
+                        aria-label="Porcentagem concluída"
+                        value={item.progressPercent ?? currentPercent}
+                        onChange={(e) => {
+                          const raw = e.target.value;
+                          const nextPct = raw === '' ? 0 : roundProgressPct(raw);
+                          onChange(
+                            buildProgressPatchForMode(item, {
+                              mode: 'percent',
+                              progressPercent: nextPct,
+                            })
+                          );
+                        }}
+                        className="w-full bg-transparent text-sm font-semibold tabular-nums text-ink focus:outline-none"
+                      />
+                      <span className="text-[11px] text-subtle">%</span>
+                    </div>
+                  </div>
+
+                  <div>
+                    <span className="flex items-center gap-1 text-[10px] uppercase tracking-wider text-subtle">
+                      <FileText className="h-3 w-3 text-muted" strokeWidth={1.5} />
+                      Total págs (opcional)
+                    </span>
+                    <div className="mt-1 flex items-center gap-1">
+                      <input
+                        type="number"
+                        min="0"
+                        placeholder="—"
+                        aria-label="Total de páginas para conversão proporcional"
+                        value={item.totalPages ?? ''}
+                        onChange={(e) => {
+                          const nextTotal =
+                            e.target.value === ''
+                              ? null
+                              : Math.max(0, Number(e.target.value) || 0);
+                          onChange(
+                            buildProgressPatchForMode(item, {
+                              mode: 'percent',
+                              progressPercent: currentPercent,
+                              totalPages: nextTotal,
+                            })
+                          );
+                        }}
+                        className="w-full bg-transparent text-sm font-medium tabular-nums text-ink placeholder:text-subtle focus:outline-none"
+                      />
+                      <span className="text-[11px] text-subtle">págs</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div>
+                  <input
+                    type="range"
+                    min="0"
+                    max="100"
+                    step="0.5"
+                    aria-label="Ajustar porcentagem da leitura"
+                    value={currentPercent}
+                    onChange={(e) => {
+                      const nextPct = roundProgressPct(e.target.value);
+                      onChange(
+                        buildProgressPatchForMode(item, {
+                          mode: 'percent',
+                          progressPercent: nextPct,
+                        })
+                      );
+                    }}
+                    style={{ accentColor: 'var(--accent-color)' }}
+                    className="h-0.5 w-full cursor-pointer appearance-none rounded-[2px] bg-line"
+                  />
+                  {totalPages > 0 && (
+                    <p className="mt-1 text-[11px] tabular-nums text-muted">
+                      Equivale a pág. {Math.round((currentPercent / 100) * totalPages)} de{' '}
+                      {totalPages}
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {progressMode === 'loc' && (
+              <div className="grid grid-cols-2 gap-2.5">
+                <div className="rounded-[6px] border border-line bg-app px-3 py-2">
+                  <span className="flex items-center gap-1 text-[10px] uppercase tracking-wider text-subtle">
+                    <Compass className="h-3 w-3 text-accent" strokeWidth={1.5} />
+                    Loc Atual
+                  </span>
+                  <div className="mt-1 flex items-center justify-between gap-1">
+                    <input
+                      type="number"
+                      min="0"
+                      aria-label="Posição Kindle Loc atual"
+                      value={item.locCurrent ?? 0}
+                      onChange={(e) => {
+                        const nextLoc = Math.max(0, Number(e.target.value) || 0);
+                        onChange(
+                          buildProgressPatchForMode(item, {
+                            mode: 'loc',
+                            locCurrent: nextLoc,
+                          })
+                        );
+                      }}
+                      className="w-full bg-transparent text-sm font-medium tabular-nums text-ink focus:outline-none"
+                    />
+                    <span className="text-[11px] text-subtle">Loc</span>
+                  </div>
+                </div>
+
+                <div className="rounded-[6px] border border-line bg-app px-3 py-2">
+                  <span className="flex items-center gap-1 text-[10px] uppercase tracking-wider text-subtle">
+                    <FileText className="h-3 w-3 text-muted" strokeWidth={1.5} />
+                    Loc Total (opcional)
+                  </span>
+                  <div className="mt-1 flex items-center justify-between gap-1">
+                    <input
+                      type="number"
+                      min="0"
+                      placeholder="—"
+                      aria-label="Posição Kindle Loc total"
+                      value={item.locTotal ?? ''}
+                      onChange={(e) => {
+                        const nextTotLoc =
+                          e.target.value === ''
+                            ? null
+                            : Math.max(0, Number(e.target.value) || 0);
+                        onChange(
+                          buildProgressPatchForMode(item, {
+                            mode: 'loc',
+                            locCurrent: currentLoc,
+                            locTotal: nextTotLoc,
+                          })
+                        );
+                      }}
+                      className="w-full bg-transparent text-sm font-medium tabular-nums text-ink placeholder:text-subtle focus:outline-none"
+                    />
+                    <span className="text-[11px] text-subtle">Loc</span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div className="flex items-center justify-between gap-2 rounded-[6px] border border-line bg-app px-3 py-2">
               <span className="text-[11px] text-muted">Somar rápido</span>
               <QuickPageButtons item={item} onChange={onChange} />
             </div>
 
-            <div className="rounded-2xl border border-line bg-app p-3.5">
+            <div className="rounded-[6px] border border-line bg-app p-3.5">
               <div className="mb-2 flex items-center justify-between text-xs">
                 <span className="font-medium text-muted">
                   {detail.progressLabel}
                 </span>
-                <span className="font-semibold text-accent">
-                  {totalPages > 0
-                    ? `${currentPage}/${totalPages} págs · ${progressValue}%`
-                    : `${currentPage} págs · ${progressValue}%`}
+                <span className="font-semibold tabular-nums text-accent">
+                  {formatFlexibleProgressMetric(item)}
+                  {progressMode !== 'percent' ? ` · ${progressValue}%` : ''}
                 </span>
               </div>
 
-              <div className="h-2 w-full overflow-hidden rounded-full bg-line">
+              <div className="h-0.5 w-full overflow-hidden rounded-[2px] bg-line">
                 <div
-                  className="h-full rounded-full bg-accent transition-all duration-300"
-                  style={{ width: `${progressValue}%` }}
+                  className="h-full bg-accent transition-all duration-150"
+                  style={{ width: `${Math.min(100, progressValue)}%` }}
                 />
               </div>
+
+              {progressValue >= 100 && (
+                <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-[4px] border border-accent/50 bg-card px-3 py-2">
+                  <span className="text-[11px] font-medium text-ink">
+                    Progresso em 100%. Deseja concluir esta obra?
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      playTactileSound('complete');
+                      onChange({
+                        status: 'completed',
+                        completedDate: getTodayLocalISO(),
+                        progress: 100,
+                        progressPercent: 100,
+                        ...(totalPages > 0 ? { currentPage: totalPages } : {}),
+                        ...(locTotal > 0 ? { locCurrent: locTotal } : {}),
+                      });
+                    }}
+                    className="inline-flex min-h-[36px] items-center gap-1.5 rounded-[4px] border border-accent bg-accent px-2.5 py-1 text-[11px] font-semibold text-accent-ink transition-opacity hover:opacity-90"
+                  >
+                    <CheckCircle2 className="h-3.5 w-3.5" strokeWidth={1.5} />
+                    <span>Concluir hoje</span>
+                  </button>
+                </div>
+              )}
 
               <label className="mt-3 block">
                 <span className="mb-1 block text-[11px] text-muted">
@@ -1185,7 +1504,7 @@ export function TactileStatusFields({
                   value={item.checkpoint || ''}
                   onChange={(e) => onChange({ checkpoint: e.target.value })}
                   placeholder={detail.checkpointPlaceholder}
-                  className="w-full rounded-xl border border-line bg-card px-3 py-2 text-xs text-ink placeholder:text-subtle focus:border-accent focus:outline-none"
+                  className="w-full rounded-[4px] border border-line bg-card px-3 py-2 text-xs text-ink placeholder:text-subtle focus:border-accent focus:outline-none"
                 />
               </label>
             </div>

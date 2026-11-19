@@ -255,6 +255,8 @@ export function App() {
         currentPage: work.currentPage,
         totalPages: work.totalPages,
         progress: work.progress,
+        progressMode: work.progressMode,
+        progressPercent: work.progressPercent,
         status: work.status,
         completedDate: work.completedDate,
       };
@@ -268,19 +270,33 @@ export function App() {
         0,
         Math.min(100, Number(endPosition.progressPct) || 0)
       );
+      const resolvedTotal = Number(nextTotal) || 0;
 
       const updates = {
-        currentPage: nextPage,
+        currentPage:
+          nextPage > 0
+            ? nextPage
+            : resolvedTotal > 0 && nextPct > 0
+              ? Math.round((nextPct / 100) * resolvedTotal)
+              : work.currentPage || 0,
+        ...(nextPct > 0 ? { progressPercent: nextPct } : {}),
+        ...(!resolvedTotal && nextPct > 0 ? { progressMode: 'percent' } : {}),
         ...(nextTotal && !work.totalPages ? { totalPages: nextTotal } : {}),
-        ...(work.status === 'queued' && nextPage > 0 ? { status: 'playing' } : {}),
+        ...(work.status === 'queued' && (nextPage > 0 || nextPct > 0)
+          ? { status: 'playing' }
+          : {}),
       };
 
       updateItem(work.id, updates);
 
       const summaryLabel =
-        nextPage > 0
-          ? `Pág. ${nextPage}${nextTotal ? `/${nextTotal}` : ''}`
-          : `${nextPct}%`;
+        nextPage > 0 && resolvedTotal > 0
+          ? `Pág. ${nextPage}/${resolvedTotal}`
+          : nextPct > 0
+            ? `${nextPct}%`
+            : nextPage > 0
+              ? `Pág. ${nextPage}`
+              : '0%';
 
       showToast({
         message: `Atualizar progresso da obra (${summaryLabel})`,

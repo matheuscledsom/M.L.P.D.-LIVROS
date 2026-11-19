@@ -23,11 +23,14 @@ import {
   getWorkTypeConfig,
 } from '../config/domainConfig';
 import {
+  calculateWorkProgress,
+  formatFlexibleProgressMetric,
   getCompletionPace,
   getDropReasonMeta,
   getHypeMeta,
   getPagesRead,
   getVerdictMeta,
+  normalizeProgressMode,
 } from '../utils/backlogHelpers';
 
 const VIEW_MODE_STORAGE_KEY = 'codice_list_view_mode';
@@ -400,6 +403,8 @@ export function ListScreen({
           {filteredAndSortedItems.map((item) => {
             const status = getStatusConfig(item.status);
             const workMeta = getWorkTypeConfig(item.workType);
+            const progressMode = normalizeProgressMode(item.progressMode);
+            const itemPct = calculateWorkProgress(item);
             const gridMetric =
               item.workType === 'manga'
                 ? item.currentChapter > 0
@@ -407,15 +412,21 @@ export function ListScreen({
                   : item.totalChapters > 0
                     ? `${item.totalChapters}c`
                     : ''
-                : (item.status === 'playing' || item.status === 'dropped'
-                    ? item.currentPage
-                    : item.totalPages) > 0
-                  ? `${
-                      item.status === 'playing' || item.status === 'dropped'
+                : item.status === 'playing' && progressMode === 'loc' && item.locCurrent > 0
+                  ? `L.${item.locCurrent}`
+                  : item.status === 'playing' &&
+                      (progressMode === 'percent' || !(item.totalPages > 0)) &&
+                      itemPct > 0
+                    ? `${itemPct}%`
+                    : (item.status === 'playing' || item.status === 'dropped'
                         ? item.currentPage
-                        : item.totalPages
-                    }p`
-                  : '';
+                        : item.totalPages) > 0
+                      ? `${
+                          item.status === 'playing' || item.status === 'dropped'
+                            ? item.currentPage
+                            : item.totalPages
+                        }p`
+                      : '';
 
             return (
               <button
@@ -471,14 +482,17 @@ export function ListScreen({
               Math.min(100, Number(item[cardFields.progress]) || 0)
             );
 
+            const progressMode = normalizeProgressMode(item.progressMode);
+            const flexibleLabel = formatFlexibleProgressMetric(item);
             const playingMetric =
               item.workType === 'manga'
                 ? `Vol. ${item.currentVolume || 0} · Cap. ${item.currentChapter || 0}${progress > 0 ? ` · ${progress}%` : ''}`
                 : item.workType === 'academic' && item.academicProgressMode === 'fichamento'
                   ? `Fichamento · ${progress}%`
-                  : item.totalPages > 0
-                    ? `${item.currentPage || 0}/${item.totalPages}p · ${progress}%`
-                    : `${item.currentPage || 0} págs · ${progress}%`;
+                  : progressMode === 'percent' ||
+                      (!(item.totalPages > 0) && item.progressPercent > 0)
+                    ? flexibleLabel
+                    : `${flexibleLabel} · ${progress}%`;
 
             return (
               <button
@@ -676,7 +690,10 @@ export function ListScreen({
                   const pagesLabel =
                     pagesCount > 0
                       ? `${pagesCount}${item.workType === 'manga' ? 'c' : 'p'}`
-                      : '—';
+                      : item.workType !== 'manga' &&
+                          (item.progressMode === 'loc' || item.progressPercent > 0)
+                        ? formatFlexibleProgressMetric(item)
+                        : '—';
                   return (
                     <tr
                       key={item.id}

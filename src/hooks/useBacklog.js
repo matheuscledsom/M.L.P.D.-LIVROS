@@ -10,11 +10,13 @@ import {
   parseAndValidateBackupText,
 } from '../services/codiceDatabase';
 import {
+  calculatePercentProgress,
   calculateSmartRating,
   calculateWorkProgress,
   createDefaultReviewCriteria,
   getTodayLocalISO,
   getVerdictForScore,
+  normalizeProgressMode,
 } from '../utils/backlogHelpers';
 
 const STORAGE_KEY = domainConfig.storageKey;
@@ -76,6 +78,21 @@ function normalizeItem(rawItem) {
   const rawCurrentPage = normalizeNonNegativeInt(rawItem.currentPage);
   const currentPage = isCompleted && totalPages ? totalPages : rawCurrentPage;
 
+  const progressMode = normalizeProgressMode(rawItem.progressMode);
+  const locTotal = normalizeNullablePositiveInt(rawItem.locTotal);
+  const rawLocCurrent = normalizeNonNegativeInt(rawItem.locCurrent);
+  const locCurrent = isCompleted && locTotal ? locTotal : rawLocCurrent;
+  const hasExplicitPercent =
+    rawItem.progressPercent !== null &&
+    rawItem.progressPercent !== undefined &&
+    rawItem.progressPercent !== '' &&
+    !Number.isNaN(Number(rawItem.progressPercent));
+  const progressPercent = isCompleted
+    ? 100
+    : hasExplicitPercent
+      ? calculatePercentProgress(rawItem.progressPercent)
+      : null;
+
   const totalVolumes = normalizeNullablePositiveInt(rawItem.totalVolumes);
   const rawCurrentVolume = normalizeNonNegativeInt(rawItem.currentVolume);
   const currentVolume =
@@ -113,6 +130,10 @@ function normalizeItem(rawItem) {
     genres: Array.isArray(rawItem.genres) ? rawItem.genres : [],
     currentPage,
     totalPages,
+    progressMode,
+    progressPercent,
+    locCurrent,
+    locTotal,
     currentVolume,
     totalVolumes,
     currentChapter,
@@ -146,6 +167,10 @@ function normalizeItem(rawItem) {
       typeof rawItem.acquisitionType === 'string' ? rawItem.acquisitionType : '',
     conservationState:
       typeof rawItem.conservationState === 'string' ? rawItem.conservationState : '',
+    originalTitle:
+      typeof rawItem.originalTitle === 'string' ? rawItem.originalTitle : '',
+    loanedTo: typeof rawItem.loanedTo === 'string' ? rawItem.loanedTo : '',
+    loanedAt: rawItem.loanedAt || null,
     recommended:
       rawItem.recommended !== undefined ? Boolean(rawItem.recommended) : false,
     readerState: rawItem.readerState || null,
@@ -214,8 +239,12 @@ function applyStatusTransitionDefaults(merged, nextStatus, prevItem) {
     merged.completedYear =
       Number(merged.completedDate.slice(0, 4)) || domainConfig.currentYear;
     merged.progress = 100;
+    merged.progressPercent = 100;
     if (merged.totalPages > 0) {
       merged.currentPage = merged.totalPages;
+    }
+    if (merged.locTotal > 0) {
+      merged.locCurrent = merged.locTotal;
     }
     if (merged.workType === 'manga') {
       if (merged.totalChapters > 0) merged.currentChapter = merged.totalChapters;
@@ -372,6 +401,40 @@ export function useBacklog() {
         if (Object.prototype.hasOwnProperty.call(updates, 'totalPages')) {
           merged.totalPages = normalizeNullablePositiveInt(updates.totalPages);
         }
+        if (Object.prototype.hasOwnProperty.call(updates, 'progressMode')) {
+          merged.progressMode = normalizeProgressMode(updates.progressMode);
+        }
+        if (Object.prototype.hasOwnProperty.call(updates, 'progressPercent')) {
+          merged.progressPercent =
+            updates.progressPercent === null || updates.progressPercent === ''
+              ? null
+              : calculatePercentProgress(updates.progressPercent);
+        }
+        if (Object.prototype.hasOwnProperty.call(updates, 'locCurrent')) {
+          merged.locCurrent = normalizeNonNegativeInt(updates.locCurrent);
+        }
+        if (Object.prototype.hasOwnProperty.call(updates, 'locTotal')) {
+          merged.locTotal = normalizeNullablePositiveInt(updates.locTotal);
+        }
+        if (
+          !Object.prototype.hasOwnProperty.call(updates, 'currentPage') &&
+          merged.totalPages > 0 &&
+          (Object.prototype.hasOwnProperty.call(updates, 'progressPercent') ||
+            Object.prototype.hasOwnProperty.call(updates, 'locCurrent') ||
+            Object.prototype.hasOwnProperty.call(updates, 'locTotal'))
+        ) {
+          const derivedPct = calculateWorkProgress(merged);
+          merged.currentPage = Math.round((derivedPct / 100) * merged.totalPages);
+        } else if (
+          Object.prototype.hasOwnProperty.call(updates, 'currentPage') &&
+          !Object.prototype.hasOwnProperty.call(updates, 'progressPercent') &&
+          merged.totalPages > 0
+        ) {
+          merged.progressPercent =
+            Math.round(
+              (Math.min(merged.totalPages, merged.currentPage) / merged.totalPages) * 1000
+            ) / 10;
+        }
         if (Object.prototype.hasOwnProperty.call(updates, 'currentVolume')) {
           merged.currentVolume = normalizeNonNegativeInt(updates.currentVolume);
         }
@@ -417,11 +480,18 @@ export function useBacklog() {
         } else {
           if (nextStatus === 'completed') {
             merged.progress = 100;
+            merged.progressPercent = 100;
             if (
               Object.prototype.hasOwnProperty.call(updates, 'totalPages') &&
               merged.totalPages > 0
             ) {
               merged.currentPage = merged.totalPages;
+            }
+            if (
+              Object.prototype.hasOwnProperty.call(updates, 'locTotal') &&
+              merged.locTotal > 0
+            ) {
+              merged.locCurrent = merged.locTotal;
             }
             if (merged.completedDate) {
               merged.completedYear =
