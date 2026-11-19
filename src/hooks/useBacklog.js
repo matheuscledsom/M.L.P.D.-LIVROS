@@ -96,6 +96,11 @@ function normalizeItem(rawItem) {
     title: String(rawItem.title || ''),
     author,
     format,
+    coverSources: Array.isArray(rawItem.coverSources)
+      ? rawItem.coverSources.filter(Boolean)
+      : rawItem.coverUrl
+        ? [rawItem.coverUrl]
+        : [],
     genres: Array.isArray(rawItem.genres) ? rawItem.genres : [],
     currentPage,
     totalPages,

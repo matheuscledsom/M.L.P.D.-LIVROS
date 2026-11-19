@@ -15,6 +15,14 @@ function getDefaultProfile() {
     bio: profile.bio,
     linkLabel: profile.linkLabel,
     linkUrl: profile.linkUrl,
+    age: '',
+    readerFocus: 'Leitor Casual',
+    annualGoal: 12,
+    preferredFormat: 'Livro Físico',
+    preferredCriterion: 'Enredo e Ritmo',
+    preferredAtmosphere: 'Tinta OLED',
+    favoriteGenres: [],
+    onboardingCompleted: false,
   };
 }
 
@@ -25,7 +33,18 @@ function loadProfile() {
     if (!raw) return fallback;
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== 'object') return fallback;
-    return { ...fallback, ...parsed };
+    return {
+      ...fallback,
+      ...parsed,
+      annualGoal: Math.max(1, Number(parsed.annualGoal) || fallback.annualGoal),
+      favoriteGenres: Array.isArray(parsed.favoriteGenres)
+        ? parsed.favoriteGenres
+        : [],
+      onboardingCompleted:
+        parsed.onboardingCompleted !== undefined
+          ? Boolean(parsed.onboardingCompleted)
+          : Boolean(parsed.displayName && parsed.displayName !== fallback.displayName),
+    };
   } catch {
     return fallback;
   }
@@ -66,7 +85,10 @@ export function useSocialProfile() {
     setProfile((prev) => {
       const next = { ...prev, ...updates };
       if (updates.displayName !== undefined && !updates.avatarInitials) {
-        const words = String(updates.displayName || '').trim().split(/\s+/).filter(Boolean);
+        const words = String(updates.displayName || '')
+          .trim()
+          .split(/\s+/)
+          .filter(Boolean);
         next.avatarInitials =
           words.length >= 2
             ? `${words[0][0]}${words[1][0]}`.toUpperCase()
@@ -74,6 +96,9 @@ export function useSocialProfile() {
       }
       if (updates.handle && !updates.handle.startsWith('@')) {
         next.handle = `@${updates.handle.trim()}`;
+      }
+      if (updates.annualGoal !== undefined) {
+        next.annualGoal = Math.max(1, Number(updates.annualGoal) || 12);
       }
       return next;
     });
@@ -133,14 +158,23 @@ export function useSocialProfile() {
     );
   }, []);
 
-  const restoreSocialBackup = useCallback(({ profile: savedProfile, posts: savedPosts }) => {
-    if (savedProfile && typeof savedProfile === 'object') {
-      setProfile({ ...getDefaultProfile(), ...savedProfile });
-    }
-    if (Array.isArray(savedPosts)) {
-      setPosts(savedPosts);
-    }
-  }, []);
+  const restoreSocialBackup = useCallback(
+    ({ profile: savedProfile, posts: savedPosts }) => {
+      if (savedProfile && typeof savedProfile === 'object') {
+        setProfile({
+          ...getDefaultProfile(),
+          ...savedProfile,
+          onboardingCompleted: true,
+        });
+      } else {
+        setProfile((prev) => ({ ...prev, onboardingCompleted: true }));
+      }
+      if (Array.isArray(savedPosts)) {
+        setPosts(savedPosts);
+      }
+    },
+    []
+  );
 
   return {
     profile,

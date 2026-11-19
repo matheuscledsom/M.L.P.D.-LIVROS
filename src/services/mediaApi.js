@@ -4,6 +4,14 @@ const GOOGLE_BOOKS_BASE_URL = 'https://www.googleapis.com/books/v1/volumes';
 const OPEN_LIBRARY_BASE_URL = 'https://openlibrary.org/search.json';
 const JIKAN_MANGA_BASE_URL = 'https://api.jikan.moe/v4/manga';
 
+const SEARCH_CACHE_KEY = 'mlpd_livros_search_cache_v1';
+const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+const CACHE_MAX_ENTRIES = 40;
+const API_TIMEOUT_MS = 5000;
+
+const memoryCache = new Map();
+let cacheHydrated = false;
+
 const PALETTES = [
   ['#1E1B4B', '#8B5CF6', '#38BDF8'],
   ['#18181B', '#C084FC', '#F43F5E'],
@@ -11,6 +19,82 @@ const PALETTES = [
   ['#2E1065', '#A855F7', '#FBBF24'],
   ['#1F2937', '#F97316', '#FDE047'],
 ];
+
+function hydrateMemoryCache() {
+  if (cacheHydrated) return;
+  cacheHydrated = true;
+  try {
+    if (typeof sessionStorage === 'undefined') return;
+    const raw = sessionStorage.getItem(SEARCH_CACHE_KEY);
+    if (!raw) return;
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return;
+
+    const now = Date.now();
+    parsed.forEach(([key, entry]) => {
+      if (
+        key &&
+        entry &&
+        Array.isArray(entry.results) &&
+        now - Number(entry.timestamp || 0) < CACHE_TTL_MS
+      ) {
+        memoryCache.set(key, entry);
+      }
+    });
+  } catch {
+    // Ignora falha ao ler sessionStorage
+  }
+}
+
+function persistMemoryCache() {
+  try {
+    if (typeof sessionStorage === 'undefined') return;
+    const entries = Array.from(memoryCache.entries()).slice(-CACHE_MAX_ENTRIES);
+    sessionStorage.setItem(SEARCH_CACHE_KEY, JSON.stringify(entries));
+  } catch {
+    // Ignora erro de quota ou storage indisponível
+  }
+}
+
+function makeCacheKey(query, filter) {
+  return `${filter || 'all'}:${String(query || '').trim().toLowerCase()}`;
+}
+
+export function getCachedSearchMedia(query, filter = 'all') {
+  hydrateMemoryCache();
+  const key = makeCacheKey(query, filter);
+  const entry = memoryCache.get(key);
+  if (!entry) return null;
+
+  if (Date.now() - Number(entry.timestamp || 0) >= CACHE_TTL_MS) {
+    memoryCache.delete(key);
+    persistMemoryCache();
+    return null;
+  }
+
+  // LRU: move para o final
+  memoryCache.delete(key);
+  memoryCache.set(key, entry);
+  return entry;
+}
+
+function setCachedSearchMedia(query, filter, payload) {
+  hydrateMemoryCache();
+  const key = makeCacheKey(query, filter);
+  if (memoryCache.has(key)) {
+    memoryCache.delete(key);
+  }
+  while (memoryCache.size >= CACHE_MAX_ENTRIES) {
+    const oldestKey = memoryCache.keys().next().value;
+    if (!oldestKey) break;
+    memoryCache.delete(oldestKey);
+  }
+  memoryCache.set(key, {
+    ...payload,
+    timestamp: Date.now(),
+  });
+  persistMemoryCache();
+}
 
 function getMonogram(title) {
   const words = String(title || '')
@@ -40,6 +124,12 @@ function cleanCoverUrl(rawUrl) {
     .replace(/\?$/, '');
 }
 
+function buildOpenLibraryIsbnCover(isbn) {
+  const clean = String(isbn || '').replace(/[-\s]/g, '').trim();
+  if (!clean) return null;
+  return `https://covers.openlibrary.org/b/isbn/${encodeURIComponent(clean)}-L.jpg?default=false`;
+}
+
 function extractReleaseYear(publishedDate) {
   const match = String(publishedDate || '').trim().match(/^\d{4}/);
   return match ? Number(match[0]) : null;
@@ -51,7 +141,10 @@ export function detectIsbnQuery(query = '') {
     return clean;
   }
   const digitsOnly = clean.replace(/[-\s]/g, '');
-  if (/^[\d-\s]+$/.test(clean) && (digitsOnly.length === 10 || digitsOnly.length === 13)) {
+  if (
+    /^[\d-\s]+$/.test(clean) &&
+    (digitsOnly.length === 10 || digitsOnly.length === 13)
+  ) {
     return digitsOnly;
   }
   return null;
@@ -59,9 +152,13 @@ export function detectIsbnQuery(query = '') {
 
 function extractGoogleIsbn(industryIdentifiers) {
   if (!Array.isArray(industryIdentifiers)) return '';
-  const isbn13 = industryIdentifiers.find((item) => item?.type === 'ISBN_13')?.identifier;
+  const isbn13 = industryIdentifiers.find(
+    (item) => item?.type === 'ISBN_13'
+  )?.identifier;
   if (isbn13) return isbn13;
-  const isbn10 = industryIdentifiers.find((item) => item?.type === 'ISBN_10')?.identifier;
+  const isbn10 = industryIdentifiers.find(
+    (item) => item?.type === 'ISBN_10'
+  )?.identifier;
   return isbn10 || '';
 }
 
@@ -72,7 +169,16 @@ function mapGoogleBook(volume, defaultWorkType = 'book', isbnFallback = '') {
     ? volumeInfo.authors.filter(Boolean).join(', ')
     : '';
   const rawThumbnail =
-    volumeInfo.imageLinks?.thumbnail || volumeInfo.imageLinks?.smallThumbnail || null;
+    volumeInfo.imageLinks?.thumbnail ||
+    volumeInfo.imageLinks?.smallThumbnail ||
+    null;
+  const isbn = extractGoogleIsbn(volumeInfo.industryIdentifiers) || isbnFallback;
+  const primaryCover = cleanCoverUrl(rawThumbnail);
+  const isbnCover = buildOpenLibraryIsbnCover(isbn);
+  const coverSources = Array.from(
+    new Set([primaryCover, isbnCover].filter(Boolean))
+  );
+
   const totalPages =
     typeof volumeInfo.pageCount === 'number' && volumeInfo.pageCount > 0
       ? volumeInfo.pageCount
@@ -80,13 +186,13 @@ function mapGoogleBook(volume, defaultWorkType = 'book', isbnFallback = '') {
   const genres = Array.isArray(volumeInfo.categories)
     ? volumeInfo.categories.filter(Boolean)
     : [];
-  const isbn = extractGoogleIsbn(volumeInfo.industryIdentifiers) || isbnFallback;
 
   return {
     id: `gb-${String(volume.id)}`,
     title,
     author,
-    coverUrl: cleanCoverUrl(rawThumbnail),
+    coverUrl: coverSources[0] || null,
+    coverSources,
     releaseYear: extractReleaseYear(volumeInfo.publishedDate),
     totalPages,
     publisher: volumeInfo.publisher || '',
@@ -106,21 +212,28 @@ function mapOpenLibraryDoc(doc, defaultWorkType = 'book', isbnFallback = '') {
   const author = Array.isArray(doc?.author_name)
     ? doc.author_name.filter(Boolean).join(', ')
     : '';
-  const coverUrl = doc?.cover_i
-    ? `https://covers.openlibrary.org/b/id/${doc.cover_i}-M.jpg`
-    : null;
-  const releaseYear =
-    typeof doc?.first_publish_year === 'number' ? doc.first_publish_year : null;
-  const totalPages =
-    typeof doc?.number_of_pages_median === 'number' && doc.number_of_pages_median > 0
-      ? doc.number_of_pages_median
-      : null;
-  const publisher =
-    Array.isArray(doc?.publisher) && doc.publisher.length ? doc.publisher[0] : '';
   const isbn =
     Array.isArray(doc?.isbn) && doc.isbn.length
       ? doc.isbn.find((code) => /^\d{13}$/.test(code)) || doc.isbn[0]
       : isbnFallback;
+
+  const openLibIdCover = doc?.cover_i
+    ? `https://covers.openlibrary.org/b/id/${doc.cover_i}-L.jpg?default=false`
+    : null;
+  const isbnCover = buildOpenLibraryIsbnCover(isbn);
+  const coverSources = Array.from(
+    new Set([openLibIdCover, isbnCover].filter(Boolean))
+  );
+
+  const releaseYear =
+    typeof doc?.first_publish_year === 'number' ? doc.first_publish_year : null;
+  const totalPages =
+    typeof doc?.number_of_pages_median === 'number' &&
+    doc.number_of_pages_median > 0
+      ? doc.number_of_pages_median
+      : null;
+  const publisher =
+    Array.isArray(doc?.publisher) && doc.publisher.length ? doc.publisher[0] : '';
   const genres = Array.isArray(doc?.subject)
     ? doc.subject.filter(Boolean).slice(0, 3)
     : [];
@@ -129,7 +242,8 @@ function mapOpenLibraryDoc(doc, defaultWorkType = 'book', isbnFallback = '') {
     id: `ol-${rawKey}`,
     title,
     author,
-    coverUrl,
+    coverUrl: coverSources[0] || null,
+    coverSources,
     releaseYear,
     totalPages,
     publisher,
@@ -159,11 +273,18 @@ function mapJikanManga(entry) {
   const author = Array.isArray(entry?.authors)
     ? entry.authors.map((a) => a?.name).filter(Boolean).join(', ')
     : '';
-  const coverUrl =
-    entry?.images?.jpg?.large_image_url ||
-    entry?.images?.jpg?.image_url ||
-    entry?.images?.webp?.image_url ||
-    null;
+
+  const coverSources = Array.from(
+    new Set(
+      [
+        cleanCoverUrl(entry?.images?.webp?.large_image_url),
+        cleanCoverUrl(entry?.images?.jpg?.large_image_url),
+        cleanCoverUrl(entry?.images?.webp?.image_url),
+        cleanCoverUrl(entry?.images?.jpg?.image_url),
+      ].filter(Boolean)
+    )
+  );
+
   const genres = Array.from(
     new Set(
       [
@@ -180,7 +301,8 @@ function mapJikanManga(entry) {
     id: `jikan-${entry.mal_id}`,
     title,
     author,
-    coverUrl,
+    coverUrl: coverSources[0] || null,
+    coverSources,
     releaseYear: extractReleaseYear(entry?.published?.from),
     totalVolumes:
       typeof entry?.volumes === 'number' && entry.volumes > 0
@@ -228,9 +350,28 @@ function deduplicateResults(items) {
       : `${item.workType || 'book'}:${titleKey}:${firstAuthor}`;
 
     const existing = byKey.get(dedupKey);
-    if (!existing || scoreResultRichness(item) > scoreResultRichness(existing)) {
+    if (!existing) {
       byKey.set(dedupKey, item);
+      return;
     }
+
+    const winner =
+      scoreResultRichness(item) > scoreResultRichness(existing) ? item : existing;
+    const loser = winner === item ? existing : item;
+    const mergedSources = Array.from(
+      new Set([
+        ...(winner.coverSources || []),
+        winner.coverUrl,
+        ...(loser.coverSources || []),
+        loser.coverUrl,
+      ].filter(Boolean))
+    );
+
+    byKey.set(dedupKey, {
+      ...winner,
+      coverUrl: mergedSources[0] || winner.coverUrl || null,
+      coverSources: mergedSources,
+    });
   });
 
   return Array.from(byKey.values());
@@ -269,18 +410,64 @@ export function searchMockMedia(query = '', filter = 'all') {
   });
 }
 
-async function fetchJsonSafe(url, { signal }) {
-  const response = await fetch(url, { signal });
-  if (!response.ok) {
-    throw new Error(`HTTP ${response.status}`);
+async function fetchJsonWithTimeout(url, { signal, timeoutMs = API_TIMEOUT_MS } = {}) {
+  const localController = new AbortController();
+  let timedOut = false;
+
+  const onParentAbort = () => localController.abort();
+  if (signal) {
+    if (signal.aborted) {
+      const err = new Error('Aborted');
+      err.name = 'AbortError';
+      throw err;
+    }
+    signal.addEventListener('abort', onParentAbort, { once: true });
   }
-  return response.json();
+
+  const timer = setTimeout(() => {
+    timedOut = true;
+    localController.abort();
+  }, timeoutMs);
+
+  try {
+    const response = await fetch(url, { signal: localController.signal });
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    return await response.json();
+  } catch (err) {
+    if (timedOut && !signal?.aborted) {
+      const timeoutErr = new Error('Timeout');
+      timeoutErr.name = 'TimeoutError';
+      throw timeoutErr;
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+    if (signal) {
+      signal.removeEventListener('abort', onParentAbort);
+    }
+  }
 }
 
-export async function searchMedia(query, { signal, filter = 'all' } = {}) {
+export async function searchMedia(
+  query,
+  { signal, filter = 'all', skipCache = false } = {}
+) {
   const cleanQuery = query.trim();
   if (!cleanQuery) {
     return { results: searchMockMedia('', filter), source: 'mock', isIsbn: false };
+  }
+
+  if (!skipCache) {
+    const cached = getCachedSearchMedia(cleanQuery, filter);
+    if (cached) {
+      return {
+        results: cached.results,
+        source: 'cache',
+        isIsbn: Boolean(cached.isIsbn),
+      };
+    }
   }
 
   const isbn = detectIsbnQuery(cleanQuery);
@@ -299,9 +486,9 @@ export async function searchMedia(query, { signal, filter = 'all' } = {}) {
   const jikanUrl = `${JIKAN_MANGA_BASE_URL}?q=${encodeURIComponent(cleanQuery)}&limit=8`;
 
   const tasks = [
-    fetchJsonSafe(googleUrl, { signal }),
-    fetchJsonSafe(openLibraryUrl, { signal }),
-    ...(shouldQueryJikan ? [fetchJsonSafe(jikanUrl, { signal })] : []),
+    fetchJsonWithTimeout(googleUrl, { signal }),
+    fetchJsonWithTimeout(openLibraryUrl, { signal }),
+    ...(shouldQueryJikan ? [fetchJsonWithTimeout(jikanUrl, { signal })] : []),
   ];
 
   const settled = await Promise.allSettled(tasks);
@@ -345,7 +532,6 @@ export async function searchMedia(query, { signal, filter = 'all' } = {}) {
       ? jikanRes.value.data.map(mapJikanManga)
       : [];
 
-  // Interleave Google Books and Open Library while keeping Jikan first in manga mode
   const interleavedBooks = [];
   const maxBookLen = Math.max(googleItems.length, openLibItems.length);
   for (let i = 0; i < maxBookLen; i += 1) {
@@ -359,9 +545,12 @@ export async function searchMedia(query, { signal, filter = 'all' } = {}) {
       : interleavedBooks
   );
 
-  return {
+  const payload = {
     results: merged,
     source: 'multi',
     isIsbn: Boolean(isbn),
   };
+
+  setCachedSearchMedia(cleanQuery, filter, payload);
+  return payload;
 }

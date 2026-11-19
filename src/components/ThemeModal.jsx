@@ -1,7 +1,8 @@
-import { Check, Palette, RotateCcw, Sparkles, Type, X } from 'lucide-react';
+import { Check, Layers, Palette, RotateCcw, Sparkles, Type, X } from 'lucide-react';
 import {
   EDITORIAL_PRESETS,
   FONT_PRESETS,
+  TEXTURE_OPTIONS,
   THEME_MODES,
 } from '../hooks/useTheme';
 
@@ -10,12 +11,14 @@ export function ThemeModal({
   onClose,
   mode,
   font,
+  texture = 'clean',
   presetId,
   bgColor,
   accentColor,
   hasCustomBg,
   onSelectMode,
   onSelectFont,
+  onSelectTexture,
   onApplyPreset,
   onChangeBgColor,
   onChangeAccentColor,
@@ -62,13 +65,13 @@ export function ThemeModal({
           </div>
         </div>
 
-        {/* Tipografia Global */}
+        {/* 6 Tipografias Globais */}
         <div className="mt-5">
           <p className="mb-2.5 flex items-center gap-1.5 text-xs font-medium text-muted">
             <Type className="h-3.5 w-3.5 text-accent" />
-            Tipografia Global
+            Tipografia Global (6 Fontes)
           </p>
-          <div className="grid grid-cols-1 gap-2">
+          <div className="grid grid-cols-2 gap-2">
             {FONT_PRESETS.map((f) => {
               const isSelected = font === f.id;
               return (
@@ -77,23 +80,23 @@ export function ThemeModal({
                   type="button"
                   onClick={() => onSelectFont(f.id)}
                   style={{ fontFamily: f.cssValue }}
-                  className={`flex items-center justify-between rounded-xl border px-3.5 py-2.5 text-left transition-colors ${
+                  className={`flex items-center justify-between gap-2 rounded-xl border px-3 py-2.5 text-left transition-colors ${
                     isSelected
                       ? 'border-accent bg-accent/15 text-ink'
                       : 'border-line bg-app text-muted hover:text-ink'
                   }`}
                 >
-                  <div>
-                    <span className="block text-xs font-semibold text-ink">
-                      {f.label}
+                  <div className="min-w-0">
+                    <span className="block truncate text-xs font-semibold text-ink">
+                      {f.shortLabel}
                     </span>
-                    <span className="mt-0.5 block text-[11px] text-subtle">
-                      Abc · Entre páginas, ideias e anotações
+                    <span className="mt-0.5 block truncate text-[10px] text-subtle">
+                      Abc · Editorial
                     </span>
                   </div>
                   {isSelected && (
-                    <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-accent text-accent-ink">
-                      <Check className="h-3 w-3" />
+                    <span className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-accent text-accent-ink">
+                      <Check className="h-2.5 w-2.5" />
                     </span>
                   )}
                 </button>
@@ -144,6 +147,34 @@ export function ThemeModal({
           </div>
         </div>
 
+        {/* Textura de Ambiente */}
+        <div className="mt-5">
+          <p className="mb-2.5 flex items-center gap-1.5 text-xs font-medium text-muted">
+            <Layers className="h-3.5 w-3.5 text-accent" />
+            Textura de Ambiente
+          </p>
+          <div className="grid grid-cols-2 gap-2">
+            {TEXTURE_OPTIONS.map((tex) => {
+              const isSelected = texture === tex.id;
+              return (
+                <button
+                  key={tex.id}
+                  type="button"
+                  onClick={() => onSelectTexture?.(tex.id)}
+                  className={`flex items-center justify-between rounded-xl border px-3 py-2 text-left text-[11px] font-medium transition-colors ${
+                    isSelected
+                      ? 'border-accent bg-accent/15 text-ink'
+                      : 'border-line bg-app text-muted hover:text-ink'
+                  }`}
+                >
+                  <span>{tex.label}</span>
+                  {isSelected && <Check className="h-3 w-3 text-accent" />}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
         {/* Seletores Livres (Color Picker) */}
         <div className="mt-5">
           <p className="mb-2.5 text-xs font-medium text-muted">
@@ -188,11 +219,11 @@ export function ThemeModal({
           </div>
         </div>
 
-        {/* 14 Presets Temáticos */}
+        {/* 22 Presets Temáticos */}
         <div className="mt-5">
           <p className="mb-2.5 flex items-center gap-1.5 text-xs font-medium text-muted">
             <Sparkles className="h-3.5 w-3.5 text-accent" />
-            14 Presets Temáticos
+            22 Presets Temáticos
           </p>
           <div className="grid grid-cols-2 gap-2">
             {EDITORIAL_PRESETS.map((preset) => {

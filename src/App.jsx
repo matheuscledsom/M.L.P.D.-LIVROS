@@ -3,6 +3,8 @@ import { BottomNav } from './components/BottomNav';
 import { GeminiConfigModal } from './components/GeminiConfigModal';
 import { ItemDetailSheet } from './components/ItemDetailSheet';
 import { JournalComposerModal } from './components/JournalComposerModal';
+import { OnboardingFlow } from './components/OnboardingFlow';
+import { useToast } from './context/ToastContext';
 import { useBacklog } from './hooks/useBacklog';
 import { useGeminiKey } from './hooks/useGeminiKey';
 import { useReadingStreak } from './hooks/useReadingStreak';
@@ -18,20 +20,25 @@ export function App() {
   const [activeTab, setActiveTab] = useState('home');
   const [selectedItemId, setSelectedItemId] = useState(null);
   const [geminiModalOpen, setGeminiModalOpen] = useState(false);
+  const [onboardingReopened, setOnboardingReopened] = useState(false);
   const [journalComposer, setJournalComposer] = useState({
     open: false,
     itemId: null,
   });
 
+  const { showToast } = useToast();
+
   const {
     mode,
     font,
+    texture,
     presetId,
     bgColor,
     accentColor,
     hasCustomBg,
     setMode,
     setFont,
+    setTexture,
     applyPreset,
     setCustomBgColor,
     setCustomAccentColor,
@@ -74,6 +81,28 @@ export function App() {
     [items, selectedItemId]
   );
 
+  const handleAddItem = (newItem) => {
+    addItem(newItem);
+    showToast({
+      message:
+        newItem?.status === 'completed'
+          ? 'Obra catalogada como Concluída'
+          : 'Obra salva no acervo',
+      type: 'success',
+    });
+  };
+
+  const handleUpdateItem = (id, updates) => {
+    const prev = items.find((entry) => entry.id === id);
+    updateItem(id, updates);
+    if (updates?.status === 'completed' && prev?.status !== 'completed') {
+      showToast({
+        message: 'Leitura concluída com sucesso',
+        type: 'success',
+      });
+    }
+  };
+
   const handleOpenJournalComposer = (itemId = null) => {
     setJournalComposer({ open: true, itemId });
   };
@@ -81,10 +110,12 @@ export function App() {
   const handlePublishPost = (postData) => {
     addPost(postData);
     setActiveTab('profile');
+    showToast({ message: 'Momento publicado no Diário', type: 'success' });
   };
 
   const handleExportBackup = () => {
     exportBackup({ profile, posts, streak: streakData });
+    showToast({ message: 'Backup .json exportado', type: 'success' });
   };
 
   const handleImportBackup = async (file) => {
@@ -92,8 +123,19 @@ export function App() {
     if (result.ok) {
       restoreSocialBackup({ profile: result.profile, posts: result.posts });
       restoreStreakBackup(result.streak);
+      showToast({
+        message: `Backup restaurado (${result.count} obras)`,
+        type: 'success',
+      });
+    } else {
+      showToast({ message: result.error, type: 'error' });
     }
     return result;
+  };
+
+  const handleRegisterToday = () => {
+    registerToday();
+    showToast({ message: 'Constância de leitura registrada hoje', type: 'success' });
   };
 
   const streakProps = {
@@ -101,12 +143,27 @@ export function App() {
     loggedToday,
     isPaused,
     history,
-    onRegisterToday: registerToday,
+    onRegisterToday: handleRegisterToday,
   };
 
+  const textureClass =
+    texture === 'paper'
+      ? 'app-texture-paper'
+      : texture === 'grid'
+        ? 'app-texture-grid'
+        : texture === 'glow'
+          ? 'app-texture-glow'
+          : '';
+
   return (
-    <div className="min-h-screen bg-app text-ink transition-colors duration-200">
-      <div className="mx-auto min-h-screen max-w-md bg-app sm:border-x sm:border-line/60">
+    <div className="relative min-h-screen bg-app text-ink transition-colors duration-200">
+      {textureClass && (
+        <div
+          aria-hidden="true"
+          className={`app-texture-overlay ${textureClass}`}
+        />
+      )}
+      <div className="relative z-10 mx-auto min-h-screen max-w-md bg-transparent sm:border-x sm:border-line/60">
         <main className="px-4 pt-4 pb-[env(safe-area-inset-bottom)]">
           {activeTab === 'home' && (
             <HomeScreen
@@ -125,7 +182,7 @@ export function App() {
             <AddScreen
               items={items}
               geminiKey={geminiKey}
-              onAddItem={addItem}
+              onAddItem={handleAddItem}
               onSelectExisting={(item) => setSelectedItemId(item.id)}
               onOpenGeminiSettings={() => setGeminiModalOpen(true)}
             />
@@ -133,6 +190,7 @@ export function App() {
           {activeTab === 'list' && (
             <ListScreen
               items={items}
+              profile={profile}
               streakProps={streakProps}
               geminiKey={geminiKey}
               onSelectItem={(item) => setSelectedItemId(item.id)}
@@ -147,21 +205,27 @@ export function App() {
               posts={posts}
               hasGeminiKey={hasGeminiKey}
               onOpenGeminiSettings={() => setGeminiModalOpen(true)}
+              onReopenOnboarding={() => setOnboardingReopened(true)}
               themeProps={{
                 mode,
                 font,
+                texture,
                 presetId,
                 bgColor,
                 accentColor,
                 hasCustomBg,
                 onSelectMode: setMode,
                 onSelectFont: setFont,
+                onSelectTexture: setTexture,
                 onApplyPreset: applyPreset,
                 onChangeBgColor: setCustomBgColor,
                 onChangeAccentColor: setCustomAccentColor,
                 onResetTheme: resetCustomColors,
               }}
-              onUpdateProfile={updateProfile}
+              onUpdateProfile={(updates) => {
+                updateProfile(updates);
+                showToast({ message: 'Perfil atualizado', type: 'success' });
+              }}
               onSelectItem={(item) => setSelectedItemId(item.id)}
               onOpenJournalComposer={handleOpenJournalComposer}
               onDeletePost={deletePost}
@@ -180,7 +244,7 @@ export function App() {
           posts={posts}
           geminiKey={geminiKey}
           onClose={() => setSelectedItemId(null)}
-          onUpdateItem={updateItem}
+          onUpdateItem={handleUpdateItem}
           onRemoveItem={removeItem}
           onOpenJournal={handleOpenJournalComposer}
           onOpenGeminiSettings={() => setGeminiModalOpen(true)}
@@ -198,8 +262,34 @@ export function App() {
           isOpen={geminiModalOpen}
           onClose={() => setGeminiModalOpen(false)}
           apiKey={geminiKey}
-          onSaveKey={saveApiKey}
-          onClearKey={clearApiKey}
+          onSaveKey={(key) => {
+            saveApiKey(key);
+            showToast({
+              message: key ? 'Chave Google Gemini salva' : 'Chave Gemini removida',
+              type: 'success',
+            });
+          }}
+          onClearKey={() => {
+            clearApiKey();
+            showToast({ message: 'Chave Gemini removida', type: 'info' });
+          }}
+        />
+
+        <OnboardingFlow
+          isOpen={!profile.onboardingCompleted || onboardingReopened}
+          canDismiss={Boolean(profile.onboardingCompleted)}
+          profile={profile}
+          geminiKey={geminiKey}
+          onSelectThemeMode={setMode}
+          onApplyThemePreset={applyPreset}
+          onSaveGeminiKey={saveApiKey}
+          onImportBackup={handleImportBackup}
+          onComplete={(updates) => {
+            updateProfile(updates);
+            setOnboardingReopened(false);
+            showToast({ message: 'Perfil do leitor salvo', type: 'success' });
+          }}
+          onDismiss={() => setOnboardingReopened(false)}
         />
       </div>
     </div>

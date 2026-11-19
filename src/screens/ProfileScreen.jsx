@@ -1,5 +1,6 @@
 import {
   Bookmark,
+  BookOpen,
   Camera,
   Download,
   Film,
@@ -14,6 +15,8 @@ import {
   Star,
   Trophy,
   Upload,
+  Volume2,
+  VolumeX,
   Zap,
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -24,6 +27,11 @@ import { ThemeModal } from '../components/ThemeModal';
 import { VectorIcon } from '../components/VectorIcon';
 import { domainConfig } from '../config/domainConfig';
 import { getHypeMeta, getPagesRead } from '../utils/backlogHelpers';
+import {
+  isSoundEnabled,
+  playTactileSound,
+  setSoundEnabled,
+} from '../utils/soundEffects';
 
 const TAB_ICONS = {
   Grid3X3,
@@ -38,6 +46,7 @@ export function ProfileScreen({
   themeProps,
   hasGeminiKey = false,
   onOpenGeminiSettings,
+  onReopenOnboarding,
   onUpdateProfile,
   onSelectItem,
   onOpenJournalComposer,
@@ -55,6 +64,7 @@ export function ProfileScreen({
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [selectedPostId, setSelectedPostId] = useState(null);
   const [feedback, setFeedback] = useState(null);
+  const [soundOn, setSoundOn] = useState(isSoundEnabled);
 
   const menuRef = useRef(null);
   const fileInputRef = useRef(null);
@@ -237,7 +247,46 @@ export function ProfileScreen({
           </button>
 
           {menuOpen && (
-            <div className="absolute right-0 top-11 z-30 w-56 overflow-hidden rounded-2xl border border-line bg-card p-1.5 shadow-2xl">
+            <div className="absolute right-0 top-11 z-30 w-60 overflow-hidden rounded-2xl border border-line bg-card p-1.5 shadow-2xl">
+              <button
+                type="button"
+                onClick={() => {
+                  setMenuOpen(false);
+                  onReopenOnboarding?.();
+                }}
+                className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-xs font-medium text-ink transition-colors hover:bg-elevated"
+              >
+                <BookOpen className="h-3.5 w-3.5 shrink-0 text-accent" />
+                <span>Reabrir Boas-Vindas e Tutorial</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const next = !soundOn;
+                  setSoundEnabled(next);
+                  setSoundOn(next);
+                  if (next) playTactileSound('tap');
+                }}
+                className="flex w-full items-center justify-between gap-2 rounded-xl px-3 py-2.5 text-left text-xs font-medium text-ink transition-colors hover:bg-elevated"
+              >
+                <span className="inline-flex items-center gap-2.5">
+                  {soundOn ? (
+                    <Volume2 className="h-3.5 w-3.5 text-accent" />
+                  ) : (
+                    <VolumeX className="h-3.5 w-3.5 text-subtle" />
+                  )}
+                  Efeitos Sonoros Táteis
+                </span>
+                <span
+                  className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${
+                    soundOn
+                      ? 'bg-accent/15 text-accent'
+                      : 'bg-elevated text-subtle'
+                  }`}
+                >
+                  {soundOn ? 'Ativo' : 'Mudo'}
+                </span>
+              </button>
               <button
                 type="button"
                 onClick={() => {

@@ -1,5 +1,5 @@
 import { Barcode, Check, PenLine, Plus, Search, X } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CoverArt } from '../components/CoverArt';
 import { SmartCatalogButton } from '../components/SmartCatalogButton';
 import { TactileStatusFields } from '../components/TactileStatusFields';
@@ -11,7 +11,12 @@ import {
   getStatusConfig,
   getWorkTypeConfig,
 } from '../config/domainConfig';
-import { detectIsbnQuery, searchMedia, searchMockMedia } from '../services/mediaApi';
+import {
+  detectIsbnQuery,
+  getCachedSearchMedia,
+  searchMedia,
+  searchMockMedia,
+} from '../services/mediaApi';
 import {
   calculateSmartRating,
   calculateWorkProgress,
@@ -118,6 +123,9 @@ export function AddScreen({
   const { add } = ui;
 
   const isIsbnActive = Boolean(detectIsbnQuery(query));
+  const isEasterEgg67 = query.trim().toLowerCase() === '#ovodepascoa67';
+  const debounceTimerRef = useRef(null);
+  const searchAbortRef = useRef(null);
 
   const backlogLookup = useMemo(() => {
     const byId = new Map();
@@ -136,40 +144,85 @@ export function AddScreen({
     backlogLookup.byTitle.get(candidate.title.trim().toLowerCase()) ||
     null;
 
-  useEffect(() => {
-    const cleanQuery = query.trim();
+  const executeSearch = useCallback(async (cleanQuery, filter) => {
+    searchAbortRef.current?.abort();
+
     if (!cleanQuery) {
-      setResults(searchMockMedia('', searchFilter));
+      setResults(searchMockMedia('', filter));
+      setIsLoading(false);
+      return;
+    }
+
+    if (cleanQuery.toLowerCase() === '#ovodepascoa67') {
+      setResults([]);
+      setIsLoading(false);
+      return;
+    }
+
+    const cached = getCachedSearchMedia(cleanQuery, filter);
+    if (cached) {
+      setResults(cached.results);
       setIsLoading(false);
       return;
     }
 
     const controller = new AbortController();
+    searchAbortRef.current = controller;
     setIsLoading(true);
 
-    const timer = setTimeout(async () => {
-      try {
-        const { results: fetched } = await searchMedia(cleanQuery, {
-          signal: controller.signal,
-          filter: searchFilter,
-        });
+    try {
+      const { results: fetched } = await searchMedia(cleanQuery, {
+        signal: controller.signal,
+        filter,
+      });
+      if (!controller.signal.aborted) {
         setResults(fetched);
-      } catch (error) {
-        if (error.name !== 'AbortError') {
-          setResults([]);
-        }
-      } finally {
-        if (!controller.signal.aborted) {
-          setIsLoading(false);
-        }
       }
-    }, 450);
+    } catch (error) {
+      if (error.name !== 'AbortError') {
+        setResults([]);
+      }
+    } finally {
+      if (!controller.signal.aborted) {
+        setIsLoading(false);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    const cleanQuery = query.trim();
+    clearTimeout(debounceTimerRef.current);
+
+    if (!cleanQuery || cleanQuery.toLowerCase() === '#ovodepascoa67') {
+      executeSearch(cleanQuery, searchFilter);
+      return undefined;
+    }
+
+    const cached = getCachedSearchMedia(cleanQuery, searchFilter);
+    if (cached) {
+      setResults(cached.results);
+      setIsLoading(false);
+      return undefined;
+    }
+
+    setIsLoading(true);
+    debounceTimerRef.current = setTimeout(() => {
+      executeSearch(cleanQuery, searchFilter);
+    }, 300);
 
     return () => {
-      clearTimeout(timer);
-      controller.abort();
+      clearTimeout(debounceTimerRef.current);
+      searchAbortRef.current?.abort();
     };
-  }, [query, searchFilter]);
+  }, [query, searchFilter, executeSearch]);
+
+  const handleSearchKeyDown = (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      clearTimeout(debounceTimerRef.current);
+      executeSearch(query.trim(), searchFilter);
+    }
+  };
 
   const openQuickAdd = (item) => {
     const existing = findExisting(item);
@@ -342,6 +395,7 @@ export function AddScreen({
             type="search"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={handleSearchKeyDown}
             placeholder={add.searchPlaceholder}
             className="w-full rounded-2xl border border-line bg-card py-3 pl-10 pr-10 text-sm text-ink placeholder:text-subtle focus:border-accent focus:outline-none"
           />
@@ -391,7 +445,19 @@ export function AddScreen({
           {!isLoading && <span>{results.length}</span>}
         </div>
 
-        {isLoading ? (
+        {isEasterEgg67 ? (
+          <div className="rounded-2xl border border-accent/50 bg-card p-6 text-center space-y-2">
+            <span className="inline-block text-4xl" role="img" aria-label="Easter egg">
+              {String.fromCodePoint(0x1F921)}
+            </span>
+            <p className="text-sm font-semibold text-ink">
+              Easter Egg #ovodepascoa67
+            </p>
+            <p className="text-xs text-muted">
+              Você encontrou o segredo escondido na busca do acervo.
+            </p>
+          </div>
+        ) : isLoading ? (
           <ResultSkeleton />
         ) : results.length === 0 ? (
           <div className="rounded-2xl border border-line bg-card px-5 py-10 text-center">
@@ -432,7 +498,7 @@ export function AddScreen({
                     <CoverArt
                       item={item}
                       compact
-                      className="h-16 w-12 shrink-0 rounded-xl"
+                      className="h-18 w-12 shrink-0 rounded-xl"
                     />
 
                     <div className="min-w-0 flex-1">

@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { registerSW } from 'virtual:pwa-register';
 import App from './App';
 import { domainConfig } from './config/domainConfig';
+import { ToastProvider } from './context/ToastContext';
 import './index.css';
 
 document.title = domainConfig.appName;
@@ -44,6 +45,8 @@ if (import.meta.env.PROD && 'serviceWorker' in navigator) {
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>
-    <App />
+    <ToastProvider>
+      <App />
+    </ToastProvider>
   </StrictMode>
 );

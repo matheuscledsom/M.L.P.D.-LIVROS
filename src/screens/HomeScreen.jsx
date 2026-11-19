@@ -36,6 +36,8 @@ export function HomeScreen({
   const completedYearCount = backlogItems.filter(
     (item) => item.status === 'completed' && item.completedYear === currentYear
   ).length;
+  const annualGoal = Math.max(1, Number(profile?.annualGoal) || 12);
+  const annualGoalPct = Math.min(100, Math.round((completedYearCount / annualGoal) * 100));
 
   const summaryCards = [
     {
@@ -48,6 +50,8 @@ export function HomeScreen({
       id: 'completedYear',
       label: ui.home.summaryCards.completedYear,
       value: completedYearCount,
+      subGoal: annualGoal,
+      goalPct: annualGoalPct,
       highlight: false,
     },
     {
@@ -63,7 +67,7 @@ export function HomeScreen({
       <header className="flex items-center justify-between pt-2">
         <div>
           <p className="text-xs font-medium text-subtle">
-            {ui.home.greetingPrefix} {profile?.handle || ui.profile.handle}
+            {ui.home.greetingPrefix} {profile?.displayName || profile?.handle || ui.profile.displayName}
           </p>
           <h1 className="mt-0.5 text-xl font-semibold tracking-tight text-ink">
             {ui.home.subtitle}
@@ -112,10 +116,23 @@ export function HomeScreen({
                   }`}
                 >
                   {card.value}
+                  {card.subGoal !== undefined && (
+                    <span className="ml-1 text-xs font-normal text-subtle">
+                      /{card.subGoal}
+                    </span>
+                  )}
                 </span>
                 <span className="mt-1 block text-[11px] leading-tight text-muted">
                   {card.label}
                 </span>
+                {card.goalPct !== undefined && (
+                  <div className="mt-2 h-1 w-full overflow-hidden rounded-full bg-line">
+                    <div
+                      className="h-full rounded-full bg-accent transition-all duration-300"
+                      style={{ width: `${card.goalPct}%` }}
+                    />
+                  </div>
+                )}
               </div>
             ))}
           </section>
@@ -155,7 +172,7 @@ export function HomeScreen({
                       <div className="relative">
                         <CoverArt
                           item={item}
-                          className="aspect-[4/5] w-full rounded-xl"
+                          className="aspect-[2/3] w-full rounded-xl"
                         />
                         <span
                           title={workMeta.label}
@@ -195,6 +212,7 @@ export function HomeScreen({
 
           <OracleWidget
             items={items}
+            profile={profile}
             geminiKey={geminiKey}
             onSelectItem={onSelectItem}
             onOpenGeminiSettings={onOpenGeminiSettings}

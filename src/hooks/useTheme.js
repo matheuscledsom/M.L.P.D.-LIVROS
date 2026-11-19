@@ -137,24 +137,52 @@ export const FONT_PRESETS = [
   {
     id: 'inter',
     label: 'Sans Moderna (Inter)',
-    shortLabel: 'Sans Moderna',
+    shortLabel: 'Inter',
     fontName: 'Inter',
     cssValue: '"Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
   },
   {
     id: 'lora',
     label: 'Editorial / Livro (Lora)',
-    shortLabel: 'Editorial / Livro',
+    shortLabel: 'Lora',
     fontName: 'Lora',
     cssValue: '"Lora", Georgia, serif',
   },
   {
+    id: 'merriweather',
+    label: 'Clássico Literário (Merriweather)',
+    shortLabel: 'Merriweather',
+    fontName: 'Merriweather',
+    cssValue: '"Merriweather", Georgia, serif',
+  },
+  {
+    id: 'crimson',
+    label: 'Tipografia Acadêmica (Crimson Pro)',
+    shortLabel: 'Crimson Pro',
+    fontName: 'Crimson Pro',
+    cssValue: '"Crimson Pro", Georgia, serif',
+  },
+  {
+    id: 'space',
+    label: 'Geométrica Moderna (Space Grotesk)',
+    shortLabel: 'Space Grotesk',
+    fontName: 'Space Grotesk',
+    cssValue: '"Space Grotesk", -apple-system, sans-serif',
+  },
+  {
     id: 'jetbrains',
     label: 'Monospace / Fichamento (JetBrains Mono)',
-    shortLabel: 'Monospace / Fichamento',
+    shortLabel: 'JetBrains Mono',
     fontName: 'JetBrains Mono',
     cssValue: '"JetBrains Mono", ui-monospace, monospace',
   },
+];
+
+export const TEXTURE_OPTIONS = [
+  { id: 'clean', label: 'Limpo' },
+  { id: 'paper', label: 'Grão de Papel' },
+  { id: 'grid', label: 'Grade de Fichamento' },
+  { id: 'glow', label: 'Brilho Sutil' },
 ];
 
 export const EDITORIAL_PRESETS = [
@@ -172,11 +200,20 @@ export const EDITORIAL_PRESETS = [
   { id: 'poesia-crepusculo', label: 'Poesia Crepúsculo', bg: '#17121F', card: '#211A2C', accent: '#F472B6' },
   { id: 'cafe-chuva', label: 'Café & Chuva', bg: '#1B1614', card: '#261F1C', accent: '#D98254' },
   { id: 'arquivo-academico', label: 'Arquivo Acadêmico', bg: '#F6F7F4', card: '#EAECE6', accent: '#1D4ED8' },
+  { id: 'solarized-pergaminho', label: 'Solarized Pergaminho', bg: '#FDF6E3', card: '#EEE8D5', accent: '#268BD2' },
+  { id: 'veludo-real', label: 'Veludo Real', bg: '#140F1C', card: '#1E1729', accent: '#C084FC' },
+  { id: 'shonen-jump', label: 'Shonen Jump', bg: '#111216', card: '#1A1C22', accent: '#F97316' },
+  { id: 'tokyo-neon', label: 'Tokyo Neon', bg: '#0B0C14', card: '#141624', accent: '#EC4899' },
+  { id: 'codice-medieval', label: 'Códice Medieval', bg: '#191410', card: '#241D17', accent: '#B45309' },
+  { id: 'nordic-frost', label: 'Nordic Frost', bg: '#F1F5F9', card: '#E2E8F0', accent: '#0284C7' },
+  { id: 'ouro-imperial', label: 'Ouro Imperial', bg: '#0C0B09', card: '#171511', accent: '#F59E0B' },
+  { id: 'cafe-kyoto', label: 'Café Kyoto', bg: '#171412', card: '#211C19', accent: '#10B981' },
 ];
 
 const DEFAULT_THEME = {
   mode: 'oled',
   font: 'inter',
+  texture: 'clean',
   presetId: null,
   customBgColor: null,
   customCardColor: null,
@@ -195,6 +232,9 @@ function loadSavedTheme() {
     const font = FONT_PRESETS.some((f) => f.id === parsed?.font)
       ? parsed.font
       : 'inter';
+    const texture = TEXTURE_OPTIONS.some((t) => t.id === parsed?.texture)
+      ? parsed.texture
+      : 'clean';
     const presetId = EDITORIAL_PRESETS.some((p) => p.id === parsed?.presetId)
       ? parsed.presetId
       : null;
@@ -202,6 +242,7 @@ function loadSavedTheme() {
     return {
       mode,
       font,
+      texture,
       presetId,
       customBgColor: normalizeHex(parsed?.customBgColor),
       customCardColor: normalizeHex(parsed?.customCardColor),
@@ -267,6 +308,12 @@ export function useTheme() {
       font,
     }));
 
+  const setTexture = (texture) =>
+    setTheme((prev) => ({
+      ...prev,
+      texture,
+    }));
+
   const applyPreset = (presetId) => {
     const preset = EDITORIAL_PRESETS.find((p) => p.id === presetId);
     if (!preset) return;
@@ -304,6 +351,7 @@ export function useTheme() {
     setTheme((prev) => ({
       ...prev,
       mode: 'oled',
+      texture: 'clean',
       presetId: null,
       customBgColor: null,
       customCardColor: null,
@@ -313,12 +361,14 @@ export function useTheme() {
   return {
     mode: theme.mode,
     font: theme.font,
+    texture: theme.texture,
     presetId: theme.presetId,
     bgColor: activeBgColor,
     accentColor: activeAccentColor,
     hasCustomBg: Boolean(theme.customBgColor),
     setMode,
     setFont,
+    setTexture,
     applyPreset,
     setCustomBgColor,
     setCustomAccentColor,

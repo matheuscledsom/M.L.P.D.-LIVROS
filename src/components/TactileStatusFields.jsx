@@ -20,6 +20,8 @@ import {
   getDropReasonMeta,
   getVerdictForScore,
 } from '../utils/backlogHelpers';
+import { useToast } from '../context/ToastContext';
+import { playTactileSound } from '../utils/soundEffects';
 import {
   SpoilerFreeRecapAction,
   SynthesisReviewAction,
@@ -38,15 +40,16 @@ function QuickPageButtons({ item, onChange }) {
           <button
             key={inc}
             type="button"
-            onClick={() =>
+            onClick={() => {
+              playTactileSound('page');
               onChange({
                 currentPage: nextPage,
                 progress: calculateWorkProgress({
                   ...item,
                   currentPage: nextPage,
                 }),
-              })
-            }
+              });
+            }}
             className="rounded-lg border border-line bg-card px-2.5 py-1 text-[11px] font-medium text-accent transition-colors hover:border-accent/50 hover:bg-accent/15"
           >
             +{inc}
@@ -68,6 +71,7 @@ function QuickMangaButtons({ item, onChange }) {
       totalChapters > 0
         ? Math.min(totalChapters, currentChapter + inc)
         : currentChapter + inc;
+    playTactileSound('page');
     onChange({
       currentChapter: nextChapter,
       progress: calculateWorkProgress({
@@ -82,6 +86,7 @@ function QuickMangaButtons({ item, onChange }) {
       totalVolumes > 0
         ? Math.min(totalVolumes, currentVolume + 1)
         : currentVolume + 1;
+    playTactileSound('page');
     onChange({
       currentVolume: nextVolume,
       progress: calculateWorkProgress({
@@ -265,6 +270,7 @@ function MangaMetadataBlock({ item, onChange }) {
 
 function AcademicMetadataAndAbntBlock({ item, onChange }) {
   const { detail } = domainConfig.ui;
+  const { showToast } = useToast();
   const [copied, setCopied] = useState(false);
 
   const generatedAbnt = formatAbntReference(item);
@@ -278,6 +284,7 @@ function AcademicMetadataAndAbntBlock({ item, onChange }) {
     try {
       await navigator.clipboard.writeText(displayedAbnt);
       setCopied(true);
+      showToast({ message: 'Referência ABNT copiada', type: 'success' });
       setTimeout(() => setCopied(false), 2000);
     } catch {
       const temp = document.createElement('textarea');
@@ -287,6 +294,7 @@ function AcademicMetadataAndAbntBlock({ item, onChange }) {
       try {
         document.execCommand('copy');
         setCopied(true);
+        showToast({ message: 'Referência ABNT copiada', type: 'success' });
         setTimeout(() => setCopied(false), 2000);
       } finally {
         temp.remove();

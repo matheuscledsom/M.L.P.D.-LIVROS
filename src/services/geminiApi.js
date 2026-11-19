@@ -159,7 +159,14 @@ Dados atuais da obra:
 
 export async function runCollectionOracle(
   apiKey,
-  { mood, queuedItems = [], completedItems = [] },
+  {
+    mood,
+    queuedItems = [],
+    completedItems = [],
+    favoriteGenres = [],
+    readerFocus = '',
+    preferredCriterion = '',
+  },
   { signal } = {}
 ) {
   const shelfSummary = queuedItems.slice(0, 40).map((item) => ({
@@ -192,9 +199,11 @@ export async function runCollectionOracle(
   const systemInstruction =
     'Você é o Oráculo do Acervo de um aplicativo literário. Recomende exclusivamente obras presentes na lista "Na Estante" fornecida pelo usuário. Não invente títulos fora do acervo. Responda em JSON estrito e em português do Brasil.';
 
-  const prompt = `Cruze o humor/objetivo atual do leitor com as obras em "Na Estante" e o histórico de notas das obras "Concluídas" para indicar a próxima leitura ideal.
+  const prompt = `Cruze o humor/objetivo atual do leitor com as obras em "Na Estante", suas preferências do perfil e o histórico de notas das obras "Concluídas" para indicar a próxima leitura ideal.
 
 Humor / Objetivo atual do leitor: ${mood || 'Surpreenda-me com a melhor escolha do meu acervo'}
+Perfil do leitor: ${readerFocus || 'Geral'} | Critério valorizado: ${preferredCriterion || 'Equilibrado'}
+Gêneros favoritos do perfil: ${favoriteGenres.length ? favoriteGenres.join(', ') : 'Diversos'}
 
 Obras em Na Estante (escolha SOMENTE dentre estes IDs):
 ${JSON.stringify(shelfSummary)}

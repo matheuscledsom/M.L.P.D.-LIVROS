@@ -1,5 +1,6 @@
 import { Check, ImageDown, Plus, Quote, Trash2 } from 'lucide-react';
 import { useState } from 'react';
+import { useToast } from '../context/ToastContext';
 import { generateEditorialQuoteCard } from '../utils/editorialCardGenerator';
 
 function formatQuoteDate(iso) {
@@ -15,6 +16,7 @@ function formatQuoteDate(iso) {
 }
 
 export function QuotesVaultTab({ item, onUpdate }) {
+  const { showToast } = useToast();
   const [quoteText, setQuoteText] = useState('');
   const [location, setLocation] = useState('');
   const [note, setNote] = useState('');
@@ -37,6 +39,7 @@ export function QuotesVaultTab({ item, onUpdate }) {
     };
 
     onUpdate({ quotes: [newQuote, ...quotes] });
+    showToast({ message: 'Citação salva no cofre', type: 'success' });
     setQuoteText('');
     setLocation('');
     setNote('');
@@ -57,6 +60,10 @@ export function QuotesVaultTab({ item, onUpdate }) {
         author: item.author,
       });
       setDownloadedId(quote.id);
+      showToast({
+        message: 'Card Editorial 1080x1350 baixado',
+        type: 'success',
+      });
       setTimeout(() => {
         setDownloadedId((current) => (current === quote.id ? null : current));
       }, 2500);

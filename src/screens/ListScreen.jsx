@@ -21,6 +21,7 @@ import {
 
 export function ListScreen({
   items,
+  profile = null,
   streakProps,
   geminiKey = '',
   onSelectItem,
@@ -105,6 +106,7 @@ export function ListScreen({
       {backlogItems.length > 0 && (
         <OracleWidget
           items={items}
+          profile={profile}
           geminiKey={geminiKey}
           onSelectItem={onSelectItem}
           onOpenGeminiSettings={onOpenGeminiSettings}
@@ -278,7 +280,7 @@ export function ListScreen({
                   <CoverArt
                     item={item}
                     compact
-                    className="aspect-[3/4] w-full rounded-xl transition-transform duration-150 group-hover:scale-[1.02] group-hover:border-accent/50"
+                    className="aspect-[2/3] w-full rounded-xl transition-transform duration-150 group-hover:scale-[1.02] group-hover:border-accent/50"
                   />
                   {item.isPlatinum && (
                     <span className="absolute left-1.5 top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-black/75 text-accent ring-1 ring-accent/60">
@@ -340,7 +342,7 @@ export function ListScreen({
                 <CoverArt
                   item={item}
                   compact
-                  className="h-24 w-18 shrink-0 rounded-xl"
+                  className="h-27 w-18 shrink-0 rounded-xl"
                 />
 
                 <div className="flex min-w-0 flex-1 flex-col justify-between">

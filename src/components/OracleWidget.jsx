@@ -13,6 +13,7 @@ const MOOD_PRESETS = [
 
 export function OracleWidget({
   items = [],
+  profile = null,
   geminiKey = '',
   onSelectItem,
   onOpenGeminiSettings,
@@ -51,6 +52,9 @@ export function OracleWidget({
         mood: moodQuery,
         queuedItems,
         completedItems,
+        favoriteGenres: profile?.favoriteGenres || [],
+        readerFocus: profile?.readerFocus || '',
+        preferredCriterion: profile?.preferredCriterion || '',
       });
       setResult(recommendation);
     } catch (error) {

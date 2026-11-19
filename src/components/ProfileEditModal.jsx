@@ -1,11 +1,11 @@
 import { ImagePlus, Trash2, Upload, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { domainConfig } from '../config/domainConfig';
-import { compressImageFile } from '../utils/imageUtils';
+import { ImageCropModal } from './ImageCropModal';
 
 export function ProfileEditModal({ isOpen, onClose, profile, onSave }) {
   const [draft, setDraft] = useState(profile);
-  const [isCompressing, setIsCompressing] = useState(false);
+  const [cropSession, setCropSession] = useState(null);
   const coverInputRef = useRef(null);
   const avatarInputRef = useRef(null);
 
@@ -15,21 +15,33 @@ export function ProfileEditModal({ isOpen, onClose, profile, onSave }) {
     }
   }, [isOpen, profile]);
 
+  useEffect(() => {
+    return () => {
+      if (cropSession?.objectUrl) {
+        URL.revokeObjectURL(cropSession.objectUrl);
+      }
+    };
+  }, [cropSession]);
+
   if (!isOpen) return null;
 
   const { editModal } = domainConfig.ui.profile;
 
-  const handleUpload = async (file, targetField, options) => {
-    if (!file) return;
-    setIsCompressing(true);
+  const startCropFromFile = (file, targetField, aspectMode) => {
+    if (!file || !file.type.startsWith('image/')) return;
     try {
-      const dataUrl = await compressImageFile(file, options);
-      setDraft((prev) => ({ ...prev, [targetField]: dataUrl }));
+      const objectUrl = URL.createObjectURL(file);
+      setCropSession({ targetField, aspectMode, objectUrl });
     } catch {
       // Ignora arquivo inválido
-    } finally {
-      setIsCompressing(false);
     }
+  };
+
+  const closeCropSession = () => {
+    if (cropSession?.objectUrl) {
+      URL.revokeObjectURL(cropSession.objectUrl);
+    }
+    setCropSession(null);
   };
 
   const handleSubmit = (e) => {
@@ -105,11 +117,7 @@ export function ProfileEditModal({ isOpen, onClose, profile, onSave }) {
               onChange={(e) => {
                 const file = e.target.files?.[0];
                 e.target.value = '';
-                handleUpload(file, 'coverUrl', {
-                  maxWidth: 1000,
-                  maxHeight: 440,
-                  quality: 0.72,
-                });
+                startCropFromFile(file, 'coverUrl', 'cover');
               }}
               className="hidden"
             />
@@ -175,11 +183,7 @@ export function ProfileEditModal({ isOpen, onClose, profile, onSave }) {
                 onChange={(e) => {
                   const file = e.target.files?.[0];
                   e.target.value = '';
-                  handleUpload(file, 'avatarUrl', {
-                    maxWidth: 320,
-                    maxHeight: 320,
-                    quality: 0.78,
-                  });
+                  startCropFromFile(file, 'avatarUrl', 'avatar');
                 }}
                 className="hidden"
               />
@@ -262,12 +266,27 @@ export function ProfileEditModal({ isOpen, onClose, profile, onSave }) {
 
         <button
           type="submit"
-          disabled={isCompressing}
-          className="mt-5 w-full rounded-2xl bg-accent py-3 text-sm font-semibold text-accent-ink transition-opacity hover:opacity-90 disabled:opacity-50"
+          className="mt-5 w-full rounded-2xl bg-accent py-3 text-sm font-semibold text-accent-ink transition-opacity hover:opacity-90"
         >
           {editModal.saveLabel}
         </button>
       </form>
+
+      <ImageCropModal
+        isOpen={Boolean(cropSession)}
+        imageSrc={cropSession?.objectUrl || ''}
+        aspectMode={cropSession?.aspectMode || 'avatar'}
+        onCancel={closeCropSession}
+        onConfirm={(croppedDataUrl) => {
+          if (cropSession?.targetField) {
+            setDraft((prev) => ({
+              ...prev,
+              [cropSession.targetField]: croppedDataUrl,
+            }));
+          }
+          closeCropSession();
+        }}
+      />
     </div>
   );
 }

@@ -48,7 +48,7 @@ export function ItemDetailSheet({
         <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-line" />
 
         <div className="flex gap-4">
-          <CoverArt item={item} compact className="h-28 w-21 shrink-0 rounded-xl" />
+          <CoverArt item={item} compact className="h-30 w-20 shrink-0 rounded-xl" />
           <div className="min-w-0 flex-1">
             <div className="flex items-start justify-between gap-2">
               <h3 className="text-base font-semibold leading-snug text-ink">
