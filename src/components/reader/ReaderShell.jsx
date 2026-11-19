@@ -3,7 +3,6 @@ import {
   BookOpen,
   FileUp,
   FolderOpen,
-  Keyboard,
   RefreshCw,
   Upload,
   X,
@@ -13,6 +12,7 @@ import {
   lazy,
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from 'react';
@@ -22,14 +22,19 @@ import {
   pickFileViaSystemAccess,
   resolveStoredFileBlob,
   saveBookFile,
+  saveBookReaderState,
   supportsFileSystemAccessApi,
 } from '../../services/readerStorage';
 import { detectBookFileFormat } from '../../utils/fileFormatDetector';
+import {
+  resolveAccessibleReaderAccent,
+  resolveReaderDomColors,
+} from '../../utils/readerThemes';
 import { AnnotationPopover } from './AnnotationPopover';
 import { ReaderSettings } from './ReaderSettings';
 import { ReaderToolbar } from './ReaderToolbar';
 import { TocDrawer } from './TocDrawer';
-import { useReaderProgress } from './useReaderProgress';
+import { formatExactPercent, useReaderProgress } from './useReaderProgress';
 
 const PdfView = lazy(() =>
   import('./PdfView').then((m) => ({ default: m.PdfView }))
@@ -45,27 +50,43 @@ const TextView = lazy(() =>
 );
 
 const KEYBOARD_SHORTCUTS = [
-  { keys: '← / → ou PageUp / PageDown', desc: 'Página anterior / próxima' },
-  { keys: 'Espaço', desc: 'Avançar página' },
-  { keys: 'F', desc: 'Alternar tela cheia' },
-  { keys: 'T', desc: 'Abrir índice e anotações' },
-  { keys: '/', desc: 'Buscar no texto' },
-  { keys: '+ / -', desc: 'Aumentar / diminuir fonte ou zoom' },
-  { keys: '?', desc: 'Exibir atalhos de teclado' },
-  { keys: 'Esc', desc: 'Fechar painéis ou leitor' },
+  { keys: '← / → ou PageUp / PageDown', desc: 'página anterior / próxima' },
+  { keys: 'Espaço', desc: 'avançar página' },
+  { keys: 'F', desc: 'alternar tela cheia' },
+  { keys: 'T', desc: 'abrir índice e notas' },
+  { keys: '/', desc: 'buscar no texto' },
+  { keys: '+ / -', desc: 'aumentar / diminuir fonte ou zoom' },
+  { keys: '?', desc: 'atalhos de teclado' },
+  { keys: 'Esc', desc: 'fechar painéis ou leitor' },
 ];
 
-function ReaderSkeleton({ label = 'Carregando leitura...' }) {
+function ReaderSkeleton({ label = 'carregando leitura...' }) {
   return (
-    <div className="flex h-full w-full flex-col items-center justify-center gap-4 p-6">
+    <div
+      className="flex h-full w-full flex-col items-center justify-center gap-4 p-6"
+      style={{ backgroundColor: 'var(--reader-bg)', color: 'var(--reader-ink)' }}
+    >
       <div className="w-full max-w-xl space-y-3" aria-hidden="true">
-        <div className="h-5 w-2/3 animate-pulse rounded-lg bg-elevated" />
-        <div className="h-4 w-full animate-pulse rounded-lg bg-elevated/80" />
-        <div className="h-4 w-11/12 animate-pulse rounded-lg bg-elevated/70" />
-        <div className="h-4 w-4/5 animate-pulse rounded-lg bg-elevated/60" />
-        <div className="h-40 w-full animate-pulse rounded-2xl bg-elevated/50 mt-4" />
+        <div
+          className="h-4 w-2/3 rounded-[2px] opacity-35"
+          style={{ backgroundColor: 'var(--reader-border)' }}
+        />
+        <div
+          className="h-3 w-full rounded-[2px] opacity-25"
+          style={{ backgroundColor: 'var(--reader-border)' }}
+        />
+        <div
+          className="h-3 w-11/12 rounded-[2px] opacity-20"
+          style={{ backgroundColor: 'var(--reader-border)' }}
+        />
+        <div
+          className="h-3 w-4/5 rounded-[2px] opacity-15"
+          style={{ backgroundColor: 'var(--reader-border)' }}
+        />
       </div>
-      <p className="text-xs font-medium text-muted">{label}</p>
+      <p className="text-xs" style={{ color: 'var(--reader-muted)' }}>
+        {label}
+      </p>
     </div>
   );
 }
@@ -79,6 +100,7 @@ export function ReaderShell({
   onRecordSession,
   onSyncWorkProgress,
   onSaveQuoteFromReader,
+  onPublishQuoteFromReader,
 }) {
   const { showToast } = useToast();
   const rootRef = useRef(null);
@@ -102,6 +124,12 @@ export function ReaderShell({
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [tocItems, setTocItems] = useState([]);
   const [selectionState, setSelectionState] = useState(null);
+  const [rulerY, setRulerY] = useState(48);
+
+  const quickStorageKey = useMemo(() => {
+    if (work?.id || !fileBlob) return '';
+    return `quick:${fileName || fileBlob.name || 'arquivo'}:${fileBlob.size}`;
+  }, [work?.id, fileBlob, fileName]);
 
   const {
     settings,
@@ -109,29 +137,65 @@ export function ReaderShell({
     bookmarks,
     highlights,
     position,
-    estimatedMinutesRemaining,
+    telemetry,
+    recapInfo,
+    dismissRecap,
     updateSettings,
     updatePosition,
     toggleBookmark,
     removeBookmark,
     addHighlight,
+    updateHighlight,
     removeHighlight,
     buildSessionSummary,
   } = useReaderProgress({
     work,
+    storageKey: quickStorageKey,
     isOpen,
+    chapters: tocItems,
     onPersistReaderState,
   });
 
+  const domColors = resolveReaderDomColors(activeTheme);
+  const appAccent =
+    typeof document !== 'undefined'
+      ? getComputedStyle(document.documentElement)
+          .getPropertyValue('--accent-color')
+          .trim() || '#8B5CF6'
+      : '#8B5CF6';
+  const readerAccent = resolveAccessibleReaderAccent(
+    appAccent,
+    domColors.bg,
+    domColors.isLight
+  );
+
+  const readerCssVars = {
+    '--reader-bg': domColors.bg,
+    '--reader-surface': domColors.surface,
+    '--reader-ink': domColors.ink,
+    '--reader-muted': domColors.muted,
+    '--reader-border': domColors.border,
+    '--reader-accent': readerAccent,
+    backgroundColor: domColors.bg,
+    color: domColors.ink,
+  };
+
   const scheduleAutoHide = useCallback(() => {
     clearTimeout(hideTimerRef.current);
-    if (tocOpen || settingsOpen || helpOpen || !fileBlob || errorMsg) {
+    if (
+      tocOpen ||
+      settingsOpen ||
+      helpOpen ||
+      selectionState ||
+      !fileBlob ||
+      errorMsg
+    ) {
       return;
     }
     hideTimerRef.current = setTimeout(() => {
       setBarsVisible(false);
     }, 3000);
-  }, [tocOpen, settingsOpen, helpOpen, fileBlob, errorMsg]);
+  }, [tocOpen, settingsOpen, helpOpen, selectionState, fileBlob, errorMsg]);
 
   const revealBars = useCallback(() => {
     setBarsVisible(true);
@@ -252,6 +316,10 @@ export function ReaderShell({
       document.exitFullscreen?.().catch(() => {});
     }
     const summary = buildSessionSummary();
+    const targetKey = work?.id || quickStorageKey;
+    if (targetKey) {
+      saveBookReaderState(targetKey, summary.latestState);
+    }
     if (work?.id) {
       onPersistReaderState?.(work.id, summary.latestState);
       if (summary.durationSeconds >= 5 || summary.pagesRead > 0) {
@@ -265,6 +333,7 @@ export function ReaderShell({
   }, [
     buildSessionSummary,
     work,
+    quickStorageKey,
     fileBlob,
     onPersistReaderState,
     onRecordSession,
@@ -402,11 +471,6 @@ export function ReaderShell({
       (!position.cfi && position.page && b.page === position.page)
   );
 
-  const positionLabel =
-    position.totalPages > 0
-      ? `Pág. ${position.page || 1} de ${position.totalPages}`
-      : position.chapterLabel || `${position.progressPct || 0}%`;
-
   const handleLinkSystemFile = async () => {
     try {
       const picked = await pickFileViaSystemAccess();
@@ -441,46 +505,98 @@ export function ReaderShell({
     }
   };
 
-  const handleHighlightSelection = (payload) => {
-    addHighlight({
+  const resolveLoc = (payload) =>
+    payload.location ||
+    position.chapterLabel ||
+    (position.page ? `Pág. ${position.page}` : '');
+
+  const handleApplyHighlight = (payload) => {
+    const loc = resolveLoc(payload);
+    const saved = addHighlight({
+      id: payload.id,
       text: payload.text,
       note: payload.note || '',
-      color: payload.color || 'accent',
+      color: payload.color || 'amber',
       cfi: payload.cfi || '',
       page: position.page || null,
-      location:
-        payload.location ||
-        position.chapterLabel ||
-        (position.page ? `Pág. ${position.page}` : ''),
+      sectionId: payload.sectionId || '',
+      sectionIndex: payload.sectionIndex ?? null,
+      startOffset: payload.startOffset ?? null,
+      endOffset: payload.endOffset ?? null,
+      location: loc,
     });
-    showToast({ message: 'Destaque salvo na obra', type: 'success' });
+
+    if (work?.id) {
+      onSaveQuoteFromReader?.(work, {
+        ...saved,
+        location: loc,
+      });
+    }
+    return saved;
   };
 
-  const handleQuoteSelection = (payload) => {
-    const loc =
-      payload.location ||
-      position.chapterLabel ||
-      (position.page ? `Pág. ${position.page}` : '');
-    addHighlight({
-      text: payload.text,
-      note: '',
-      color: payload.color || 'accent',
-      cfi: payload.cfi || '',
-      page: position.page || null,
-      location: loc,
-    });
-    onSaveQuoteFromReader?.(work, {
-      text: payload.text,
-      location: loc,
-      cfi: payload.cfi || '',
-      color: payload.color || 'accent',
-    });
+  const handleSaveToVault = (payload) => {
+    const saved = handleApplyHighlight(payload);
+    if (!work?.id && saved) {
+      showToast({ message: 'Destaque salvo no navegador (IndexedDB)', type: 'success' });
+      return;
+    }
     showToast({ message: 'Citação salva no cofre da obra', type: 'success' });
+  };
+
+  const handleUpdateHighlightNote = (hlId, updates) => {
+    updateHighlight(hlId, updates);
+    const existing = highlights.find((h) => h.id === hlId);
+    if (work?.id && existing) {
+      onSaveQuoteFromReader?.(work, {
+        ...existing,
+        ...updates,
+      });
+    }
+  };
+
+  const handlePublishHighlight = (payload) => {
+    const loc = resolveLoc(payload);
+    onPublishQuoteFromReader?.(work, {
+      ...payload,
+      bookTitle: work?.title || fileName || 'Leitura Códice',
+      location: loc,
+    });
+  };
+
+  const handleJumpToHighlight = (hl) => {
+    if (!hl) return;
+    if (hl.cfi && engineRef.current?.goToCfi) {
+      engineRef.current.goToCfi(hl.cfi);
+      return;
+    }
+    if (engineRef.current?.goToHighlight) {
+      engineRef.current.goToHighlight(hl);
+      return;
+    }
+    if (hl.page && engineRef.current?.goToPage) {
+      engineRef.current.goToPage(hl.page);
+    }
+  };
+
+  const brightnessScrimOpacity = Math.max(
+    0,
+    ((100 - (settings.brightnessPct ?? 100)) / 100) * 0.72
+  );
+
+  const handleRulerPointerMove = (e) => {
+    if (!settings.focusRuler) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const clientY = e.touches?.[0]?.clientY ?? e.clientY;
+    if (typeof clientY !== 'number' || !rect.height) return;
+    const pctY = Math.max(15, Math.min(85, ((clientY - rect.top) / rect.height) * 100));
+    setRulerY(pctY);
   };
 
   return (
     <div
       ref={rootRef}
+      style={readerCssVars}
       onMouseMove={revealBars}
       onDragOver={(e) => {
         e.preventDefault();
@@ -488,16 +604,16 @@ export function ReaderShell({
       }}
       onDragLeave={() => setIsDraggingOver(false)}
       onDrop={handleDropFile}
-      className="fixed inset-0 z-50 flex flex-col bg-app text-ink overflow-hidden"
+      className="fixed inset-0 z-50 flex flex-col overflow-hidden"
     >
       <ReaderToolbar
         title={work?.title || fileName || 'Leitor Códice'}
         formatLabel={fileFormat}
         visible={barsVisible || !fileBlob || Boolean(errorMsg)}
+        telemetry={telemetry}
         progressPct={position.progressPct}
-        positionLabel={positionLabel}
+        totalPages={position.totalPages}
         chapterLabel={position.chapterLabel}
-        estimatedMinutesRemaining={estimatedMinutesRemaining}
         chapters={tocItems}
         isBookmarked={isBookmarkedHere}
         isFullscreen={isFullscreen}
@@ -526,84 +642,182 @@ export function ReaderShell({
         onScrubPercent={(pct) => engineRef.current?.goToPercent?.(pct)}
       />
 
-      {/* Área central de leitura / seleção / erro */}
-      <main className="relative flex-1 overflow-hidden">
-        {isDraggingOver && (
-          <div className="pointer-events-none absolute inset-4 z-50 flex flex-col items-center justify-center gap-3 rounded-3xl border-2 border-dashed border-accent bg-app/90 backdrop-blur-xs">
-            <FileUp className="h-10 w-10 text-accent" strokeWidth={1.5} />
-            <p className="text-sm font-semibold text-ink">
-              Solte o arquivo para abrir no Leitor Códice
+      {/* Cartão discreto "Onde Parei" (>24h sem leitura na obra) */}
+      {fileBlob && recapInfo && !errorMsg && (
+        <div
+          role="status"
+          className="fixed inset-x-0 z-30 border-b transition-all duration-150 ease-out"
+          style={{
+            top: barsVisible ? '54px' : '2px',
+            backgroundColor: 'var(--reader-bg)',
+            borderColor: 'var(--reader-border)',
+            color: 'var(--reader-ink)',
+          }}
+        >
+          <div className="mx-auto flex max-w-5xl items-center justify-between gap-3 px-4 py-1.5 text-xs tabular-nums">
+            <p className="min-w-0 flex-1 truncate">
+              <span>
+                Retomando da Pág. {recapInfo.page} (
+                {formatExactPercent(recapInfo.progressPct)})
+                {recapInfo.chapterLabel
+                  ? ` · Último capítulo: ${recapInfo.chapterLabel}`
+                  : ''}
+              </span>
+              {recapInfo.lastQuoteText && (
+                <span
+                  className="ml-2 italic"
+                  style={{ color: 'var(--reader-muted)' }}
+                >
+                  “{recapInfo.lastQuoteText}”
+                </span>
+              )}
             </p>
-            <p className="text-xs text-muted">PDF, EPUB, CBZ, TXT ou Markdown</p>
+            <button
+              type="button"
+              onClick={dismissRecap}
+              aria-label="Dispensar resumo de retomada"
+              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-[4px]"
+              style={{ color: 'var(--reader-muted)' }}
+            >
+              <X className="h-3.5 w-3.5" strokeWidth={1.5} />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Área central de leitura / seleção / erro */}
+      <main
+        onMouseMove={handleRulerPointerMove}
+        onTouchMove={handleRulerPointerMove}
+        className="relative flex-1 overflow-hidden"
+      >
+        {isDraggingOver && (
+          <div
+            className="pointer-events-none absolute inset-4 z-50 flex flex-col items-center justify-center gap-2 rounded-[6px] border border-dashed"
+            style={{
+              backgroundColor: 'var(--reader-bg)',
+              borderColor: 'var(--reader-accent)',
+            }}
+          >
+            <FileUp
+              className="h-7 w-7"
+              style={{ color: 'var(--reader-accent)' }}
+              strokeWidth={1.5}
+            />
+            <p className="text-sm font-medium">
+              solte o arquivo para abrir no leitor
+            </p>
+            <p className="text-xs" style={{ color: 'var(--reader-muted)' }}>
+              pdf, epub, cbz, txt ou markdown
+            </p>
           </div>
         )}
 
         {isLoadingFile ? (
-          <ReaderSkeleton label="Detectando formato e preparando leitura..." />
+          <ReaderSkeleton label="detectando formato e preparando leitura..." />
         ) : errorMsg ? (
           <div className="flex h-full flex-col items-center justify-center p-6 text-center">
-            <div className="max-w-sm space-y-4 rounded-3xl border border-rose-500/30 bg-card p-6">
-              <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-rose-500/15 text-rose-400">
-                <AlertCircle className="h-6 w-6" strokeWidth={1.5} />
-              </div>
-              <h2 className="text-sm font-semibold text-ink">
+            <div
+              className="w-full max-w-sm space-y-4 rounded-[6px] border p-6"
+              style={{
+                backgroundColor: 'var(--reader-surface)',
+                borderColor: 'var(--reader-border)',
+              }}
+            >
+              <AlertCircle
+                className="mx-auto h-6 w-6"
+                style={{ color: 'var(--reader-muted)' }}
+                strokeWidth={1.5}
+              />
+              <h2 className="text-sm font-semibold">
                 Não foi possível abrir o arquivo
               </h2>
-              <p className="text-xs leading-relaxed text-muted">{errorMsg}</p>
+              <p
+                className="text-xs leading-relaxed"
+                style={{ color: 'var(--reader-muted)' }}
+              >
+                {errorMsg}
+              </p>
               <div className="flex flex-col gap-2 pt-2">
                 <button
                   type="button"
                   onClick={() => fileInputRef.current?.click()}
-                  className="inline-flex min-h-[44px] items-center justify-center gap-2 rounded-xl bg-accent px-4 py-2 text-xs font-semibold text-accent-ink"
+                  className="inline-flex min-h-[44px] items-center justify-center gap-2 rounded-[4px] border px-4 py-2 text-xs font-medium"
+                  style={{
+                    borderColor: 'var(--reader-accent)',
+                    color: 'var(--reader-accent)',
+                  }}
                 >
                   <RefreshCw className="h-4 w-4" strokeWidth={1.5} />
-                  Escolher outro arquivo
+                  escolher outro arquivo
                 </button>
                 <button
                   type="button"
                   onClick={handleCloseReader}
-                  className="inline-flex min-h-[44px] items-center justify-center rounded-xl border border-line bg-app px-4 py-2 text-xs font-medium text-muted hover:text-ink"
+                  className="inline-flex min-h-[44px] items-center justify-center rounded-[4px] border px-4 py-2 text-xs"
+                  style={{
+                    borderColor: 'var(--reader-border)',
+                    color: 'var(--reader-muted)',
+                  }}
                 >
-                  Voltar
+                  voltar
                 </button>
               </div>
             </div>
           </div>
         ) : !fileBlob ? (
           <div className="flex h-full flex-col items-center justify-center p-6 text-center">
-            <div className="w-full max-w-md space-y-4 rounded-3xl border border-dashed border-line bg-card p-7">
-              <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl border border-accent/30 bg-accent/10 text-accent">
-                <BookOpen className="h-6 w-6" strokeWidth={1.5} />
-              </div>
+            <div
+              className="w-full max-w-md space-y-5 rounded-[6px] border p-7"
+              style={{
+                backgroundColor: 'var(--reader-surface)',
+                borderColor: 'var(--reader-border)',
+              }}
+            >
+              <BookOpen
+                className="mx-auto h-6 w-6"
+                style={{ color: 'var(--reader-muted)' }}
+                strokeWidth={1.5}
+              />
               <div>
-                <h2 className="text-base font-semibold text-ink">
-                  Abrir Arquivo no Leitor Códice
+                <h2 className="text-base font-semibold tracking-tight">
+                  abrir arquivo no leitor
                 </h2>
-                <p className="mt-1 text-xs leading-relaxed text-muted">
-                  Arraste e solte um arquivo aqui ou selecione do dispositivo.
-                  Suporta <strong>PDF, EPUB, CBZ, TXT e Markdown</strong>, salvos
-                  localmente em IndexedDB para reabertura offline.
+                <p
+                  className="mt-1.5 text-xs leading-relaxed"
+                  style={{ color: 'var(--reader-muted)' }}
+                >
+                  arraste e solte um arquivo aqui ou selecione do dispositivo.
+                  suporta pdf, epub, cbz, txt e markdown offline em indexeddb.
                 </p>
               </div>
 
-              <div className="space-y-2 pt-2">
+              <div className="space-y-2 pt-1">
                 <button
                   type="button"
                   onClick={() => fileInputRef.current?.click()}
-                  className="inline-flex min-h-[44px] w-full items-center justify-center gap-2 rounded-2xl bg-accent px-4 py-3 text-xs font-semibold text-accent-ink hover:opacity-90"
+                  className="inline-flex min-h-[44px] w-full items-center justify-center gap-2 rounded-[4px] border px-4 py-2.5 text-xs font-medium"
+                  style={{
+                    borderColor: 'var(--reader-accent)',
+                    color: 'var(--reader-accent)',
+                  }}
                 >
                   <Upload className="h-4 w-4" strokeWidth={1.5} />
-                  Abrir e Salvar Offline (IndexedDB)
+                  abrir e salvar offline
                 </button>
 
                 {supportsFileSystemAccessApi() && work?.id && (
                   <button
                     type="button"
                     onClick={handleLinkSystemFile}
-                    className="inline-flex min-h-[44px] w-full items-center justify-center gap-2 rounded-2xl border border-line bg-app px-4 py-2.5 text-xs font-medium text-ink hover:border-accent"
+                    className="inline-flex min-h-[44px] w-full items-center justify-center gap-2 rounded-[4px] border px-4 py-2.5 text-xs"
+                    style={{
+                      borderColor: 'var(--reader-border)',
+                      color: 'var(--reader-muted)',
+                    }}
                   >
-                    <FolderOpen className="h-4 w-4 text-accent" strokeWidth={1.5} />
-                    Vincular sem copiar (File System)
+                    <FolderOpen className="h-4 w-4" strokeWidth={1.5} />
+                    vincular arquivo sem copiar
                   </button>
                 )}
               </div>
@@ -612,11 +826,14 @@ export function ReaderShell({
         ) : (
           <>
             {!isEngineReady && (
-              <div className="absolute inset-0 z-30 bg-app">
-                <ReaderSkeleton label="Renderizando páginas..." />
+              <div
+                className="absolute inset-0 z-30"
+                style={{ backgroundColor: 'var(--reader-bg)' }}
+              >
+                <ReaderSkeleton label="preparando páginas..." />
               </div>
             )}
-            <Suspense fallback={<ReaderSkeleton label="Carregando motor de leitura..." />}>
+            <Suspense fallback={<ReaderSkeleton label="carregando motor de leitura..." />}>
               {fileFormat === 'pdf' && (
                 <PdfView
                   ref={engineRef}
@@ -645,6 +862,7 @@ export function ReaderShell({
                   settings={settings}
                   activeTheme={activeTheme}
                   initialCfi={position.cfi || ''}
+                  workTotalPages={Number(work?.totalPages) || 0}
                   highlights={highlights}
                   onReady={() => setIsEngineReady(true)}
                   onPositionChange={updatePosition}
@@ -688,6 +906,9 @@ export function ReaderShell({
                   settings={settings}
                   activeTheme={activeTheme}
                   initialPage={position.page || 1}
+                  initialScrollRatio={position.scrollRatio || 0}
+                  workTotalPages={Number(work?.totalPages) || 0}
+                  highlights={highlights}
                   onReady={() => setIsEngineReady(true)}
                   onPositionChange={updatePosition}
                   onTocReady={setTocItems}
@@ -703,6 +924,51 @@ export function ReaderShell({
                 />
               )}
             </Suspense>
+
+            {/* Régua de Foco opcional (escurece suavemente o resto sem bordas) */}
+            {settings.focusRuler && (
+              <div
+                aria-hidden="true"
+                className="pointer-events-none absolute inset-0 z-20 flex flex-col"
+              >
+                <div
+                  className="transition-[height] duration-150 ease-out"
+                  style={{
+                    height: `calc(${rulerY}% - 44px)`,
+                    backgroundColor: domColors.isLight
+                      ? 'rgba(0, 0, 0, 0.12)'
+                      : 'rgba(0, 0, 0, 0.44)',
+                  }}
+                />
+                <div
+                  className="h-[88px] shrink-0"
+                  style={{
+                    backgroundColor:
+                      'color-mix(in srgb, var(--reader-ink) 6%, transparent)',
+                  }}
+                />
+                <div
+                  className="flex-1 transition-[height] duration-150 ease-out"
+                  style={{
+                    backgroundColor: domColors.isLight
+                      ? 'rgba(0, 0, 0, 0.12)'
+                      : 'rgba(0, 0, 0, 0.44)',
+                  }}
+                />
+              </div>
+            )}
+
+            {/* Brilho / Conforto Ocular (50% a 100%) */}
+            {brightnessScrimOpacity > 0 && (
+              <div
+                aria-hidden="true"
+                className="pointer-events-none absolute inset-0 z-20 transition-opacity duration-150 ease-out"
+                style={{
+                  backgroundColor: '#000000',
+                  opacity: brightnessScrimOpacity,
+                }}
+              />
+            )}
           </>
         )}
       </main>
@@ -723,8 +989,9 @@ export function ReaderShell({
 
       <AnnotationPopover
         selection={selectionState}
-        onHighlight={handleHighlightSelection}
-        onQuote={handleQuoteSelection}
+        onApplyHighlight={handleApplyHighlight}
+        onSaveToVault={handleSaveToVault}
+        onPublishQuote={handlePublishHighlight}
         onCopy={handleCopySelection}
         onClose={() => setSelectionState(null)}
       />
@@ -732,6 +999,7 @@ export function ReaderShell({
       <TocDrawer
         isOpen={tocOpen}
         initialTab={tocInitialTab}
+        fontId={settings.fontId}
         onClose={() => setTocOpen(false)}
         toc={tocItems}
         activeChapterHref={position.href || ''}
@@ -743,10 +1011,9 @@ export function ReaderShell({
           else if (bm.page) engineRef.current?.goToPage?.(bm.page);
         }}
         onRemoveBookmark={removeBookmark}
-        onSelectHighlight={(hl) => {
-          if (hl.cfi) engineRef.current?.goToCfi?.(hl.cfi);
-          else if (hl.page) engineRef.current?.goToPage?.(hl.page);
-        }}
+        onSelectHighlight={handleJumpToHighlight}
+        onUpdateHighlight={handleUpdateHighlightNote}
+        onPublishHighlight={handlePublishHighlight}
         onRemoveHighlight={removeHighlight}
         onSearchText={(q) => engineRef.current?.searchText?.(q)}
         onSelectSearchMatch={(match) => {
@@ -766,39 +1033,55 @@ export function ReaderShell({
       {/* Painel de Ajuda de Atalhos "?" */}
       {helpOpen && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-xs"
+          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          style={{ backgroundColor: 'rgba(0, 0, 0, 0.45)' }}
           onClick={() => setHelpOpen(false)}
         >
           <div
             role="dialog"
             aria-label="Atalhos de teclado do leitor"
-            className="w-full max-w-sm rounded-3xl border border-line bg-card p-5 shadow-2xl"
+            className="w-full max-w-sm rounded-[6px] border p-5"
+            style={{
+              backgroundColor: 'var(--reader-bg)',
+              borderColor: 'var(--reader-border)',
+              color: 'var(--reader-ink)',
+            }}
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="flex items-center justify-between pb-3 border-b border-line">
-              <div className="flex items-center gap-2">
-                <Keyboard className="h-4 w-4 text-accent" strokeWidth={1.5} />
-                <h2 className="text-sm font-semibold text-ink">
-                  Atalhos de Teclado
-                </h2>
-              </div>
+            <div
+              className="flex items-center justify-between border-b pb-3"
+              style={{ borderColor: 'var(--reader-border)' }}
+            >
+              <h2 className="text-sm font-semibold">atalhos de teclado</h2>
               <button
                 type="button"
                 onClick={() => setHelpOpen(false)}
                 aria-label="Fechar ajuda"
-                className="flex min-h-[40px] min-w-[40px] items-center justify-center rounded-full text-muted hover:text-ink"
+                className="flex min-h-[40px] min-w-[40px] items-center justify-center rounded-[4px]"
+                style={{ color: 'var(--reader-muted)' }}
               >
                 <X className="h-4 w-4" strokeWidth={1.5} />
               </button>
             </div>
-            <div className="mt-3 space-y-2">
+            <div
+              className="mt-2 divide-y"
+              style={{ borderColor: 'var(--reader-border)' }}
+            >
               {KEYBOARD_SHORTCUTS.map((sc) => (
                 <div
                   key={sc.keys}
-                  className="flex items-center justify-between gap-3 text-xs"
+                  className="flex items-center justify-between gap-3 py-2 text-xs"
+                  style={{ borderColor: 'var(--reader-border)' }}
                 >
-                  <span className="text-muted">{sc.desc}</span>
-                  <kbd className="shrink-0 rounded-lg border border-line bg-app px-2 py-1 font-mono text-[10px] font-semibold text-accent">
+                  <span style={{ color: 'var(--reader-muted)' }}>{sc.desc}</span>
+                  <kbd
+                    className="shrink-0 rounded-[4px] border px-2 py-0.5 font-mono text-[10px]"
+                    style={{
+                      backgroundColor: 'var(--reader-surface)',
+                      borderColor: 'var(--reader-border)',
+                      color: 'var(--reader-ink)',
+                    }}
+                  >
                     {sc.keys}
                   </kbd>
                 </div>

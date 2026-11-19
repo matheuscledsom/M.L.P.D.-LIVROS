@@ -1,4 +1,9 @@
 import {
+  READER_THEMES,
+  resolveAccessibleReaderAccent,
+  resolveReaderThemePalette,
+} from '../src/utils/readerThemes.js';
+import {
   EDITORIAL_PRESETS,
   THEME_MODES,
   buildSurfaceVarsFromBg,
@@ -60,6 +65,46 @@ EDITORIAL_PRESETS.forEach((preset) => {
   checkThemeEntry(`Preset:${preset.id}`, surface.vars, preset.accent);
 });
 
+const READER_VARIANTS = [
+  resolveReaderThemePalette('white'),
+  resolveReaderThemePalette('grey'),
+  resolveReaderThemePalette('oled'),
+  { ...resolveReaderThemePalette('sepia', 0), id: 'sepia-0' },
+  { ...resolveReaderThemePalette('sepia', 50), id: 'sepia-50' },
+  { ...resolveReaderThemePalette('sepia', 100), id: 'sepia-100' },
+];
+
+READER_VARIANTS.forEach((rTheme) => {
+  const accentForReader = resolveAccessibleReaderAccent(
+    '#8B5CF6',
+    rTheme.bg,
+    rTheme.isLight
+  );
+  const pairs = [
+    ['bg', rTheme.bg],
+    ['surface', rTheme.surface],
+  ];
+  pairs.forEach(([surfName, surfHex]) => {
+    [
+      ['ink', rTheme.ink],
+      ['muted', rTheme.muted],
+    ].forEach(([txtName, txtHex]) => {
+      const ratio = getContrastRatio(txtHex, surfHex);
+      if (ratio < TEXT_MIN) {
+        failures.push(
+          `Leitor:${rTheme.id}: ${txtName} (${txtHex}) sobre ${surfName} (${surfHex}) = ${ratio.toFixed(2)}:1 (< ${TEXT_MIN}:1)`
+        );
+      }
+    });
+    const uiRatio = getContrastRatio(accentForReader, surfHex);
+    if (uiRatio < UI_MIN) {
+      failures.push(
+        `Leitor:${rTheme.id}: accent (${accentForReader}) sobre ${surfName} (${surfHex}) = ${uiRatio.toFixed(2)}:1 (< ${UI_MIN}:1)`
+      );
+    }
+  });
+});
+
 if (failures.length > 0) {
   console.error('FALHAS DE CONTRASTE WCAG 2.2 AA:');
   failures.forEach((line) => console.error(` - ${line}`));
@@ -67,5 +112,5 @@ if (failures.length > 0) {
 }
 
 console.log(
-  `Contraste WCAG 2.2 AA aprovado em ${THEME_MODES.length} modos base e ${EDITORIAL_PRESETS.length} presets.`
+  `Contraste WCAG 2.2 AA aprovado em ${THEME_MODES.length} modos base, ${EDITORIAL_PRESETS.length} presets e ${READER_THEMES.length} atmosferas do leitor.`
 );

@@ -301,18 +301,90 @@ export function App() {
     (work, quotePayload) => {
       if (!work?.id || !quotePayload?.text) return;
       const existingQuotes = Array.isArray(work.quotes) ? work.quotes : [];
-      const newQuote = {
-        id: createUuid(),
+      const quoteId = quotePayload.id || createUuid();
+      const idx = existingQuotes.findIndex(
+        (q) =>
+          q.id === quoteId ||
+          (quotePayload.cfi && q.cfi && q.cfi === quotePayload.cfi) ||
+          (q.text === quotePayload.text &&
+            q.location === (quotePayload.location || ''))
+      );
+
+      const nextEntry = {
+        id: quoteId,
         text: quotePayload.text,
         location: quotePayload.location || '',
         cfi: quotePayload.cfi || '',
-        color: quotePayload.color || 'accent',
-        note: '',
-        createdAt: new Date().toISOString(),
+        page: quotePayload.page ?? null,
+        sectionId: quotePayload.sectionId || '',
+        sectionIndex:
+          typeof quotePayload.sectionIndex === 'number'
+            ? quotePayload.sectionIndex
+            : null,
+        startOffset:
+          typeof quotePayload.startOffset === 'number'
+            ? quotePayload.startOffset
+            : null,
+        endOffset:
+          typeof quotePayload.endOffset === 'number'
+            ? quotePayload.endOffset
+            : null,
+        color: quotePayload.color || 'amber',
+        note: typeof quotePayload.note === 'string' ? quotePayload.note : '',
+        createdAt:
+          idx >= 0 ? existingQuotes[idx].createdAt : new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
       };
-      updateItem(work.id, { quotes: [newQuote, ...existingQuotes] });
+
+      if (idx >= 0) {
+        const updatedQuotes = [...existingQuotes];
+        updatedQuotes[idx] = { ...updatedQuotes[idx], ...nextEntry };
+        updateItem(work.id, { quotes: updatedQuotes });
+      } else {
+        updateItem(work.id, { quotes: [nextEntry, ...existingQuotes] });
+      }
     },
     [updateItem]
+  );
+
+  const handlePublishQuoteFromReader = useCallback(
+    (work, quotePayload) => {
+      if (!quotePayload?.text) return;
+      const cleanQuote = String(quotePayload.text).trim();
+      const cleanNote = String(quotePayload.note || '').trim();
+      const workTitle = work?.title || quotePayload.bookTitle || 'Leitura no Códice';
+      const caption = cleanNote
+        ? `"${cleanQuote}"\n\nNota: ${cleanNote}`
+        : `"${cleanQuote}"`;
+
+      addPost({
+        itemId: work?.id || null,
+        itemTitle: workTitle,
+        itemSnapshot: work
+          ? {
+              id: work.id,
+              title: work.title,
+              author: work.author,
+              coverUrl: work.coverUrl,
+              workType: work.workType,
+            }
+          : null,
+        progressMarker: quotePayload.location || '',
+        title: `Trecho de ${workTitle}`,
+        caption,
+        highlightColor: quotePayload.color || 'amber',
+        visibility: profile?.privacyLevel || 'public',
+      });
+
+      const isPrivate = profile?.privacyLevel === 'private';
+      showToast({
+        message: isPrivate
+          ? 'Trecho salvo no seu Diário privado'
+          : 'Trecho publicado no Diário',
+        type: 'success',
+      });
+    },
+    [addPost, profile?.privacyLevel, showToast]
   );
 
   const handleAddItem = (newItem) => {
@@ -571,6 +643,7 @@ export function App() {
               onRecordSession={addReadingSession}
               onSyncWorkProgress={handleSyncWorkProgress}
               onSaveQuoteFromReader={handleSaveQuoteFromReader}
+              onPublishQuoteFromReader={handlePublishQuoteFromReader}
             />
           </Suspense>
         )}

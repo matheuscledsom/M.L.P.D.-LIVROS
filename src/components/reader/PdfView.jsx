@@ -8,6 +8,7 @@ import {
   useRef,
   useState,
 } from 'react';
+import { resolveReaderDomColors } from '../../utils/readerThemes';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
 
@@ -107,8 +108,9 @@ function PdfPageCanvas({
     <div
       ref={slotRef}
       data-page-number={pageNumber}
-      className="mx-auto flex justify-center shadow-lg rounded-lg overflow-hidden bg-white"
+      className="mx-auto flex justify-center overflow-hidden rounded-[4px] border bg-white"
       style={{
+        borderColor: 'var(--reader-border)',
         width: `${Math.round(pageDims.width)}px`,
         minHeight: `${Math.round(pageDims.height)}px`,
         filter: nightMode ? 'invert(0.88) hue-rotate(180deg) contrast(0.95)' : 'none',
@@ -118,8 +120,12 @@ function PdfPageCanvas({
         <canvas ref={canvasRef} className="block max-w-full" />
       ) : (
         <div
-          className="flex w-full items-center justify-center bg-card/30 text-xs text-subtle"
-          style={{ height: `${Math.round(pageDims.height)}px` }}
+          className="flex w-full items-center justify-center text-xs tabular-nums"
+          style={{
+            height: `${Math.round(pageDims.height)}px`,
+            backgroundColor: 'var(--reader-surface)',
+            color: 'var(--reader-muted)',
+          }}
         >
           Página {pageNumber}
         </div>
@@ -170,14 +176,19 @@ function PdfThumbnail({ pdfDoc, pageNumber, isActive, onSelect }) {
     <button
       type="button"
       onClick={() => onSelect(pageNumber)}
-      className={`flex w-full flex-col items-center gap-1 rounded-xl border p-1.5 transition-colors ${
-        isActive
-          ? 'border-accent bg-accent/15'
-          : 'border-line bg-app hover:border-accent/50'
-      }`}
+      className="flex w-full flex-col items-center gap-1 rounded-[4px] border p-1.5 transition-colors duration-150 ease-out"
+      style={{
+        borderColor: isActive ? 'var(--reader-accent)' : 'var(--reader-border)',
+        backgroundColor: 'var(--reader-surface)',
+      }}
     >
-      <canvas ref={thumbRef} className="h-auto w-full rounded bg-white" />
-      <span className="text-[10px] font-medium text-muted">{pageNumber}</span>
+      <canvas ref={thumbRef} className="h-auto w-full rounded-[2px] bg-white" />
+      <span
+        className="text-[10px] font-medium tabular-nums"
+        style={{ color: isActive ? 'var(--reader-accent)' : 'var(--reader-muted)' }}
+      >
+        {pageNumber}
+      </span>
     </button>
   );
 }
@@ -256,7 +267,7 @@ export const PdfView = forwardRef(function PdfView(
         onPositionChange?.({
           page: clampedPage,
           totalPages: numPages,
-          progressPct: Math.round((clampedPage / numPages) * 100),
+          progressPct: Math.round((clampedPage / numPages) * 1000) / 10,
         });
         if (settings.pdfMode === 'continuous' && clampedPage > 1) {
           requestAnimationFrame(() => {
@@ -356,7 +367,7 @@ export const PdfView = forwardRef(function PdfView(
       onPositionChange?.({
         page: clamped,
         totalPages,
-        progressPct: Math.round((clamped / totalPages) * 100),
+        progressPct: Math.round((clamped / totalPages) * 1000) / 10,
       });
 
       if (settings.pdfMode === 'continuous') {
@@ -393,7 +404,7 @@ export const PdfView = forwardRef(function PdfView(
       onPositionChange?.({
         page: bestPage,
         totalPages,
-        progressPct: Math.round((bestPage / totalPages) * 100),
+        progressPct: Math.round((bestPage / totalPages) * 1000) / 10,
       });
     }
   };
@@ -495,14 +506,22 @@ export const PdfView = forwardRef(function PdfView(
     }
   };
 
+  const domColors = resolveReaderDomColors(activeTheme);
+
   return (
     <div
       className="relative flex h-full w-full overflow-hidden"
-      style={{ background: activeTheme.bg, color: activeTheme.ink }}
+      style={{ backgroundColor: domColors.bg, color: domColors.ink }}
     >
       {/* Miniaturas laterais opcionais */}
       {settings.pdfThumbnails && pdfDoc && (
-        <aside className="hidden sm:flex w-32 shrink-0 flex-col gap-2 overflow-y-auto border-r border-line bg-card/90 p-2 pt-16 pb-20 no-scrollbar">
+        <aside
+          className="hidden sm:flex w-32 shrink-0 flex-col gap-2 overflow-y-auto border-r p-2 pt-16 pb-20 no-scrollbar"
+          style={{
+            backgroundColor: domColors.surface,
+            borderColor: domColors.border,
+          }}
+        >
           {Array.from({ length: totalPages }, (_, idx) => idx + 1).map((pageNum) => (
             <PdfThumbnail
               key={pageNum}
@@ -529,9 +548,13 @@ export const PdfView = forwardRef(function PdfView(
           <form
             onSubmit={handleJumpSubmit}
             onClick={(e) => e.stopPropagation()}
-            className="mx-auto mb-4 flex w-fit items-center gap-2 rounded-full border border-line bg-card/85 px-3 py-1 text-xs backdrop-blur-xs"
+            className="mx-auto mb-4 flex w-fit items-center gap-2 rounded-[4px] border px-3 py-1 text-xs tabular-nums"
+            style={{
+              backgroundColor: domColors.surface,
+              borderColor: domColors.border,
+            }}
           >
-            <span className="text-muted">Página</span>
+            <span style={{ color: domColors.muted }}>pág.</span>
             <input
               type="number"
               min="1"
@@ -540,14 +563,20 @@ export const PdfView = forwardRef(function PdfView(
               onChange={(e) => setJumpInput(e.target.value)}
               placeholder={String(currentPage)}
               aria-label="Ir para página do PDF"
-              className="w-12 rounded-md border border-line bg-app px-1.5 py-0.5 text-center text-xs font-semibold text-ink focus:border-accent focus:outline-none"
+              className="w-12 rounded-[4px] border px-1.5 py-0.5 text-center text-xs font-medium focus:outline-none"
+              style={{
+                backgroundColor: domColors.bg,
+                borderColor: domColors.border,
+                color: domColors.ink,
+              }}
             />
-            <span className="text-subtle">de {totalPages}</span>
+            <span style={{ color: domColors.muted }}>de {totalPages}</span>
             <button
               type="submit"
-              className="rounded-lg bg-accent/15 px-2 py-0.5 text-[11px] font-semibold text-accent hover:bg-accent hover:text-accent-ink"
+              className="rounded-[4px] px-2 py-0.5 text-[11px] font-medium"
+              style={{ color: 'var(--reader-accent)' }}
             >
-              Ir
+              ir
             </button>
           </form>
         )}

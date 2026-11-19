@@ -6,39 +6,16 @@ import {
   useImperativeHandle,
   useRef,
 } from 'react';
+import {
+  getHighlightColorMeta,
+  resolveReaderDomColors,
+} from '../../utils/readerThemes';
 import { FONT_PRESETS } from '../../utils/themeTokens';
-
-function resolveThemeColors(activeTheme) {
-  if (!activeTheme?.followApp) {
-    return {
-      bg: activeTheme?.bg || '#000000',
-      ink: activeTheme?.ink || '#F4F4F5',
-      muted: activeTheme?.muted || '#A1A1AA',
-    };
-  }
-  const style = getComputedStyle(document.documentElement);
-  return {
-    bg: style.getPropertyValue('--bg-app').trim() || '#000000',
-    ink: style.getPropertyValue('--text-primary').trim() || '#FFFFFF',
-    muted: style.getPropertyValue('--text-muted').trim() || '#B5B5BD',
-  };
-}
 
 function getMarginHorizontal(marginLevel) {
   if (marginLevel === 'compact') return '12px';
-  if (marginLevel === 'wide') return '40px';
+  if (marginLevel === 'wide') return '48px';
   return '24px';
-}
-
-function resolveHighlightColor(colorKey) {
-  if (colorKey === 'amber') return '#F59E0B';
-  if (colorKey === 'emerald') return '#10B981';
-  if (colorKey === 'rose') return '#F43F5E';
-  return (
-    getComputedStyle(document.documentElement)
-      .getPropertyValue('--accent-color')
-      .trim() || '#8B5CF6'
-  );
 }
 
 export const EpubView = forwardRef(function EpubView(
@@ -47,6 +24,7 @@ export const EpubView = forwardRef(function EpubView(
     settings,
     activeTheme,
     initialCfi = '',
+    workTotalPages = 0,
     highlights = [],
     onReady,
     onPositionChange,
@@ -61,14 +39,28 @@ export const EpubView = forwardRef(function EpubView(
   const bookRef = useRef(null);
   const renditionRef = useRef(null);
   const currentCfiRef = useRef(initialCfi || '');
+  const chapterLabelRef = useRef('');
   const tocFlatRef = useRef([]);
   const locationsReadyRef = useRef(false);
-  const appliedHighlightsRef = useRef(new Set());
+  const appliedHighlightsRef = useRef(new Map());
+  const highlightsRef = useRef(highlights);
+  const activeThemeRef = useRef(activeTheme);
+  const workTotalPagesRef = useRef(workTotalPages);
+
+  highlightsRef.current = highlights;
+  activeThemeRef.current = activeTheme;
+  workTotalPagesRef.current = workTotalPages;
+
+  useEffect(() => {
+    if (initialCfi && !renditionRef.current) {
+      currentCfiRef.current = initialCfi;
+    }
+  }, [initialCfi]);
 
   const applyReaderStyles = useCallback(
     (rendition) => {
       if (!rendition) return;
-      const colors = resolveThemeColors(activeTheme);
+      const colors = resolveReaderDomColors(activeTheme);
       const fontPreset =
         FONT_PRESETS.find((f) => f.id === settings.fontId) || FONT_PRESETS[0];
       const fontFamily = activeTheme?.followApp
@@ -89,13 +81,13 @@ export const EpubView = forwardRef(function EpubView(
           'font-family': `${fontFamily} !important`,
           'font-size': `${settings.fontSizePct}% !important`,
           'line-height': `${settings.lineHeight} !important`,
-          'max-width': '66ch !important',
+          'max-width': '68ch !important',
           'margin-left': 'auto !important',
           'margin-right': 'auto !important',
           'padding-left': `${hPad} !important`,
           'padding-right': `${hPad} !important`,
           'padding-top': '56px !important',
-          'padding-bottom': '80px !important',
+          'padding-bottom': '84px !important',
           'text-align': settings.justify ? 'justify !important' : 'left !important',
           hyphens: settings.hyphenation ? 'auto !important' : 'none !important',
           '-webkit-hyphens': settings.hyphenation ? 'auto !important' : 'none !important',
@@ -120,23 +112,50 @@ export const EpubView = forwardRef(function EpubView(
     [activeTheme, settings]
   );
 
-  // Sincroniza destaques no rendition
-  useEffect(() => {
-    const rendition = renditionRef.current;
+  const syncAnnotations = useCallback((rendition, hlList, isLight) => {
     if (!rendition?.annotations) return;
-    highlights.forEach((hl) => {
-      if (!hl?.cfi || appliedHighlightsRef.current.has(hl.cfi)) return;
+    const validByCfi = new Map();
+    (hlList || []).forEach((hl) => {
+      if (hl?.cfi) {
+        validByCfi.set(hl.cfi, getHighlightColorMeta(hl.color));
+      }
+    });
+
+    // Remove marcações excluídas ou com cor alterada
+    Array.from(appliedHighlightsRef.current.entries()).forEach(([cfi, prevMeta]) => {
+      const nextMeta = validByCfi.get(cfi);
+      if (!nextMeta || prevMeta.id !== nextMeta.id || prevMeta.isLight !== isLight) {
+        try {
+          rendition.annotations.remove(cfi, 'highlight');
+        } catch {
+          // Ignora se já não estiver no DOM
+        }
+        appliedHighlightsRef.current.delete(cfi);
+      }
+    });
+
+    // Aplica novas ou atualizadas
+    validByCfi.forEach((colorMeta, cfi) => {
+      if (appliedHighlightsRef.current.has(cfi)) return;
       try {
-        rendition.annotations.highlight(hl.cfi, {}, undefined, 'codice-hl', {
-          fill: resolveHighlightColor(hl.color),
-          'fill-opacity': '0.32',
+        rendition.annotations.highlight(cfi, {}, undefined, 'codice-hl', {
+          fill: colorMeta.epubFill,
+          'fill-opacity': isLight ? '0.28' : '0.20',
+          'mix-blend-mode': isLight ? 'multiply' : 'normal',
         });
-        appliedHighlightsRef.current.add(hl.cfi);
+        appliedHighlightsRef.current.set(cfi, { id: colorMeta.id, isLight });
       } catch {
         // Ignora CFI incompatível
       }
     });
-  }, [highlights]);
+  }, []);
+
+  useEffect(() => {
+    const rendition = renditionRef.current;
+    if (!rendition) return;
+    const { isLight } = resolveReaderDomColors(activeTheme);
+    syncAnnotations(rendition, highlights, isLight);
+  }, [highlights, activeTheme, syncAnnotations]);
 
   useEffect(() => {
     applyReaderStyles(renditionRef.current);
@@ -148,6 +167,55 @@ export const EpubView = forwardRef(function EpubView(
     let bookInstance = null;
     let renditionInstance = null;
     appliedHighlightsRef.current.clear();
+
+    const computePageTelemetry = (cfi, locationObj) => {
+      const displayedPage = Math.max(1, locationObj?.start?.displayed?.page || 1);
+      const displayedTotal = Math.max(
+        displayedPage,
+        locationObj?.start?.displayed?.total || 1
+      );
+
+      let rawFraction = 0;
+      if (locationsReadyRef.current && bookInstance?.locations?.length()) {
+        rawFraction = bookInstance.locations.percentageFromCfi(cfi) || 0;
+      } else if (typeof locationObj?.start?.percentage === 'number') {
+        rawFraction = locationObj.start.percentage;
+      } else if (displayedTotal > 0) {
+        rawFraction = displayedPage / displayedTotal;
+      }
+
+      const clampedFraction = Math.max(0, Math.min(1, rawFraction));
+      const pct = Math.round(clampedFraction * 1000) / 10;
+
+      const knownLocs = bookInstance?.locations?.length() || 0;
+      const explicitTotal = Number(workTotalPagesRef.current) || 0;
+      const wholeBookTotal =
+        explicitTotal > 0
+          ? explicitTotal
+          : knownLocs > 0
+            ? knownLocs
+            : displayedTotal;
+      const wholeBookPage =
+        wholeBookTotal > 0
+          ? Math.max(
+              1,
+              Math.min(
+                wholeBookTotal,
+                clampedFraction >= 0.999
+                  ? wholeBookTotal
+                  : Math.round(clampedFraction * wholeBookTotal) || 1
+              )
+            )
+          : displayedPage;
+
+      return {
+        page: wholeBookPage,
+        totalPages: wholeBookTotal,
+        chapterPage: displayedPage,
+        chapterTotalPages: displayedTotal,
+        progressPct: pct,
+      };
+    };
 
     const init = async () => {
       try {
@@ -174,25 +242,19 @@ export const EpubView = forwardRef(function EpubView(
           const cfi = location?.start?.cfi || '';
           currentCfiRef.current = cfi;
 
-          let pct = 0;
-          if (locationsReadyRef.current && bookInstance.locations?.length()) {
-            const rawPct = bookInstance.locations.percentageFromCfi(cfi);
-            pct = Math.max(0, Math.min(100, Math.round((rawPct || 0) * 100)));
-          } else if (typeof location?.start?.percentage === 'number') {
-            pct = Math.max(0, Math.min(100, Math.round(location.start.percentage * 100)));
-          }
-
           const href = location?.start?.href || '';
           const matchedToc = tocFlatRef.current.find(
-            (n) => n.href && (href.includes(n.href.split('#')[0]) || n.href.includes(href))
+            (n) =>
+              n.href &&
+              (href.includes(n.href.split('#')[0]) || n.href.includes(href))
           );
+          chapterLabelRef.current = matchedToc?.label || '';
 
+          const metrics = computePageTelemetry(cfi, location);
           onPositionChange?.({
             cfi,
             href,
-            page: location?.start?.displayed?.page || 1,
-            totalPages: location?.start?.displayed?.total || 1,
-            progressPct: pct,
+            ...metrics,
             chapterLabel: matchedToc?.label || '',
           });
         });
@@ -204,7 +266,7 @@ export const EpubView = forwardRef(function EpubView(
             onTextSelect?.({
               text,
               cfi: cfiRange,
-              location: '',
+              location: chapterLabelRef.current || '',
             });
           }
         });
@@ -237,7 +299,10 @@ export const EpubView = forwardRef(function EpubView(
         }
         if (cancelled) return;
 
-        // Carrega TOC
+        // Reaplica imediatamente todos os destaques salvos ao abrir o livro
+        const { isLight } = resolveReaderDomColors(activeThemeRef.current);
+        syncAnnotations(renditionInstance, highlightsRef.current, isLight);
+
         const nav = await bookInstance.loaded.navigation;
         const rawToc = Array.isArray(nav?.toc) ? nav.toc : [];
         const flatten = (nodes) =>
@@ -247,23 +312,16 @@ export const EpubView = forwardRef(function EpubView(
           ]);
         tocFlatRef.current = flatten(rawToc);
 
-        // Gera locations em segundo plano para scrubber e %
         bookInstance.locations
           .generate(1200)
           .then(() => {
             if (cancelled) return;
             locationsReadyRef.current = true;
             if (currentCfiRef.current && bookInstance.locations?.length()) {
-              const rawPct = bookInstance.locations.percentageFromCfi(
-                currentCfiRef.current
-              );
-              const pct = Math.max(
-                0,
-                Math.min(100, Math.round((rawPct || 0) * 100))
-              );
+              const metrics = computePageTelemetry(currentCfiRef.current, null);
               onPositionChange?.({
                 cfi: currentCfiRef.current,
-                progressPct: pct,
+                ...metrics,
               });
             }
             const enrichToc = (nodes) =>
@@ -272,11 +330,12 @@ export const EpubView = forwardRef(function EpubView(
                 try {
                   const spineItem = bookInstance.spine.get(node.href);
                   if (spineItem?.cfiBase) {
-                    pct = Math.round(
-                      (bookInstance.locations.percentageFromCfi(
-                        `epubcfi(${spineItem.cfiBase}!/4/1:0)`
-                      ) || 0) * 100
-                    );
+                    pct =
+                      Math.round(
+                        (bookInstance.locations.percentageFromCfi(
+                          `epubcfi(${spineItem.cfiBase}!/4/1:0)`
+                        ) || 0) * 1000
+                      ) / 10;
                   }
                 } catch {
                   pct = 0;
@@ -398,7 +457,7 @@ export const EpubView = forwardRef(function EpubView(
   return (
     <div
       className="relative h-full w-full overflow-hidden"
-      style={{ background: resolveThemeColors(activeTheme).bg }}
+      style={{ background: resolveReaderDomColors(activeTheme).bg }}
     >
       <div ref={viewerRef} className="h-full w-full" />
     </div>

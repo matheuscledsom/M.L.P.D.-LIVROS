@@ -1,7 +1,6 @@
 import {
   ArrowLeft,
   Bookmark,
-  BookmarkCheck,
   HelpCircle,
   ListTree,
   Maximize2,
@@ -10,15 +9,16 @@ import {
   Settings2,
 } from 'lucide-react';
 import { useState } from 'react';
+import { formatExactPercent } from './useReaderProgress';
 
 export function ReaderToolbar({
   title,
   formatLabel,
   visible,
+  telemetry = null,
   progressPct = 0,
-  positionLabel = '',
+  totalPages = 0,
   chapterLabel = '',
-  estimatedMinutesRemaining = 0,
   chapters = [],
   isBookmarked = false,
   isFullscreen = false,
@@ -32,7 +32,10 @@ export function ReaderToolbar({
   onScrubPercent,
 }) {
   const [scrubbingPct, setScrubbingPct] = useState(null);
-  const shownPct = scrubbingPct !== null ? scrubbingPct : Math.round(progressPct || 0);
+  const [metricMode, setMetricMode] = useState('percent');
+
+  const safePct = Math.max(0, Math.min(100, Number(progressPct) || 0));
+  const shownPct = scrubbingPct !== null ? scrubbingPct : safePct;
 
   const hoveredChapter =
     scrubbingPct !== null && chapters.length > 0
@@ -43,64 +46,95 @@ export function ReaderToolbar({
         }, chapters[0])
       : null;
 
+  const estimatedHoverPage =
+    scrubbingPct !== null && totalPages > 0
+      ? Math.max(1, Math.min(totalPages, Math.round((scrubbingPct / 100) * totalPages)))
+      : null;
+
+  const percentDisplay = telemetry?.percentText || formatExactPercent(safePct);
+  const pagesDisplay =
+    telemetry?.pagesText ||
+    (totalPages > 0
+      ? `${Math.max(1, Math.round((safePct / 100) * totalPages))} lidas · de ${totalPages}`
+      : percentDisplay);
+  const timeDisplay = telemetry?.timeText || '';
+
   return (
     <>
-      {/* Indicador de progresso fino fixo no topo (sempre visível) */}
+      {/* Linha de progresso mínima fixada no topo */}
       <div
         aria-hidden="true"
-        className="pointer-events-none fixed inset-x-0 top-0 z-50 h-0.5 bg-transparent"
+        className="pointer-events-none fixed inset-x-0 top-0 z-50 h-[2px] bg-transparent"
       >
         <div
-          className="h-full bg-accent transition-[width] duration-200"
-          style={{ width: `${Math.max(0, Math.min(100, progressPct || 0))}%` }}
+          className="h-full transition-[width] duration-150 ease-out"
+          style={{
+            width: `${safePct}%`,
+            backgroundColor: 'var(--reader-accent)',
+          }}
         />
       </div>
 
       {/* Barra Superior */}
       <header
-        className={`fixed inset-x-0 top-0 z-40 border-b border-line bg-card/92 backdrop-blur-md transition-all duration-200 ${
+        className={`fixed inset-x-0 top-0 z-40 border-b transition-all duration-150 ease-out ${
           visible
             ? 'translate-y-0 opacity-100'
             : '-translate-y-full opacity-0 pointer-events-none'
         }`}
+        style={{
+          backgroundColor: 'var(--reader-bg)',
+          borderColor: 'var(--reader-border)',
+          color: 'var(--reader-ink)',
+        }}
       >
-        <div className="mx-auto flex max-w-5xl items-center justify-between gap-2 px-3 py-2">
+        <div className="mx-auto flex max-w-5xl items-center justify-between gap-2 px-3 py-1.5">
           <div className="flex min-w-0 items-center gap-2">
             <button
               type="button"
               onClick={onBack}
               aria-label="Fechar leitor"
               title="Fechar leitor (Esc)"
-              className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-xl text-ink hover:bg-elevated"
+              className="flex min-h-[40px] min-w-[40px] items-center justify-center rounded-[4px] transition-colors duration-150 ease-out"
+              style={{ color: 'var(--reader-muted)' }}
             >
-              <ArrowLeft className="h-5 w-5 text-accent" strokeWidth={1.5} />
+              <ArrowLeft className="h-4 w-4" strokeWidth={1.5} />
             </button>
             <div className="min-w-0">
-              <div className="flex items-center gap-2">
-                <h1 className="truncate text-xs sm:text-sm font-semibold text-ink">
+              <div className="flex items-baseline gap-2">
+                <h1 className="truncate text-xs sm:text-sm font-semibold">
                   {title || 'Leitor Códice'}
                 </h1>
                 {formatLabel && (
-                  <span className="shrink-0 rounded-md border border-accent/40 bg-accent/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-accent">
+                  <span
+                    className="shrink-0 text-[10px] uppercase tracking-wider"
+                    style={{ color: 'var(--reader-muted)' }}
+                  >
                     {formatLabel}
                   </span>
                 )}
               </div>
               {chapterLabel && (
-                <p className="truncate text-[11px] text-muted">{chapterLabel}</p>
+                <p
+                  className="truncate text-[11px]"
+                  style={{ color: 'var(--reader-muted)' }}
+                >
+                  {chapterLabel}
+                </p>
               )}
             </div>
           </div>
 
-          <div className="flex shrink-0 items-center gap-0.5 sm:gap-1">
+          <div className="flex shrink-0 items-center gap-0.5">
             <button
               type="button"
               onClick={onToggleToc}
               aria-label="Abrir índice e anotações"
-              title="Índice e Anotações (T)"
-              className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-xl text-muted hover:bg-elevated hover:text-ink"
+              title="Índice e notas (T)"
+              className="flex min-h-[40px] min-w-[40px] items-center justify-center rounded-[4px] transition-colors duration-150 ease-out"
+              style={{ color: 'var(--reader-muted)' }}
             >
-              <ListTree className="h-4 w-4 text-accent" strokeWidth={1.5} />
+              <ListTree className="h-4 w-4" strokeWidth={1.5} />
             </button>
 
             <button
@@ -108,23 +142,27 @@ export function ReaderToolbar({
               onClick={onOpenSearch}
               aria-label="Buscar no texto"
               title="Buscar no texto (/)"
-              className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-xl text-muted hover:bg-elevated hover:text-ink"
+              className="flex min-h-[40px] min-w-[40px] items-center justify-center rounded-[4px] transition-colors duration-150 ease-out"
+              style={{ color: 'var(--reader-muted)' }}
             >
-              <Search className="h-4 w-4 text-accent" strokeWidth={1.5} />
+              <Search className="h-4 w-4" strokeWidth={1.5} />
             </button>
 
             <button
               type="button"
               onClick={onToggleBookmark}
               aria-label={isBookmarked ? 'Remover marcador' : 'Adicionar marcador'}
-              title="Alternar marcador"
-              className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-xl text-accent hover:bg-elevated"
+              aria-pressed={isBookmarked}
+              title={isBookmarked ? 'Marcador ativo' : 'Marcar página'}
+              className="flex min-h-[40px] min-w-[40px] items-center justify-center rounded-[4px] transition-colors duration-150 ease-out"
+              style={{
+                color: isBookmarked ? 'var(--reader-accent)' : 'var(--reader-muted)',
+              }}
             >
-              {isBookmarked ? (
-                <BookmarkCheck className="h-4 w-4 fill-current" strokeWidth={1.5} />
-              ) : (
-                <Bookmark className="h-4 w-4" strokeWidth={1.5} />
-              )}
+              <Bookmark
+                className={`h-4 w-4 ${isBookmarked ? 'fill-current' : ''}`}
+                strokeWidth={1.5}
+              />
             </button>
 
             <button
@@ -132,9 +170,10 @@ export function ReaderToolbar({
               onClick={onToggleSettings}
               aria-label="Ajustes de leitura e tema"
               title="Ajustes do leitor"
-              className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-xl text-muted hover:bg-elevated hover:text-ink"
+              className="flex min-h-[40px] min-w-[40px] items-center justify-center rounded-[4px] transition-colors duration-150 ease-out"
+              style={{ color: 'var(--reader-muted)' }}
             >
-              <Settings2 className="h-4 w-4 text-accent" strokeWidth={1.5} />
+              <Settings2 className="h-4 w-4" strokeWidth={1.5} />
             </button>
 
             <button
@@ -142,12 +181,15 @@ export function ReaderToolbar({
               onClick={onToggleFullscreen}
               aria-label={isFullscreen ? 'Sair de tela cheia' : 'Tela cheia'}
               title="Tela cheia (F)"
-              className="hidden sm:flex min-h-[44px] min-w-[44px] items-center justify-center rounded-xl text-muted hover:bg-elevated hover:text-ink"
+              className="hidden sm:flex min-h-[40px] min-w-[40px] items-center justify-center rounded-[4px] transition-colors duration-150 ease-out"
+              style={{
+                color: isFullscreen ? 'var(--reader-accent)' : 'var(--reader-muted)',
+              }}
             >
               {isFullscreen ? (
-                <Minimize2 className="h-4 w-4 text-accent" strokeWidth={1.5} />
+                <Minimize2 className="h-4 w-4" strokeWidth={1.5} />
               ) : (
-                <Maximize2 className="h-4 w-4 text-accent" strokeWidth={1.5} />
+                <Maximize2 className="h-4 w-4" strokeWidth={1.5} />
               )}
             </button>
 
@@ -156,37 +198,79 @@ export function ReaderToolbar({
               onClick={onToggleHelp}
               aria-label="Atalhos de teclado"
               title="Atalhos (?)"
-              className="hidden sm:flex min-h-[44px] min-w-[44px] items-center justify-center rounded-xl text-muted hover:bg-elevated hover:text-ink"
+              className="hidden sm:flex min-h-[40px] min-w-[40px] items-center justify-center rounded-[4px] transition-colors duration-150 ease-out"
+              style={{ color: 'var(--reader-muted)' }}
             >
-              <HelpCircle className="h-4 w-4 text-accent" strokeWidth={1.5} />
+              <HelpCircle className="h-4 w-4" strokeWidth={1.5} />
             </button>
           </div>
         </div>
       </header>
 
-      {/* Barra Inferior com Scrubber de Progresso */}
+      {/* Barra Inferior: Scrubber 2px->4px + linha única dual (% / páginas · previsão) */}
       <footer
-        className={`fixed inset-x-0 bottom-0 z-40 border-t border-line bg-card/92 backdrop-blur-md transition-all duration-200 pb-[env(safe-area-inset-bottom)] ${
+        className={`fixed inset-x-0 bottom-0 z-40 border-t transition-all duration-150 ease-out pb-[env(safe-area-inset-bottom)] ${
           visible
             ? 'translate-y-0 opacity-100'
             : 'translate-y-full opacity-0 pointer-events-none'
         }`}
+        style={{
+          backgroundColor: 'var(--reader-bg)',
+          borderColor: 'var(--reader-border)',
+          color: 'var(--reader-ink)',
+        }}
       >
-        <div className="mx-auto max-w-5xl px-4 py-3 space-y-2 relative">
+        <div className="relative mx-auto max-w-5xl px-4 py-2.5 space-y-1.5">
           {scrubbingPct !== null && (
-            <div className="pointer-events-none absolute -top-10 left-1/2 -translate-x-1/2 rounded-xl border border-accent/50 bg-card px-3 py-1.5 text-[11px] font-semibold text-ink shadow-xl whitespace-nowrap">
-              {hoveredChapter?.label
-                ? `${hoveredChapter.label} · ${scrubbingPct}%`
-                : `${scrubbingPct}%`}
+            <div
+              className="pointer-events-none absolute -top-9 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-[4px] border px-2.5 py-1 text-[11px] font-medium tabular-nums"
+              style={{
+                backgroundColor: 'var(--reader-bg)',
+                borderColor: 'var(--reader-border)',
+                color: 'var(--reader-ink)',
+              }}
+            >
+              {hoveredChapter?.label ? `${hoveredChapter.label}` : 'Progresso'}
+              {estimatedHoverPage ? ` · Pág. ${estimatedHoverPage}` : ''}
+              {` · ${formatExactPercent(scrubbingPct)}`}
             </div>
           )}
 
-          <div className="relative flex items-center">
+          {/* Trilha 2px -> 4px ao passar mouse/arrastar, preenchida em var(--reader-accent) */}
+          <div className="group relative flex h-6 items-center">
+            <div
+              className={`relative w-full overflow-hidden rounded-[2px] transition-all duration-150 ease-out ${
+                scrubbingPct !== null ? 'h-[4px]' : 'h-[2px] group-hover:h-[4px]'
+              }`}
+              style={{ backgroundColor: 'var(--reader-border)' }}
+            >
+              <div
+                className="h-full"
+                style={{
+                  width: `${shownPct}%`,
+                  backgroundColor: 'var(--reader-accent)',
+                }}
+              />
+              {chapters.slice(0, 30).map((ch, idx) =>
+                typeof ch.pct === 'number' && ch.pct > 0 && ch.pct < 100 ? (
+                  <span
+                    key={`${ch.id || idx}`}
+                    aria-hidden="true"
+                    className="pointer-events-none absolute top-0 bottom-0 w-px opacity-45"
+                    style={{
+                      left: `${ch.pct}%`,
+                      backgroundColor: 'var(--reader-ink)',
+                    }}
+                  />
+                ) : null
+              )}
+            </div>
+
             <input
               type="range"
               min="0"
               max="100"
-              step="1"
+              step="0.1"
               value={shownPct}
               onInput={(e) => setScrubbingPct(Number(e.target.value))}
               onChange={(e) => {
@@ -194,34 +278,33 @@ export function ReaderToolbar({
                 setScrubbingPct(null);
                 onScrubPercent?.(next);
               }}
+              onPointerUp={() => setScrubbingPct(null)}
+              onPointerCancel={() => setScrubbingPct(null)}
+              onBlur={() => setScrubbingPct(null)}
               aria-label="Navegar pelo progresso da obra"
-              className="h-1 w-full cursor-pointer appearance-none rounded-full bg-line accent-accent"
-              style={{
-                background: `linear-gradient(to right, var(--accent-color) 0%, var(--accent-color) ${shownPct}%, var(--border-subtle) ${shownPct}%, var(--border-subtle) 100%)`,
-              }}
+              className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
             />
-            {chapters.slice(0, 30).map((ch, idx) =>
-              typeof ch.pct === 'number' && ch.pct > 0 && ch.pct < 100 ? (
-                <span
-                  key={`${ch.id || idx}`}
-                  aria-hidden="true"
-                  className="pointer-events-none absolute top-1/2 h-2 w-0.5 -translate-y-1/2 bg-ink/40"
-                  style={{ left: `${ch.pct}%` }}
-                />
-              ) : null
-            )}
           </div>
 
-          <div className="flex items-center justify-between gap-2 text-[11px] text-muted tabular-nums">
-            <span className="truncate font-medium text-ink">
-              {positionLabel || `${shownPct}% lido`}
-            </span>
-            <span className="shrink-0">
-              <strong className="font-semibold text-accent">{shownPct}%</strong>
-              {estimatedMinutesRemaining > 0
-                ? ` · ${estimatedMinutesRemaining} min restantes`
-                : ' · Concluído'}
-            </span>
+          {/* Linha única discreta que alterna % <-> Páginas ao toque/clique */}
+          <div className="flex min-h-[28px] items-center justify-center sm:justify-start">
+            <button
+              type="button"
+              onClick={() =>
+                setMetricMode((prev) => (prev === 'percent' ? 'pages' : 'percent'))
+              }
+              title="Toque para alternar entre percentual e páginas"
+              aria-label={`Progresso de leitura: ${
+                metricMode === 'percent' ? percentDisplay : pagesDisplay
+              }. Toque para alternar visualização.`}
+              className="w-full truncate text-left text-[12px] sm:text-[13px] tabular-nums transition-opacity duration-150 ease-out hover:opacity-80"
+              style={{ color: 'var(--reader-muted)' }}
+            >
+              <span style={{ color: 'var(--reader-ink)' }}>
+                {metricMode === 'percent' ? percentDisplay : pagesDisplay}
+              </span>
+              {timeDisplay ? ` · ${timeDisplay}` : ''}
+            </button>
           </div>
         </div>
       </footer>

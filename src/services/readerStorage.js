@@ -29,25 +29,75 @@ export async function saveBookFile(
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_NAME, 'readwrite');
     const store = tx.objectStore(STORE_NAME);
-    const record = {
-      workId: String(workId),
-      blob,
-      fileHandle,
-      fileName: String(fileName || 'obra'),
-      format: String(format || 'pdf'),
-      size: Number(size) || blob?.size || 0,
-      savedAt: new Date().toISOString(),
+    let savedRecord = null;
+    const getReq = store.get(String(workId));
+    getReq.onsuccess = () => {
+      const existing = getReq.result || null;
+      savedRecord = {
+        workId: String(workId),
+        blob: blob ?? existing?.blob ?? null,
+        fileHandle: fileHandle ?? existing?.fileHandle ?? null,
+        fileName: String(fileName || existing?.fileName || 'obra'),
+        format: String(format || existing?.format || 'pdf'),
+        size: Number(size) || blob?.size || existing?.size || 0,
+        readerState: existing?.readerState || null,
+        savedAt: new Date().toISOString(),
+      };
+      store.put(savedRecord);
     };
-    store.put(record);
     tx.oncomplete = () => {
       db.close();
-      resolve(record);
+      resolve(savedRecord);
     };
     tx.onerror = () => {
       db.close();
       reject(tx.error || new Error('Falha ao salvar arquivo no IndexedDB'));
     };
   });
+}
+
+export async function saveBookReaderState(workId, readerState) {
+  if (!workId || !readerState || typeof readerState !== 'object') return false;
+  try {
+    const db = await openReaderDb();
+    return await new Promise((resolve) => {
+      const tx = db.transaction(STORE_NAME, 'readwrite');
+      const store = tx.objectStore(STORE_NAME);
+      const req = store.get(String(workId));
+      req.onsuccess = () => {
+        const existing = req.result || {
+          workId: String(workId),
+          blob: null,
+          fileHandle: null,
+          fileName: 'obra',
+          format: '',
+          size: 0,
+          savedAt: new Date().toISOString(),
+        };
+        store.put({
+          ...existing,
+          workId: String(workId),
+          readerState,
+          readerUpdatedAt: new Date().toISOString(),
+        });
+      };
+      tx.oncomplete = () => {
+        db.close();
+        resolve(true);
+      };
+      tx.onerror = () => {
+        db.close();
+        resolve(false);
+      };
+    });
+  } catch {
+    return false;
+  }
+}
+
+export async function getBookReaderState(workId) {
+  const record = await getBookFileRecord(workId);
+  return record?.readerState || null;
 }
 
 export async function getBookFileRecord(workId) {

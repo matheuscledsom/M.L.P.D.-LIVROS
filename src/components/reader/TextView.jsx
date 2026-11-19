@@ -9,6 +9,10 @@ import {
   useRef,
   useState,
 } from 'react';
+import {
+  getHighlightColorMeta,
+  resolveReaderDomColors,
+} from '../../utils/readerThemes';
 import { FONT_PRESETS } from '../../utils/themeTokens';
 
 const CHAPTER_HEADING_REGEX =
@@ -47,7 +51,7 @@ export function splitTextIntoSections(rawText = '', isMarkdown = false) {
     });
   }
 
-  // Se texto plano veio sem capítulos em um único bloco muito longo, divide em blocos legíveis
+  // Se texto plano veio sem capítulos em um único bloco longo, divide em blocos legíveis
   if (sections.length === 1 && lines.length > 140) {
     const chunked = [];
     const CHUNK_SIZE = 90;
@@ -61,12 +65,14 @@ export function splitTextIntoSections(rawText = '', isMarkdown = false) {
     }
     return chunked.map((sec) => ({
       ...sec,
+      charLength: sec.raw.length,
       html: renderSectionHtml(sec.raw, isMarkdown),
     }));
   }
 
   return sections.map((sec) => ({
     ...sec,
+    charLength: sec.raw.length,
     html: renderSectionHtml(sec.raw, isMarkdown),
   }));
 }
@@ -98,6 +104,111 @@ function renderSectionHtml(raw, isMarkdown) {
   return DOMPurify.sanitize(html);
 }
 
+function injectHighlightsIntoHtml(sanitizedHtml, sectionHighlights, isLight) {
+  if (
+    !sectionHighlights ||
+    sectionHighlights.length === 0 ||
+    typeof DOMParser === 'undefined'
+  ) {
+    return sanitizedHtml;
+  }
+
+  try {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(`<div>${sanitizedHtml}</div>`, 'text/html');
+    const root = doc.body.firstElementChild;
+    if (!root) return sanitizedHtml;
+
+    const fullText = root.textContent || '';
+    const ranges = [];
+
+    sectionHighlights.forEach((hl) => {
+      let start = typeof hl.startOffset === 'number' ? hl.startOffset : -1;
+      let end = typeof hl.endOffset === 'number' ? hl.endOffset : -1;
+      const needle = String(hl.text || '').trim();
+      if (!needle) return;
+
+      if (
+        start < 0 ||
+        end <= start ||
+        end > fullText.length ||
+        fullText.slice(start, end).trim() !== needle
+      ) {
+        const fallbackIdx = fullText.indexOf(needle);
+        if (fallbackIdx === -1) return;
+        start = fallbackIdx;
+        end = fallbackIdx + needle.length;
+      }
+
+      ranges.push({
+        id: hl.id,
+        start,
+        end,
+        meta: getHighlightColorMeta(hl.color),
+      });
+    });
+
+    if (ranges.length === 0) return sanitizedHtml;
+
+    // Aplica do último para o primeiro ou nó por nó
+    ranges.sort((a, b) => b.start - a.start);
+
+    const wrapRangeInDom = (rangeSpec) => {
+      const walker = doc.createTreeWalker(root, 4 /* NodeFilter.SHOW_TEXT */);
+      const textNodes = [];
+      let cursor = 0;
+      let current = walker.nextNode();
+      while (current) {
+        const len = current.nodeValue?.length || 0;
+        if (len > 0) {
+          textNodes.push({ node: current, start: cursor, end: cursor + len });
+          cursor += len;
+        }
+        current = walker.nextNode();
+      }
+
+      textNodes.forEach(({ node, start, end }) => {
+        const overlapStart = Math.max(start, rangeSpec.start);
+        const overlapEnd = Math.min(end, rangeSpec.end);
+        if (overlapStart >= overlapEnd) return;
+
+        const relStart = overlapStart - start;
+        const relEnd = overlapEnd - start;
+        const original = node.nodeValue || '';
+
+        const before = original.slice(0, relStart);
+        const middle = original.slice(relStart, relEnd);
+        const after = original.slice(relEnd);
+
+        const frag = doc.createDocumentFragment();
+        if (before) frag.appendChild(doc.createTextNode(before));
+
+        const mark = doc.createElement('mark');
+        mark.setAttribute('data-codice-hl-id', String(rangeSpec.id || ''));
+        mark.style.backgroundColor = isLight
+          ? rangeSpec.meta.lightBg
+          : rangeSpec.meta.darkBg;
+        mark.style.color = 'inherit';
+        mark.style.borderRadius = '2px';
+        mark.style.padding = '0 1px';
+        if (isLight) {
+          mark.style.mixBlendMode = 'multiply';
+        }
+        mark.textContent = middle;
+        frag.appendChild(mark);
+
+        if (after) frag.appendChild(doc.createTextNode(after));
+        node.parentNode?.replaceChild(frag, node);
+      });
+    };
+
+    ranges.forEach(wrapRangeInDom);
+    return root.innerHTML;
+  } catch {
+    return sanitizedHtml;
+  }
+}
+
 export const TextView = forwardRef(function TextView(
   {
     fileBlob,
@@ -105,6 +216,9 @@ export const TextView = forwardRef(function TextView(
     settings,
     activeTheme,
     initialPage = 1,
+    initialScrollRatio = 0,
+    workTotalPages = 0,
+    highlights = [],
     onReady,
     onPositionChange,
     onTocReady,
@@ -116,11 +230,29 @@ export const TextView = forwardRef(function TextView(
 ) {
   const scrollRef = useRef(null);
   const sectionRefs = useRef(new Map());
+  const hasUserScrolledRef = useRef(false);
+  const pendingScrollRatioRef = useRef(
+    Number(initialScrollRatio) > 0 ? Number(initialScrollRatio) : null
+  );
 
   const [sections, setSections] = useState([]);
   const [activeSectionIndex, setActiveSectionIndex] = useState(
     Math.max(0, (initialPage || 1) - 1)
   );
+
+  const totalBookChars = useMemo(
+    () => sections.reduce((sum, s) => sum + (s.charLength || 0), 0),
+    [sections]
+  );
+
+  const estimatedTotalPages = useMemo(() => {
+    if (workTotalPages > 0) return Number(workTotalPages);
+    if (sections.length === 0) return 1;
+    if (settings.textFlow === 'paginated' && totalBookChars < 3000) {
+      return sections.length;
+    }
+    return Math.max(sections.length, Math.round(totalBookChars / 1500));
+  }, [workTotalPages, sections.length, totalBookChars, settings.textFlow]);
 
   useEffect(() => {
     if (!fileBlob) return undefined;
@@ -136,29 +268,69 @@ export const TextView = forwardRef(function TextView(
         );
         setSections(parsedSections);
 
-        const clampedIdx = Math.max(
+        const totalChars = parsedSections.reduce((s, sec) => s + sec.charLength, 0);
+        const totalVirtualPages =
+          workTotalPages > 0
+            ? Number(workTotalPages)
+            : totalChars >= 3000
+              ? Math.max(parsedSections.length, Math.round(totalChars / 1500))
+              : parsedSections.length;
+
+        let clampedSecIdx = Math.max(
           0,
           Math.min(parsedSections.length - 1, (Number(initialPage) || 1) - 1)
         );
-        setActiveSectionIndex(clampedIdx);
+        if (totalVirtualPages > parsedSections.length && initialPage > 1) {
+          const ratio = Math.min(1, Math.max(0, (initialPage - 1) / totalVirtualPages));
+          clampedSecIdx = Math.min(
+            parsedSections.length - 1,
+            Math.floor(ratio * parsedSections.length)
+          );
+        }
+        setActiveSectionIndex(clampedSecIdx);
 
         const toc = parsedSections.map((sec, idx) => ({
           id: sec.id,
           label: sec.title,
           sectionIndex: idx,
-          page: idx + 1,
-          pct: Math.round(((idx + 1) / parsedSections.length) * 100),
+          page: Math.max(
+            1,
+            Math.round(((idx + 1) / parsedSections.length) * totalVirtualPages)
+          ),
+          pct: Math.round(((idx + 1) / parsedSections.length) * 1000) / 10,
         }));
         onTocReady?.(toc);
 
+        const initialFrac =
+          settings.textFlow === 'scrolled' && pendingScrollRatioRef.current > 0
+            ? Math.min(1, pendingScrollRatioRef.current)
+            : (clampedSecIdx + 1) / parsedSections.length;
+        const initPct = Math.round(initialFrac * 1000) / 10;
+        const initPage = Math.max(
+          1,
+          Math.min(totalVirtualPages, Math.round(initialFrac * totalVirtualPages) || 1)
+        );
+
         onPositionChange?.({
-          page: clampedIdx + 1,
-          totalPages: parsedSections.length,
-          chapterLabel: parsedSections[clampedIdx]?.title || '',
-          progressPct: Math.round(((clampedIdx + 1) / parsedSections.length) * 100),
+          page: initPage,
+          totalPages: totalVirtualPages,
+          chapterLabel: parsedSections[clampedSecIdx]?.title || '',
+          scrollRatio: pendingScrollRatioRef.current || 0,
+          progressPct: initPct,
         });
 
         onReady?.();
+
+        if (settings.textFlow === 'scrolled' && pendingScrollRatioRef.current > 0) {
+          requestAnimationFrame(() => {
+            const el = scrollRef.current;
+            if (el) {
+              const maxScroll = Math.max(0, el.scrollHeight - el.clientHeight);
+              el.scrollTo({ top: pendingScrollRatioRef.current * maxScroll });
+            }
+            pendingScrollRatioRef.current = null;
+          });
+        }
       } catch {
         if (!cancelled) {
           onError?.('Não foi possível ler este arquivo de texto.');
@@ -172,26 +344,63 @@ export const TextView = forwardRef(function TextView(
     };
   }, [fileBlob, format]);
 
+  useEffect(() => {
+    if (
+      settings.textFlow !== 'scrolled' ||
+      hasUserScrolledRef.current ||
+      !sections.length ||
+      !(Number(initialScrollRatio) > 0) ||
+      !scrollRef.current
+    ) {
+      return;
+    }
+    requestAnimationFrame(() => {
+      const el = scrollRef.current;
+      if (!el || hasUserScrolledRef.current) return;
+      const maxScroll = Math.max(0, el.scrollHeight - el.clientHeight);
+      if (maxScroll > 0) {
+        el.scrollTo({ top: Number(initialScrollRatio) * maxScroll });
+      }
+    });
+  }, [sections.length, initialScrollRatio, settings.textFlow]);
+
   const goToSection = useCallback(
-    (idx) => {
+    (idx, targetHighlightId = null) => {
       if (!sections.length) return;
       const clamped = Math.max(0, Math.min(sections.length - 1, idx));
       setActiveSectionIndex(clamped);
+      const frac = (clamped + 1) / sections.length;
+      const pageNum = Math.max(
+        1,
+        Math.min(estimatedTotalPages, Math.round(frac * estimatedTotalPages) || 1)
+      );
+
       onPositionChange?.({
-        page: clamped + 1,
-        totalPages: sections.length,
+        page: pageNum,
+        totalPages: estimatedTotalPages,
         chapterLabel: sections[clamped]?.title || '',
-        progressPct: Math.round(((clamped + 1) / sections.length) * 100),
+        progressPct: Math.round(frac * 1000) / 10,
       });
 
-      if (settings.textFlow === 'scrolled') {
-        const el = sectionRefs.current.get(sections[clamped]?.id);
-        el?.scrollIntoView({ behavior: 'auto', block: 'start' });
-      } else {
-        scrollRef.current?.scrollTo({ top: 0 });
-      }
+      requestAnimationFrame(() => {
+        if (targetHighlightId) {
+          const markEl = scrollRef.current?.querySelector(
+            `[data-codice-hl-id="${targetHighlightId}"]`
+          );
+          if (markEl) {
+            markEl.scrollIntoView({ behavior: 'auto', block: 'center' });
+            return;
+          }
+        }
+        if (settings.textFlow === 'scrolled') {
+          const el = sectionRefs.current.get(sections[clamped]?.id);
+          el?.scrollIntoView({ behavior: 'auto', block: 'start' });
+        } else {
+          scrollRef.current?.scrollTo({ top: 0 });
+        }
+      });
     },
-    [sections, settings.textFlow, onPositionChange]
+    [sections, estimatedTotalPages, settings.textFlow, onPositionChange]
   );
 
   useImperativeHandle(
@@ -210,11 +419,37 @@ export const TextView = forwardRef(function TextView(
       goToChapter: (node) => {
         if (typeof node?.sectionIndex === 'number') {
           goToSection(node.sectionIndex);
-        } else if (node?.page) {
-          goToSection(node.page - 1);
+        } else if (node?.page && estimatedTotalPages > 0) {
+          const ratio = (node.page - 1) / estimatedTotalPages;
+          goToSection(Math.round(ratio * (sections.length - 1)));
         }
       },
-      goToPage: (p) => goToSection(p - 1),
+      goToHighlight: (hl) => {
+        if (!sections.length) return;
+        let targetIdx =
+          typeof hl?.sectionIndex === 'number'
+            ? hl.sectionIndex
+            : sections.findIndex((s) => s.id === hl?.sectionId);
+        if (targetIdx < 0 && hl?.page) {
+          targetIdx = Math.max(
+            0,
+            Math.min(
+              sections.length - 1,
+              Math.floor(((hl.page - 1) / Math.max(1, estimatedTotalPages)) * sections.length)
+            )
+          );
+        }
+        goToSection(Math.max(0, targetIdx), hl?.id || null);
+      },
+      goToPage: (p) => {
+        if (!sections.length) return;
+        if (estimatedTotalPages <= sections.length) {
+          goToSection(p - 1);
+          return;
+        }
+        const ratio = Math.max(0, Math.min(1, (p - 1) / Math.max(1, estimatedTotalPages - 1)));
+        goToSection(Math.round(ratio * (sections.length - 1)));
+      },
       nextPage: () => goToSection(activeSectionIndex + 1),
       prevPage: () => goToSection(activeSectionIndex - 1),
       searchText: async (query) => {
@@ -230,7 +465,10 @@ export const TextView = forwardRef(function TextView(
             matches.push({
               id: `txt-match-${idx}-${pos}`,
               sectionIndex: idx,
-              page: idx + 1,
+              page: Math.max(
+                1,
+                Math.round(((idx + 1) / sections.length) * estimatedTotalPages)
+              ),
               label: sec.title,
               excerpt: sec.raw.slice(start, end).trim(),
             });
@@ -239,28 +477,42 @@ export const TextView = forwardRef(function TextView(
         return matches;
       },
     }),
-    [sections, activeSectionIndex, settings.textFlow, goToSection]
+    [
+      sections,
+      activeSectionIndex,
+      estimatedTotalPages,
+      settings.textFlow,
+      goToSection,
+    ]
   );
 
   const handleScroll = () => {
     if (settings.textFlow !== 'scrolled' || !scrollRef.current || !sections.length) {
       return;
     }
+    hasUserScrolledRef.current = true;
     const el = scrollRef.current;
     const maxScroll = Math.max(1, el.scrollHeight - el.clientHeight);
-    const pct = Math.max(0, Math.min(100, Math.round((el.scrollTop / maxScroll) * 100)));
+    const ratio = Math.max(0, Math.min(1, el.scrollTop / maxScroll));
+    const pct = Math.round(ratio * 1000) / 10;
     const approxIdx = Math.min(
       sections.length - 1,
-      Math.floor((pct / 100) * sections.length)
+      Math.floor(ratio * sections.length)
     );
 
     if (approxIdx !== activeSectionIndex) {
       setActiveSectionIndex(approxIdx);
     }
 
+    const virtualPage = Math.max(
+      1,
+      Math.min(estimatedTotalPages, Math.round(ratio * estimatedTotalPages) || 1)
+    );
+
     onPositionChange?.({
-      page: approxIdx + 1,
-      totalPages: sections.length,
+      page: virtualPage,
+      totalPages: estimatedTotalPages,
+      scrollRatio: ratio,
       chapterLabel: sections[approxIdx]?.title || '',
       progressPct: pct,
     });
@@ -269,12 +521,44 @@ export const TextView = forwardRef(function TextView(
   const handleSelectionRelease = () => {
     const sel = window.getSelection?.();
     const text = sel ? String(sel.toString() || '').trim() : '';
-    if (text) {
-      onTextSelect?.({
-        text,
-        location: sections[activeSectionIndex]?.title || `Seção ${activeSectionIndex + 1}`,
-      });
+    if (!text || !sel.rangeCount) return;
+
+    const range = sel.getRangeAt(0);
+    const startEl =
+      range.startContainer.nodeType === 1
+        ? range.startContainer
+        : range.startContainer.parentElement;
+    const sectionEl = startEl?.closest?.('[data-section-id]');
+    const sectionId = sectionEl?.getAttribute('data-section-id') || '';
+    const rawIdx = sectionEl?.getAttribute('data-section-index');
+    const secIdx = rawIdx !== null ? Number(rawIdx) : activeSectionIndex;
+
+    let startOffset = null;
+    let endOffset = null;
+    if (sectionEl && typeof document !== 'undefined') {
+      try {
+        const preRange = document.createRange();
+        preRange.selectNodeContents(sectionEl);
+        preRange.setEnd(range.startContainer, range.startOffset);
+        startOffset = preRange.toString().length;
+        endOffset = startOffset + text.length;
+      } catch {
+        startOffset = null;
+        endOffset = null;
+      }
     }
+
+    onTextSelect?.({
+      text,
+      sectionId,
+      sectionIndex: Number.isNaN(secIdx) ? activeSectionIndex : secIdx,
+      startOffset,
+      endOffset,
+      location:
+        sections[secIdx]?.title ||
+        sections[activeSectionIndex]?.title ||
+        `Seção ${activeSectionIndex + 1}`,
+    });
   };
 
   const handleTap = (e) => {
@@ -302,11 +586,13 @@ export const TextView = forwardRef(function TextView(
     [settings.fontId]
   );
 
+  const domColors = resolveReaderDomColors(activeTheme);
+
   const marginPad =
     settings.marginLevel === 'compact'
       ? 'px-3 sm:px-6'
       : settings.marginLevel === 'wide'
-        ? 'px-8 sm:px-14'
+        ? 'px-8 sm:px-16'
         : 'px-5 sm:px-10';
 
   const articleStyle = {
@@ -315,16 +601,37 @@ export const TextView = forwardRef(function TextView(
     lineHeight: settings.lineHeight,
     textAlign: settings.justify ? 'justify' : 'left',
     hyphens: settings.hyphenation ? 'auto' : 'none',
-    color: activeTheme.ink,
+    color: domColors.ink,
     '--paragraph-gap': `${settings.paragraphSpacing}em`,
   };
 
-  const visibleSections =
-    settings.textFlow === 'paginated'
-      ? sections[activeSectionIndex]
-        ? [sections[activeSectionIndex]]
-        : []
-      : sections;
+  const visibleSections = useMemo(() => {
+    const baseList =
+      settings.textFlow === 'paginated'
+        ? sections[activeSectionIndex]
+          ? [{ sec: sections[activeSectionIndex], index: activeSectionIndex }]
+          : []
+        : sections.map((sec, index) => ({ sec, index }));
+
+    return baseList.map(({ sec, index }) => {
+      const secHighlights = highlights.filter(
+        (hl) =>
+          hl &&
+          ((hl.sectionId && hl.sectionId === sec.id) ||
+            (typeof hl.sectionIndex === 'number' && hl.sectionIndex === index) ||
+            (!hl.sectionId && hl.sectionIndex === null && hl.text))
+      );
+      return {
+        ...sec,
+        index,
+        renderedHtml: injectHighlightsIntoHtml(
+          sec.html,
+          secHighlights,
+          domColors.isLight
+        ),
+      };
+    });
+  }, [sections, activeSectionIndex, settings.textFlow, highlights, domColors.isLight]);
 
   return (
     <div
@@ -334,21 +641,24 @@ export const TextView = forwardRef(function TextView(
       onTouchEnd={handleSelectionRelease}
       onClick={handleTap}
       className={`h-full w-full overflow-y-auto pt-16 pb-24 no-scrollbar ${marginPad}`}
-      style={{ background: activeTheme.bg, color: activeTheme.ink }}
+      style={{ backgroundColor: domColors.bg, color: domColors.ink }}
     >
       <div
-        className="codice-prose mx-auto max-w-[66ch] space-y-8"
+        className="codice-prose mx-auto max-w-[68ch] space-y-8"
         style={articleStyle}
       >
         {visibleSections.map((sec) => (
           <section
             key={sec.id}
+            data-section-id={sec.id}
+            data-section-index={sec.index}
             ref={(el) => {
               if (el) sectionRefs.current.set(sec.id, el);
               else sectionRefs.current.delete(sec.id);
             }}
-            className="space-y-4 [&>h1]:text-2xl [&>h1]:font-bold [&>h2]:text-xl [&>h2]:font-semibold [&>h3]:text-lg [&>h3]:font-semibold [&>p]:mb-[var(--paragraph-gap)] [&>ul]:list-disc [&>ul]:pl-5 [&>ol]:list-decimal [&>ol]:pl-5 [&>blockquote]:border-l-2 [&>blockquote]:border-accent [&>blockquote]:pl-4 [&>blockquote]:italic"
-            dangerouslySetInnerHTML={{ __html: sec.html }}
+            className="space-y-4 [&>h1]:text-2xl [&>h1]:font-bold [&>h2]:text-xl [&>h2]:font-semibold [&>h3]:text-lg [&>h3]:font-semibold [&>p]:mb-[var(--paragraph-gap)] [&>ul]:list-disc [&>ul]:pl-5 [&>ol]:list-decimal [&>ol]:pl-5 [&>blockquote]:border-l [&>blockquote]:pl-4 [&>blockquote]:italic"
+            style={{ borderColor: domColors.border }}
+            dangerouslySetInnerHTML={{ __html: sec.renderedHtml }}
           />
         ))}
       </div>

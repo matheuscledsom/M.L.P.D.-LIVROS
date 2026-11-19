@@ -203,6 +203,8 @@ export function useSocialProfile() {
       title: String(postData.title || '').trim(),
       caption: String(postData.caption || '').trim(),
       media: Array.isArray(postData.media) ? postData.media : [],
+      visibility: postData.visibility || 'inherit',
+      highlightColor: postData.highlightColor || '',
       comments: [],
       createdAt: new Date().toISOString(),
     };

@@ -7,6 +7,7 @@ import {
   useRef,
   useState,
 } from 'react';
+import { resolveReaderDomColors } from '../../utils/readerThemes';
 
 const IMAGE_EXT_REGEX = /\.(jpe?g|png|webp|gif|bmp|avif)$/i;
 
@@ -73,7 +74,13 @@ function ComicWebtoonImage({ entryName, getImageUrl, fitClass, onRegisterRef }) 
           draggable={false}
         />
       ) : (
-        <div className="h-[420px] w-full max-w-2xl animate-pulse rounded-xl bg-elevated/40" />
+        <div
+          className="h-[420px] w-full max-w-2xl rounded-[4px] border"
+          style={{
+            borderColor: 'var(--reader-border)',
+            backgroundColor: 'var(--reader-surface)',
+          }}
+        />
       )}
     </div>
   );
@@ -185,7 +192,7 @@ export const ComicView = forwardRef(function ComicView(
         onPositionChange?.({
           page: startIdx + 1,
           totalPages: sorted.length,
-          progressPct: Math.round(((startIdx + 1) / sorted.length) * 100),
+          progressPct: Math.round(((startIdx + 1) / sorted.length) * 1000) / 10,
         });
 
         onReady?.();
@@ -246,7 +253,7 @@ export const ComicView = forwardRef(function ComicView(
       onPositionChange?.({
         page: clamped + 1,
         totalPages: pages.length,
-        progressPct: Math.round(((clamped + 1) / pages.length) * 100),
+        progressPct: Math.round(((clamped + 1) / pages.length) * 1000) / 10,
       });
 
       if (settings.cbzMode === 'webtoon') {
@@ -311,7 +318,7 @@ export const ComicView = forwardRef(function ComicView(
       onPositionChange?.({
         page: closestIdx + 1,
         totalPages: pages.length,
-        progressPct: Math.round(((closestIdx + 1) / pages.length) * 100),
+        progressPct: Math.round(((closestIdx + 1) / pages.length) * 1000) / 10,
       });
     }
   };
@@ -363,6 +370,8 @@ export const ComicView = forwardRef(function ComicView(
       ? [firstPageName]
       : [];
 
+  const domColors = resolveReaderDomColors(activeTheme);
+
   return (
     <div
       ref={scrollContainerRef}
@@ -373,7 +382,7 @@ export const ComicView = forwardRef(function ComicView(
         setIsZoomed((prev) => !prev);
       }}
       className="h-full w-full overflow-auto px-2 pt-14 pb-20 no-scrollbar"
-      style={{ background: activeTheme.bg }}
+      style={{ backgroundColor: domColors.bg, color: domColors.ink }}
     >
       {settings.cbzMode === 'webtoon' ? (
         <div className="mx-auto flex max-w-3xl flex-col gap-1">
@@ -389,7 +398,7 @@ export const ComicView = forwardRef(function ComicView(
         </div>
       ) : (
         <div
-          className={`mx-auto flex min-h-full items-center justify-center gap-1 transition-transform duration-200 ${
+          className={`mx-auto flex min-h-full items-center justify-center gap-1 transition-transform duration-150 ease-out ${
             isZoomed ? 'scale-175 origin-center cursor-zoom-out' : 'cursor-pointer'
           }`}
         >
@@ -401,13 +410,17 @@ export const ComicView = forwardRef(function ComicView(
                 alt={name}
                 className={`${fitClass} ${
                   spreadPages.length === 2 ? 'max-w-[49%]' : ''
-                } select-none rounded-md`}
+                } select-none rounded-[4px]`}
                 draggable={false}
               />
             ) : (
               <div
                 key={name}
-                className="h-[70vh] w-full max-w-xl animate-pulse rounded-xl bg-elevated/40"
+                className="h-[70vh] w-full max-w-xl rounded-[4px] border"
+                style={{
+                  borderColor: domColors.border,
+                  backgroundColor: domColors.surface,
+                }}
               />
             )
           )}

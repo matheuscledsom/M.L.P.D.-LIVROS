@@ -1,6 +1,85 @@
-import { AlignJustify, Check, Moon, Sun, Type, X } from 'lucide-react';
+import { X } from 'lucide-react';
+import { READER_THEMES } from '../../utils/readerThemes';
 import { FONT_PRESETS } from '../../utils/themeTokens';
-import { READER_THEMES } from './useReaderProgress';
+
+function SettingRow({ label, hint, children }) {
+  return (
+    <div
+      className="flex items-center justify-between gap-4 border-b py-3 last:border-b-0"
+      style={{ borderColor: 'var(--reader-border)' }}
+    >
+      <div className="min-w-0">
+        <span
+          className="block text-xs font-medium"
+          style={{ color: 'var(--reader-ink)' }}
+        >
+          {label}
+        </span>
+        {hint && (
+          <span
+            className="mt-0.5 block text-[11px]"
+            style={{ color: 'var(--reader-muted)' }}
+          >
+            {hint}
+          </span>
+        )}
+      </div>
+      <div className="flex shrink-0 items-center justify-end">{children}</div>
+    </div>
+  );
+}
+
+function SegmentedTextControl({ options, value, onChange }) {
+  return (
+    <div
+      className="inline-flex overflow-hidden rounded-[4px] border"
+      style={{ borderColor: 'var(--reader-border)' }}
+    >
+      {options.map((opt, idx) => {
+        const active = value === opt.id;
+        return (
+          <button
+            key={opt.id}
+            type="button"
+            onClick={() => onChange(opt.id)}
+            className="min-h-[40px] px-2.5 text-xs font-medium transition-colors duration-150 ease-out"
+            style={{
+              backgroundColor: active ? 'var(--reader-surface)' : 'transparent',
+              color: active ? 'var(--reader-accent)' : 'var(--reader-muted)',
+              borderLeft: idx > 0 ? '1px solid var(--reader-border)' : 'none',
+            }}
+          >
+            {opt.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function AlignedSlider({ ariaLabel, min, max, step, value, formatValue, onChange }) {
+  return (
+    <div className="flex w-44 sm:w-52 items-center gap-3">
+      <input
+        type="range"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        onChange={(e) => onChange(Number(e.target.value))}
+        aria-label={ariaLabel}
+        className="codice-reader-slider flex-1"
+        style={{ backgroundColor: 'var(--reader-border)' }}
+      />
+      <span
+        className="w-11 shrink-0 text-right text-xs tabular-nums"
+        style={{ color: 'var(--reader-muted)' }}
+      >
+        {formatValue(value)}
+      </span>
+    </div>
+  );
+}
 
 export function ReaderSettings({
   isOpen,
@@ -15,37 +94,55 @@ export function ReaderSettings({
     format === 'epub' || format === 'txt' || format === 'markdown';
   const isPdf = format === 'pdf';
   const isCbz = format === 'cbz';
+  const isSepia = settings.theme === 'sepia';
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/70 backdrop-blur-xs"
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4"
+      style={{ backgroundColor: 'rgba(0, 0, 0, 0.45)' }}
       onClick={onClose}
     >
       <div
-        className="max-h-[88vh] w-full max-w-md overflow-y-auto rounded-t-3xl sm:rounded-3xl border border-line bg-card p-5 pb-8 shadow-2xl no-scrollbar"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Ajustes de leitura"
         onClick={(e) => e.stopPropagation()}
+        className="max-h-[88vh] w-full max-w-md overflow-y-auto rounded-t-[6px] sm:rounded-[6px] border px-5 py-4 no-scrollbar"
+        style={{
+          backgroundColor: 'var(--reader-bg)',
+          color: 'var(--reader-ink)',
+          borderColor: 'var(--reader-border)',
+        }}
       >
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <Type className="h-4 w-4 text-accent" strokeWidth={1.5} />
-            <h2 className="text-sm font-semibold text-ink">
-              Ajustes de Leitura
-            </h2>
-          </div>
+        {/* Cabeçalho enxuto */}
+        <div
+          className="flex items-center justify-between border-b pb-3"
+          style={{ borderColor: 'var(--reader-border)' }}
+        >
+          <h2 className="text-sm font-semibold tracking-tight">Ajustes de leitura</h2>
           <button
             type="button"
             onClick={onClose}
             aria-label="Fechar ajustes"
-            className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-full text-muted hover:bg-elevated hover:text-ink"
+            className="flex min-h-[40px] min-w-[40px] items-center justify-center rounded-[4px] transition-colors duration-150 ease-out"
+            style={{ color: 'var(--reader-muted)' }}
           >
             <X className="h-4 w-4" strokeWidth={1.5} />
           </button>
         </div>
 
-        {/* Temas do Leitor (pré-visualização ao vivo) */}
-        <div className="mt-4">
-          <p className="mb-2 text-xs font-medium text-muted">Tema do Leitor</p>
-          <div className="grid grid-cols-3 gap-2">
+        {/* 5 Atmosferas de Leitura (amostras planas de 24px + nome abaixo) */}
+        <div
+          className="border-b py-4"
+          style={{ borderColor: 'var(--reader-border)' }}
+        >
+          <p
+            className="mb-3 text-xs font-medium"
+            style={{ color: 'var(--reader-muted)' }}
+          >
+            Atmosfera de leitura
+          </p>
+          <div className="grid grid-cols-5 gap-2">
             {READER_THEMES.map((theme) => {
               const isSelected = settings.theme === theme.id;
               return (
@@ -53,415 +150,360 @@ export function ReaderSettings({
                   key={theme.id}
                   type="button"
                   onClick={() => onUpdateSettings({ theme: theme.id })}
-                  className={`flex min-h-[44px] items-center justify-between gap-1.5 rounded-xl border px-2.5 py-2 text-left text-[11px] font-medium transition-colors ${
-                    isSelected
-                      ? 'border-accent bg-accent/15 text-ink'
-                      : 'border-line bg-app text-muted hover:text-ink'
-                  }`}
+                  aria-pressed={isSelected}
+                  className="flex min-h-[44px] flex-col items-center justify-start gap-1.5 rounded-[4px] py-1 text-center transition-opacity duration-150 ease-out"
                 >
-                  <span className="flex items-center gap-1.5 min-w-0">
-                    <span
-                      aria-hidden="true"
-                      className="h-3.5 w-3.5 shrink-0 rounded-full border border-line"
-                      style={{ background: theme.bg }}
-                    />
-                    <span className="truncate">{theme.label}</span>
+                  <span
+                    aria-hidden="true"
+                    className="h-6 w-6 rounded-full border"
+                    style={{
+                      backgroundColor: theme.followApp ? 'var(--bg-app)' : theme.bg,
+                      borderColor: 'var(--reader-border)',
+                      outline: isSelected ? '2px solid var(--reader-accent)' : 'none',
+                      outlineOffset: '2px',
+                    }}
+                  />
+                  <span
+                    className="text-[11px] leading-tight"
+                    style={{
+                      color: isSelected
+                        ? 'var(--reader-accent)'
+                        : 'var(--reader-muted)',
+                      fontWeight: isSelected ? 600 : 400,
+                    }}
+                  >
+                    {theme.label}
                   </span>
-                  {isSelected && (
-                    <Check className="h-3.5 w-3.5 shrink-0 text-accent" strokeWidth={1.5} />
-                  )}
                 </button>
               );
             })}
           </div>
         </div>
 
-        {/* Controles para EPUB / TXT / Markdown */}
-        {isFlowTextFormat && (
-          <div className="mt-5 space-y-4">
-            {format === 'epub' && (
-              <div>
-                <p className="mb-2 text-xs font-medium text-muted">
-                  Modo de Exibição
-                </p>
-                <div className="grid grid-cols-2 gap-2">
-                  {[
-                    { id: 'paginated', label: 'Paginado (Colunas)' },
-                    { id: 'scrolled', label: 'Rolagem Contínua' },
-                  ].map((opt) => (
-                    <button
-                      key={opt.id}
-                      type="button"
-                      onClick={() => onUpdateSettings({ epubFlow: opt.id })}
-                      className={`min-h-[44px] rounded-xl border px-3 py-2 text-xs font-medium transition-colors ${
-                        settings.epubFlow === opt.id
-                          ? 'border-accent bg-accent/15 text-ink'
-                          : 'border-line bg-app text-muted hover:text-ink'
-                      }`}
-                    >
-                      {opt.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {(format === 'txt' || format === 'markdown') && (
-              <div>
-                <p className="mb-2 text-xs font-medium text-muted">
-                  Modo de Exibição
-                </p>
-                <div className="grid grid-cols-2 gap-2">
-                  {[
-                    { id: 'scrolled', label: 'Rolagem Contínua' },
-                    { id: 'paginated', label: 'Por Capítulos / Seções' },
-                  ].map((opt) => (
-                    <button
-                      key={opt.id}
-                      type="button"
-                      onClick={() => onUpdateSettings({ textFlow: opt.id })}
-                      className={`min-h-[44px] rounded-xl border px-3 py-2 text-xs font-medium transition-colors ${
-                        settings.textFlow === opt.id
-                          ? 'border-accent bg-accent/15 text-ink'
-                          : 'border-line bg-app text-muted hover:text-ink'
-                      }`}
-                    >
-                      {opt.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* 10 Fontes Editoriais */}
-            <div>
-              <p className="mb-2 text-xs font-medium text-muted">Tipografia</p>
-              <div className="grid grid-cols-2 gap-1.5">
-                {FONT_PRESETS.map((f) => {
-                  const isSelected = settings.fontId === f.id;
-                  return (
-                    <button
-                      key={f.id}
-                      type="button"
-                      onClick={() => onUpdateSettings({ fontId: f.id })}
-                      style={{ fontFamily: f.cssValue }}
-                      className={`flex min-h-[44px] items-center justify-between rounded-xl border px-2.5 py-2 text-left text-xs transition-colors ${
-                        isSelected
-                          ? 'border-accent bg-accent/15 text-ink font-semibold'
-                          : 'border-line bg-app text-muted hover:text-ink'
-                      }`}
-                    >
-                      <span className="truncate">{f.shortLabel}</span>
-                      {isSelected && (
-                        <Check className="h-3.5 w-3.5 shrink-0 text-accent" strokeWidth={1.5} />
-                      )}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Tamanho da fonte 80-200% */}
-            <div>
-              <div className="mb-1.5 flex items-center justify-between text-xs">
-                <span className="font-medium text-muted">Tamanho da Fonte</span>
-                <span className="font-semibold text-accent tabular-nums">
-                  {settings.fontSizePct}%
-                </span>
-              </div>
-              <input
-                type="range"
-                min="80"
-                max="200"
-                step="5"
-                value={settings.fontSizePct}
-                onChange={(e) =>
-                  onUpdateSettings({ fontSizePct: Number(e.target.value) })
-                }
-                aria-label="Tamanho da fonte"
-                className="h-1 w-full cursor-pointer accent-accent"
+        {/* Lista alinhada: rótulo à esquerda, controle à direita */}
+        <div>
+          {isSepia && (
+            <SettingRow
+              label="Calor do sépia"
+              hint="Ajusta a temperatura quente em tempo real"
+            >
+              <AlignedSlider
+                ariaLabel="Intensidade do sépia"
+                min={0}
+                max={100}
+                step={5}
+                value={settings.sepiaWarmth ?? 50}
+                formatValue={(v) => `${Math.round(v)}%`}
+                onChange={(val) => onUpdateSettings({ sepiaWarmth: val })}
               />
-            </div>
+            </SettingRow>
+          )}
 
-            {/* Entrelinha e Espaçamento de parágrafo */}
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <div className="mb-1.5 flex items-center justify-between text-xs">
-                  <span className="text-muted">Entrelinha</span>
-                  <span className="font-semibold text-ink tabular-nums">
-                    {settings.lineHeight.toFixed(2)}
-                  </span>
-                </div>
-                <input
-                  type="range"
-                  min="1.35"
-                  max="2.1"
-                  step="0.05"
+          <SettingRow label="Brilho ocular" hint="Suaviza a luminância da página">
+            <AlignedSlider
+              ariaLabel="Brilho e conforto ocular"
+              min={50}
+              max={100}
+              step={5}
+              value={settings.brightnessPct ?? 100}
+              formatValue={(v) => `${Math.round(v)}%`}
+              onChange={(val) => onUpdateSettings({ brightnessPct: val })}
+            />
+          </SettingRow>
+
+          <SettingRow label="Régua de foco" hint="Destaca a faixa central de leitura">
+            <button
+              type="button"
+              role="switch"
+              aria-checked={Boolean(settings.focusRuler)}
+              onClick={() =>
+                onUpdateSettings({ focusRuler: !settings.focusRuler })
+              }
+              className="min-h-[40px] rounded-[4px] border px-3 text-xs font-medium transition-colors duration-150 ease-out"
+              style={{
+                borderColor: settings.focusRuler
+                  ? 'var(--reader-accent)'
+                  : 'var(--reader-border)',
+                color: settings.focusRuler
+                  ? 'var(--reader-accent)'
+                  : 'var(--reader-muted)',
+              }}
+            >
+              {settings.focusRuler ? 'Ativa' : 'Desligada'}
+            </button>
+          </SettingRow>
+
+          {isFlowTextFormat && (
+            <>
+              <SettingRow label="Modo de leitura">
+                <SegmentedTextControl
+                  value={format === 'epub' ? settings.epubFlow : settings.textFlow}
+                  options={[
+                    { id: 'paginated', label: 'Paginado' },
+                    { id: 'scrolled', label: 'Rolagem contínua' },
+                  ]}
+                  onChange={(val) =>
+                    onUpdateSettings(
+                      format === 'epub' ? { epubFlow: val } : { textFlow: val }
+                    )
+                  }
+                />
+              </SettingRow>
+
+              <SettingRow label="Tamanho da fonte">
+                <AlignedSlider
+                  ariaLabel="Tamanho da fonte"
+                  min={80}
+                  max={200}
+                  step={5}
+                  value={settings.fontSizePct}
+                  formatValue={(v) => `${v}%`}
+                  onChange={(val) => onUpdateSettings({ fontSizePct: val })}
+                />
+              </SettingRow>
+
+              <SettingRow label="Entrelinha">
+                <AlignedSlider
+                  ariaLabel="Entrelinha"
+                  min={1.35}
+                  max={2.1}
+                  step={0.05}
                   value={settings.lineHeight}
-                  onChange={(e) =>
-                    onUpdateSettings({ lineHeight: Number(e.target.value) })
-                  }
-                  aria-label="Entrelinha"
-                  className="h-1 w-full cursor-pointer accent-accent"
+                  formatValue={(v) => v.toFixed(2)}
+                  onChange={(val) => onUpdateSettings({ lineHeight: val })}
                 />
-              </div>
+              </SettingRow>
 
-              <div>
-                <div className="mb-1.5 flex items-center justify-between text-xs">
-                  <span className="text-muted">Parágrafos</span>
-                  <span className="font-semibold text-ink tabular-nums">
-                    {settings.paragraphSpacing.toFixed(1)}em
-                  </span>
-                </div>
-                <input
-                  type="range"
-                  min="0.4"
-                  max="1.8"
-                  step="0.2"
+              <SettingRow label="Espaço entre parágrafos">
+                <AlignedSlider
+                  ariaLabel="Espaçamento de parágrafos"
+                  min={0.4}
+                  max={1.8}
+                  step={0.2}
                   value={settings.paragraphSpacing}
-                  onChange={(e) =>
-                    onUpdateSettings({ paragraphSpacing: Number(e.target.value) })
-                  }
-                  aria-label="Espaçamento de parágrafos"
-                  className="h-1 w-full cursor-pointer accent-accent"
+                  formatValue={(v) => `${v.toFixed(1)}em`}
+                  onChange={(val) => onUpdateSettings({ paragraphSpacing: val })}
                 />
-              </div>
-            </div>
+              </SettingRow>
 
-            {/* Margens */}
-            <div>
-              <p className="mb-2 text-xs font-medium text-muted">Margens</p>
-              <div className="grid grid-cols-3 gap-2">
-                {[
-                  { id: 'compact', label: 'Estreita' },
-                  { id: 'comfortable', label: 'Conforto' },
-                  { id: 'wide', label: 'Ampla' },
-                ].map((opt) => (
+              <SettingRow label="Margens">
+                <SegmentedTextControl
+                  value={settings.marginLevel}
+                  options={[
+                    { id: 'compact', label: 'Estreita' },
+                    { id: 'comfortable', label: 'Conforto' },
+                    { id: 'wide', label: 'Ampla' },
+                  ]}
+                  onChange={(val) => onUpdateSettings({ marginLevel: val })}
+                />
+              </SettingRow>
+
+              <SettingRow label="Alinhamento e hifenização">
+                <div className="flex items-center gap-2">
                   <button
-                    key={opt.id}
                     type="button"
-                    onClick={() => onUpdateSettings({ marginLevel: opt.id })}
-                    className={`min-h-[44px] rounded-xl border px-2 py-2 text-xs font-medium transition-colors ${
-                      settings.marginLevel === opt.id
-                        ? 'border-accent bg-accent/15 text-ink'
-                        : 'border-line bg-app text-muted hover:text-ink'
-                    }`}
+                    onClick={() =>
+                      onUpdateSettings({ justify: !settings.justify })
+                    }
+                    className="min-h-[40px] rounded-[4px] border px-2.5 text-xs font-medium transition-colors duration-150 ease-out"
+                    style={{
+                      borderColor: settings.justify
+                        ? 'var(--reader-accent)'
+                        : 'var(--reader-border)',
+                      color: settings.justify
+                        ? 'var(--reader-accent)'
+                        : 'var(--reader-muted)',
+                    }}
                   >
-                    {opt.label}
+                    Justificado
                   </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Alinhamento justificado + hifenização */}
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                type="button"
-                onClick={() => onUpdateSettings({ justify: !settings.justify })}
-                className={`flex min-h-[44px] items-center justify-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-medium transition-colors ${
-                  settings.justify
-                    ? 'border-accent bg-accent/15 text-ink'
-                    : 'border-line bg-app text-muted hover:text-ink'
-                }`}
-              >
-                <AlignJustify className="h-4 w-4 text-accent" strokeWidth={1.5} />
-                Justificado
-              </button>
-
-              <button
-                type="button"
-                onClick={() =>
-                  onUpdateSettings({ hyphenation: !settings.hyphenation })
-                }
-                className={`min-h-[44px] rounded-xl border px-3 py-2 text-xs font-medium transition-colors ${
-                  settings.hyphenation
-                    ? 'border-accent bg-accent/15 text-ink'
-                    : 'border-line bg-app text-muted hover:text-ink'
-                }`}
-              >
-                Hifenização
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* Controles para PDF */}
-        {isPdf && (
-          <div className="mt-5 space-y-4">
-            <div>
-              <p className="mb-2 text-xs font-medium text-muted">Modo de Página</p>
-              <div className="grid grid-cols-2 gap-2">
-                {[
-                  { id: 'single', label: 'Página Única' },
-                  { id: 'continuous', label: 'Rolagem Contínua' },
-                ].map((opt) => (
                   <button
-                    key={opt.id}
                     type="button"
-                    onClick={() => onUpdateSettings({ pdfMode: opt.id })}
-                    className={`min-h-[44px] rounded-xl border px-3 py-2 text-xs font-medium transition-colors ${
-                      settings.pdfMode === opt.id
-                        ? 'border-accent bg-accent/15 text-ink'
-                        : 'border-line bg-app text-muted hover:text-ink'
-                    }`}
+                    onClick={() =>
+                      onUpdateSettings({ hyphenation: !settings.hyphenation })
+                    }
+                    className="min-h-[40px] rounded-[4px] border px-2.5 text-xs font-medium transition-colors duration-150 ease-out"
+                    style={{
+                      borderColor: settings.hyphenation
+                        ? 'var(--reader-accent)'
+                        : 'var(--reader-border)',
+                      color: settings.hyphenation
+                        ? 'var(--reader-accent)'
+                        : 'var(--reader-muted)',
+                    }}
                   >
-                    {opt.label}
+                    Hifenizado
                   </button>
-                ))}
-              </div>
-            </div>
+                </div>
+              </SettingRow>
 
-            <div>
-              <p className="mb-2 text-xs font-medium text-muted">Zoom</p>
-              <div className="grid grid-cols-3 gap-2 mb-2">
-                {[
-                  { id: 'fit-width', label: 'Largura' },
-                  { id: 'fit-page', label: 'Página' },
-                  { id: 'custom', label: `${Math.round(settings.pdfZoomScale * 100)}%` },
-                ].map((opt) => (
+              {/* Seletor das 10 Tipografias em lista compacta */}
+              <div className="pt-4 pb-2">
+                <p
+                  className="mb-2 text-xs font-medium"
+                  style={{ color: 'var(--reader-muted)' }}
+                >
+                  Tipografia
+                </p>
+                <div
+                  className="divide-y border-y"
+                  style={{ borderColor: 'var(--reader-border)' }}
+                >
+                  {FONT_PRESETS.map((f) => {
+                    const isSelected = settings.fontId === f.id;
+                    return (
+                      <button
+                        key={f.id}
+                        type="button"
+                        onClick={() => onUpdateSettings({ fontId: f.id })}
+                        style={{
+                          fontFamily: f.cssValue,
+                          borderColor: 'var(--reader-border)',
+                          color: isSelected
+                            ? 'var(--reader-accent)'
+                            : 'var(--reader-ink)',
+                        }}
+                        className="flex min-h-[40px] w-full items-center justify-between py-2 text-left text-xs transition-colors duration-150 ease-out"
+                      >
+                        <span className="truncate">{f.label}</span>
+                        <span
+                          className="ml-3 shrink-0 text-[11px]"
+                          style={{
+                            fontFamily: 'var(--font-app)',
+                            color: isSelected
+                              ? 'var(--reader-accent)'
+                              : 'var(--reader-muted)',
+                          }}
+                        >
+                          {isSelected ? 'ativa' : 'Aa'}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </>
+          )}
+
+          {isPdf && (
+            <>
+              <SettingRow label="Fluxo de páginas">
+                <SegmentedTextControl
+                  value={settings.pdfMode}
+                  options={[
+                    { id: 'single', label: 'Paginado' },
+                    { id: 'continuous', label: 'Rolagem contínua' },
+                  ]}
+                  onChange={(val) => onUpdateSettings({ pdfMode: val })}
+                />
+              </SettingRow>
+
+              <SettingRow label="Ajuste de zoom">
+                <SegmentedTextControl
+                  value={settings.pdfZoomMode}
+                  options={[
+                    { id: 'fit-width', label: 'Largura' },
+                    { id: 'fit-page', label: 'Página' },
+                    { id: 'custom', label: `${Math.round(settings.pdfZoomScale * 100)}%` },
+                  ]}
+                  onChange={(val) => onUpdateSettings({ pdfZoomMode: val })}
+                />
+              </SettingRow>
+
+              <SettingRow label="Escala do PDF">
+                <AlignedSlider
+                  ariaLabel="Escala de zoom do PDF"
+                  min={0.5}
+                  max={3}
+                  step={0.1}
+                  value={settings.pdfZoomScale}
+                  formatValue={(v) => `${Math.round(v * 100)}%`}
+                  onChange={(val) =>
+                    onUpdateSettings({ pdfZoomMode: 'custom', pdfZoomScale: val })
+                  }
+                />
+              </SettingRow>
+
+              <SettingRow label="Leitura noturna e miniaturas">
+                <div className="flex items-center gap-2">
                   <button
-                    key={opt.id}
                     type="button"
-                    onClick={() => onUpdateSettings({ pdfZoomMode: opt.id })}
-                    className={`min-h-[44px] rounded-xl border px-2 py-2 text-xs font-medium transition-colors ${
-                      settings.pdfZoomMode === opt.id
-                        ? 'border-accent bg-accent/15 text-ink'
-                        : 'border-line bg-app text-muted hover:text-ink'
-                    }`}
+                    onClick={() =>
+                      onUpdateSettings({ pdfNightMode: !settings.pdfNightMode })
+                    }
+                    className="min-h-[40px] rounded-[4px] border px-2.5 text-xs font-medium transition-colors duration-150 ease-out"
+                    style={{
+                      borderColor: settings.pdfNightMode
+                        ? 'var(--reader-accent)'
+                        : 'var(--reader-border)',
+                      color: settings.pdfNightMode
+                        ? 'var(--reader-accent)'
+                        : 'var(--reader-muted)',
+                    }}
                   >
-                    {opt.label}
+                    Inverter PDF
                   </button>
-                ))}
-              </div>
-              <input
-                type="range"
-                min="0.5"
-                max="3"
-                step="0.1"
-                value={settings.pdfZoomScale}
-                onChange={(e) =>
-                  onUpdateSettings({
-                    pdfZoomMode: 'custom',
-                    pdfZoomScale: Number(e.target.value),
-                  })
-                }
-                aria-label="Escala de zoom do PDF"
-                className="h-1 w-full cursor-pointer accent-accent"
-              />
-            </div>
-
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                type="button"
-                onClick={() =>
-                  onUpdateSettings({ pdfNightMode: !settings.pdfNightMode })
-                }
-                className={`flex min-h-[44px] items-center justify-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-medium transition-colors ${
-                  settings.pdfNightMode
-                    ? 'border-accent bg-accent/15 text-ink'
-                    : 'border-line bg-app text-muted hover:text-ink'
-                }`}
-              >
-                {settings.pdfNightMode ? (
-                  <Moon className="h-4 w-4 text-accent" strokeWidth={1.5} />
-                ) : (
-                  <Sun className="h-4 w-4 text-accent" strokeWidth={1.5} />
-                )}
-                Modo Noite PDF
-              </button>
-
-              <button
-                type="button"
-                onClick={() =>
-                  onUpdateSettings({ pdfThumbnails: !settings.pdfThumbnails })
-                }
-                className={`min-h-[44px] rounded-xl border px-3 py-2 text-xs font-medium transition-colors ${
-                  settings.pdfThumbnails
-                    ? 'border-accent bg-accent/15 text-ink'
-                    : 'border-line bg-app text-muted hover:text-ink'
-                }`}
-              >
-                Miniaturas
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* Controles para CBZ / Mangá / HQ */}
-        {isCbz && (
-          <div className="mt-5 space-y-4">
-            <div>
-              <p className="mb-2 text-xs font-medium text-muted">Layout de Páginas</p>
-              <div className="grid grid-cols-3 gap-2">
-                {[
-                  { id: 'single', label: 'Única' },
-                  { id: 'double', label: 'Dupla' },
-                  { id: 'webtoon', label: 'Webtoon' },
-                ].map((opt) => (
                   <button
-                    key={opt.id}
                     type="button"
-                    onClick={() => onUpdateSettings({ cbzMode: opt.id })}
-                    className={`min-h-[44px] rounded-xl border px-2 py-2 text-xs font-medium transition-colors ${
-                      settings.cbzMode === opt.id
-                        ? 'border-accent bg-accent/15 text-ink'
-                        : 'border-line bg-app text-muted hover:text-ink'
-                    }`}
+                    onClick={() =>
+                      onUpdateSettings({ pdfThumbnails: !settings.pdfThumbnails })
+                    }
+                    className="min-h-[40px] rounded-[4px] border px-2.5 text-xs font-medium transition-colors duration-150 ease-out"
+                    style={{
+                      borderColor: settings.pdfThumbnails
+                        ? 'var(--reader-accent)'
+                        : 'var(--reader-border)',
+                      color: settings.pdfThumbnails
+                        ? 'var(--reader-accent)'
+                        : 'var(--reader-muted)',
+                    }}
                   >
-                    {opt.label}
+                    Miniaturas
                   </button>
-                ))}
-              </div>
-            </div>
+                </div>
+              </SettingRow>
+            </>
+          )}
 
-            <div>
-              <p className="mb-2 text-xs font-medium text-muted">Direção de Leitura</p>
-              <div className="grid grid-cols-2 gap-2">
-                {[
-                  { id: 'ltr', label: 'Ocidental (LTR)' },
-                  { id: 'rtl', label: 'Mangá (RTL)' },
-                ].map((opt) => (
-                  <button
-                    key={opt.id}
-                    type="button"
-                    onClick={() => onUpdateSettings({ cbzDirection: opt.id })}
-                    className={`min-h-[44px] rounded-xl border px-3 py-2 text-xs font-medium transition-colors ${
-                      settings.cbzDirection === opt.id
-                        ? 'border-accent bg-accent/15 text-ink'
-                        : 'border-line bg-app text-muted hover:text-ink'
-                    }`}
-                  >
-                    {opt.label}
-                  </button>
-                ))}
-              </div>
-            </div>
+          {isCbz && (
+            <>
+              <SettingRow label="Layout">
+                <SegmentedTextControl
+                  value={settings.cbzMode}
+                  options={[
+                    { id: 'single', label: 'Única' },
+                    { id: 'double', label: 'Dupla' },
+                    { id: 'webtoon', label: 'Webtoon' },
+                  ]}
+                  onChange={(val) => onUpdateSettings({ cbzMode: val })}
+                />
+              </SettingRow>
 
-            <div>
-              <p className="mb-2 text-xs font-medium text-muted">Ajuste de Imagem</p>
-              <div className="grid grid-cols-3 gap-2">
-                {[
-                  { id: 'width', label: 'Largura' },
-                  { id: 'height', label: 'Altura' },
-                  { id: 'original', label: 'Original' },
-                ].map((opt) => (
-                  <button
-                    key={opt.id}
-                    type="button"
-                    onClick={() => onUpdateSettings({ cbzFit: opt.id })}
-                    className={`min-h-[44px] rounded-xl border px-2 py-2 text-xs font-medium transition-colors ${
-                      settings.cbzFit === opt.id
-                        ? 'border-accent bg-accent/15 text-ink'
-                        : 'border-line bg-app text-muted hover:text-ink'
-                    }`}
-                  >
-                    {opt.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-        )}
+              <SettingRow label="Direção">
+                <SegmentedTextControl
+                  value={settings.cbzDirection}
+                  options={[
+                    { id: 'ltr', label: 'Ocidental' },
+                    { id: 'rtl', label: 'Mangá RTL' },
+                  ]}
+                  onChange={(val) => onUpdateSettings({ cbzDirection: val })}
+                />
+              </SettingRow>
+
+              <SettingRow label="Ajuste de imagem">
+                <SegmentedTextControl
+                  value={settings.cbzFit}
+                  options={[
+                    { id: 'width', label: 'Largura' },
+                    { id: 'height', label: 'Altura' },
+                    { id: 'original', label: 'Original' },
+                  ]}
+                  onChange={(val) => onUpdateSettings({ cbzFit: val })}
+                />
+              </SettingRow>
+            </>
+          )}
+        </div>
       </div>
     </div>
   );
