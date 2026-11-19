@@ -1,5 +1,6 @@
 import { Check, KeyRound, Sparkles } from 'lucide-react';
 import { useState } from 'react';
+import { useToast } from '../context/ToastContext';
 import { runSmartCataloging } from '../services/geminiApi';
 
 export function SmartCatalogButton({
@@ -8,6 +9,7 @@ export function SmartCatalogButton({
   onApplyFields,
   onOpenGeminiSettings,
 }) {
+  const { showToast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const [done, setDone] = useState(false);
@@ -71,6 +73,7 @@ export function SmartCatalogButton({
 
       onApplyFields(updates);
       setDone(true);
+      showToast({ message: 'Ficha completada com Gemini', type: 'success' });
       setTimeout(() => setDone(false), 3000);
     } catch (error) {
       setErrorMsg(error.message || 'Falha ao consultar Gemini.');

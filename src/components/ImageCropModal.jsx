@@ -45,9 +45,25 @@ export function ImageCropModal({
       }
     };
     measure();
+
+    if (imgRef.current?.complete && imgRef.current?.naturalWidth > 0) {
+      setNaturalSize({
+        width: imgRef.current.naturalWidth,
+        height: imgRef.current.naturalHeight,
+      });
+    }
+
+    const observer =
+      typeof ResizeObserver !== 'undefined'
+        ? new ResizeObserver(measure)
+        : null;
+    observer?.observe(viewportRef.current);
     window.addEventListener('resize', measure);
-    return () => window.removeEventListener('resize', measure);
-  }, [isOpen, aspectMode]);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener('resize', measure);
+    };
+  }, [isOpen, aspectMode, imageSrc]);
 
   if (!isOpen || !imageSrc) return null;
 

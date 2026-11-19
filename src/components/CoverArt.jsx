@@ -5,8 +5,9 @@ export function CoverArt({ item, className = '', showTitle = false, compact = fa
   if (!item) return null;
 
   const primaryBadge = item[domainConfig.cardFields.primary];
-  const isbnFallback = item.isbn
-    ? `https://covers.openlibrary.org/b/isbn/${encodeURIComponent(item.isbn)}-L.jpg?default=false`
+  const cleanIsbn = String(item.isbn || '').replace(/[-\s]/g, '').trim();
+  const isbnFallback = cleanIsbn
+    ? `https://covers.openlibrary.org/b/isbn/${encodeURIComponent(cleanIsbn)}-L.jpg?default=false`
     : null;
 
   const sources = [

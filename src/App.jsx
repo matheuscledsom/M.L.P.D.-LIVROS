@@ -103,6 +103,11 @@ export function App() {
     }
   };
 
+  const handleRemoveItem = (id) => {
+    removeItem(id);
+    showToast({ message: 'Obra removida do acervo', type: 'info' });
+  };
+
   const handleOpenJournalComposer = (itemId = null) => {
     setJournalComposer({ open: true, itemId });
   };
@@ -245,7 +250,7 @@ export function App() {
           geminiKey={geminiKey}
           onClose={() => setSelectedItemId(null)}
           onUpdateItem={handleUpdateItem}
-          onRemoveItem={removeItem}
+          onRemoveItem={handleRemoveItem}
           onOpenJournal={handleOpenJournalComposer}
           onOpenGeminiSettings={() => setGeminiModalOpen(true)}
         />
@@ -282,6 +287,7 @@ export function App() {
           geminiKey={geminiKey}
           onSelectThemeMode={setMode}
           onApplyThemePreset={applyPreset}
+          onChangeAccentColor={setCustomAccentColor}
           onSaveGeminiKey={saveApiKey}
           onImportBackup={handleImportBackup}
           onComplete={(updates) => {

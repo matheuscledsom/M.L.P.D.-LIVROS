@@ -551,6 +551,8 @@ export async function searchMedia(
     isIsbn: Boolean(isbn),
   };
 
-  setCachedSearchMedia(cleanQuery, filter, payload);
+  if (merged.length > 0 || settled.every((res) => res.status === 'fulfilled')) {
+    setCachedSearchMedia(cleanQuery, filter, payload);
+  }
   return payload;
 }

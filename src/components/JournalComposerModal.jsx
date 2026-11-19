@@ -210,7 +210,13 @@ export function JournalComposerModal({
         ? {
             id: selectedItem.id,
             title: selectedItem.title,
+            author: selectedItem.author || '',
+            workType: selectedItem.workType || 'book',
+            isbn: selectedItem.isbn || '',
             coverUrl: selectedItem.coverUrl || null,
+            coverSources: Array.isArray(selectedItem.coverSources)
+              ? selectedItem.coverSources
+              : [],
             palette: selectedItem.palette,
             monogram: selectedItem.monogram,
             format: selectedItem[domainConfig.cardFields.primary],

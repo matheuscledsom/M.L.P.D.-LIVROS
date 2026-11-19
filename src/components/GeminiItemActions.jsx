@@ -8,6 +8,7 @@ import {
   X,
 } from 'lucide-react';
 import { useState } from 'react';
+import { useToast } from '../context/ToastContext';
 import {
   runReviewOrAbstractSynthesis,
   runSpoilerFreeRecap,
@@ -105,6 +106,7 @@ export function SynthesisReviewAction({
   onApplyText,
   onOpenGeminiSettings,
 }) {
+  const { showToast } = useToast();
   const defaultMode = item.workType === 'academic' ? 'academic' : 'literary';
   const [mode, setMode] = useState(defaultMode);
   const [isLoading, setIsLoading] = useState(false);
@@ -142,6 +144,7 @@ export function SynthesisReviewAction({
     try {
       await navigator.clipboard.writeText(synthesisText);
       setCopied(true);
+      showToast({ message: 'Síntese copiada', type: 'success' });
       setTimeout(() => setCopied(false), 2000);
     } catch {
       // Fallback silencioso
@@ -156,6 +159,13 @@ export function SynthesisReviewAction({
       onApplyText({ notes: synthesisText });
     }
     setApplied(true);
+    showToast({
+      message:
+        mode === 'academic'
+          ? 'Resumo salvo no fichamento'
+          : 'Resenha salva na review',
+      type: 'success',
+    });
     setTimeout(() => setApplied(false), 2200);
   };
 

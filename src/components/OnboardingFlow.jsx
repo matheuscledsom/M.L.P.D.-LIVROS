@@ -122,6 +122,7 @@ export function OnboardingFlow({
   geminiKey = '',
   onSelectThemeMode,
   onApplyThemePreset,
+  onChangeAccentColor,
   onSaveGeminiKey,
   onImportBackup,
   onComplete,
@@ -141,28 +142,39 @@ export function OnboardingFlow({
   const [backupError, setBackupError] = useState('');
 
   const fileInputRef = useRef(null);
+  const latestInitRef = useRef({ profile, geminiKey });
+  latestInitRef.current = { profile, geminiKey };
 
   useEffect(() => {
     if (!isOpen) return;
+    const { profile: currentProfile, geminiKey: currentKey } =
+      latestInitRef.current;
+
     setStep(1);
     setDisplayName(
-      profile?.displayName && profile.displayName !== 'aihkaze'
-        ? profile.displayName
+      currentProfile?.displayName && currentProfile.displayName !== 'aihkaze'
+        ? currentProfile.displayName
         : ''
     );
-    setAge(profile?.age ? String(profile.age) : '');
-    setReaderFocus(profile?.readerFocus || 'Leitor Casual');
-    setAnnualGoal(Number(profile?.annualGoal) || 12);
-    setPreferredFormat(profile?.preferredFormat || 'Livro Físico');
-    setPreferredCriterion(profile?.preferredCriterion || 'Enredo e Ritmo');
-    setPreferredAtmosphere(profile?.preferredAtmosphere || 'Tinta OLED');
-    setFavoriteGenres(
-      Array.isArray(profile?.favoriteGenres) ? profile.favoriteGenres : []
+    setAge(currentProfile?.age ? String(currentProfile.age) : '');
+    setReaderFocus(currentProfile?.readerFocus || 'Leitor Casual');
+    setAnnualGoal(Number(currentProfile?.annualGoal) || 12);
+    setPreferredFormat(currentProfile?.preferredFormat || 'Livro Físico');
+    setPreferredCriterion(
+      currentProfile?.preferredCriterion || 'Enredo e Ritmo'
     );
-    setDraftGeminiKey(geminiKey || '');
+    setPreferredAtmosphere(
+      currentProfile?.preferredAtmosphere || 'Tinta OLED'
+    );
+    setFavoriteGenres(
+      Array.isArray(currentProfile?.favoriteGenres)
+        ? currentProfile.favoriteGenres
+        : []
+    );
+    setDraftGeminiKey(currentKey || '');
     setShowKey(false);
     setBackupError('');
-  }, [isOpen, profile, geminiKey]);
+  }, [isOpen]);
 
   useEffect(() => {
     if (!isOpen || !canDismiss) return undefined;
@@ -185,6 +197,9 @@ export function OnboardingFlow({
       onApplyThemePreset?.(opt.preset);
     } else if (opt.mode) {
       onSelectThemeMode?.(opt.mode);
+      if (opt.accent) {
+        onChangeAccentColor?.(opt.accent);
+      }
     }
   };
 

@@ -1,4 +1,4 @@
-import { Barcode, Check, PenLine, Plus, Search, X } from 'lucide-react';
+import { Barcode, Check, PenLine, Plus, Search, Sparkles, X } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CoverArt } from '../components/CoverArt';
 import { SmartCatalogButton } from '../components/SmartCatalogButton';
@@ -446,10 +446,10 @@ export function AddScreen({
         </div>
 
         {isEasterEgg67 ? (
-          <div className="rounded-2xl border border-accent/50 bg-card p-6 text-center space-y-2">
-            <span className="inline-block text-4xl" role="img" aria-label="Easter egg">
-              {String.fromCodePoint(0x1F921)}
-            </span>
+          <div className="rounded-2xl border border-accent/50 bg-card p-6 text-center space-y-2.5">
+            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl border border-accent/40 bg-accent/15 text-accent">
+              <Sparkles className="h-6 w-6" />
+            </div>
             <p className="text-sm font-semibold text-ink">
               Easter Egg #ovodepascoa67
             </p>

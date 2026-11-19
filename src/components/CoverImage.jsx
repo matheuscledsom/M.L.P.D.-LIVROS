@@ -104,7 +104,16 @@ export function CoverImage({
             loading="lazy"
             decoding="async"
             referrerPolicy="no-referrer"
-            onLoad={() => setLoadedSrc(currentSrc)}
+            onLoad={(e) => {
+              if (
+                e.currentTarget.naturalWidth <= 1 ||
+                e.currentTarget.naturalHeight <= 1
+              ) {
+                handleImageError();
+                return;
+              }
+              setLoadedSrc(currentSrc);
+            }}
             onError={handleImageError}
             className={`relative h-full w-full object-cover transition-opacity duration-200 ${
               isLoaded ? 'opacity-100' : 'opacity-0'
