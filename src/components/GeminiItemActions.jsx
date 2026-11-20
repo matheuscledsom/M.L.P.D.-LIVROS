@@ -13,6 +13,10 @@ import {
   runReviewOrAbstractSynthesis,
   runSpoilerFreeRecap,
 } from '../services/geminiApi';
+import {
+  buildLocalReviewOrAbstractSynthesis,
+  buildLocalSpoilerFreeRecap,
+} from '../services/localCatalogFallback';
 
 export function SpoilerFreeRecapAction({
   item,
@@ -22,12 +26,13 @@ export function SpoilerFreeRecapAction({
 }) {
   const [isLoading, setIsLoading] = useState(false);
   const [recapText, setRecapText] = useState('');
-  const [errorMsg, setErrorMsg] = useState('');
+  const [modeNote, setModeNote] = useState('');
 
   const handleGenerateRecap = async () => {
-    setErrorMsg('');
+    setModeNote('');
     if (!geminiKey) {
-      setErrorMsg('Configure sua chave gratuita do Google Gemini no Perfil.');
+      setRecapText(buildLocalSpoilerFreeRecap({ item, linkedPosts }));
+      setModeNote('Gerado localmente com suas anotações, citações e marcador de leitura.');
       return;
     }
 
@@ -35,8 +40,12 @@ export function SpoilerFreeRecapAction({
     try {
       const output = await runSpoilerFreeRecap(geminiKey, { item, linkedPosts });
       setRecapText(output);
+      setModeNote('');
     } catch (error) {
-      setErrorMsg(error?.userMessage || error?.message || 'Erro ao gerar recapitulação.');
+      setRecapText(buildLocalSpoilerFreeRecap({ item, linkedPosts }));
+      setModeNote(
+        `${error?.userMessage || 'Gemini indisponível.'} Exibindo síntese local sem spoilers.`
+      );
     } finally {
       setIsLoading(false);
     }
@@ -48,26 +57,28 @@ export function SpoilerFreeRecapAction({
         type="button"
         onClick={handleGenerateRecap}
         disabled={isLoading}
-        className="flex w-full items-center justify-center gap-2 rounded-xl border border-accent/45 bg-accent/15 py-2.5 text-xs font-semibold text-ink transition-colors hover:bg-accent/25 disabled:opacity-55"
+        className="flex min-h-[44px] w-full items-center justify-center gap-2 rounded-[4px] border border-accent/45 bg-accent/10 py-2.5 text-xs font-semibold text-ink transition-colors hover:bg-accent/20 disabled:opacity-55"
       >
-        <BookOpen className="h-3.5 w-3.5 text-accent" />
+        <BookOpen className="h-4 w-4 text-accent" strokeWidth={1.5} />
         <span>
           {isLoading
             ? 'Recapitulando sem spoilers...'
-            : 'Recapitulação Sem Spoilers (Gemini)'}
+            : geminiKey
+              ? 'Recapitulação Sem Spoilers (Gemini)'
+              : 'Recapitulação Sem Spoilers (Local)'}
         </span>
       </button>
 
-      {errorMsg && (
-        <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-[11px] text-rose-400">
-          <span>{errorMsg}</span>
+      {modeNote && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-[4px] border border-line bg-app px-3 py-2 text-[11px] text-muted">
+          <span>{modeNote}</span>
           {!geminiKey && onOpenGeminiSettings && (
             <button
               type="button"
               onClick={onOpenGeminiSettings}
-              className="inline-flex items-center gap-1 rounded-lg bg-accent px-2.5 py-1 text-[10px] font-semibold text-accent-ink"
+              className="inline-flex min-h-[32px] items-center gap-1 rounded-[4px] border border-line px-2 py-1 text-[10px] font-medium text-accent hover:border-accent"
             >
-              <KeyRound className="h-3 w-3" />
+              <KeyRound className="h-3 w-3" strokeWidth={1.5} />
               Configurar Chave
             </button>
           )}
@@ -75,19 +86,19 @@ export function SpoilerFreeRecapAction({
       )}
 
       {recapText && (
-        <div className="space-y-2 rounded-2xl border border-accent/35 bg-app p-3.5">
+        <div className="space-y-2 rounded-[4px] border border-accent/35 bg-app p-3.5">
           <div className="flex items-center justify-between gap-2">
             <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-accent">
-              <Sparkles className="h-3.5 w-3.5" />
+              <Sparkles className="h-3.5 w-3.5" strokeWidth={1.5} />
               Recapitulação Sem Spoilers
             </span>
             <button
               type="button"
               onClick={() => setRecapText('')}
               aria-label="Fechar recapitulação"
-              className="rounded p-1 text-subtle hover:text-ink"
+              className="rounded-[4px] p-1 text-subtle hover:text-ink"
             >
-              <X className="h-3.5 w-3.5" />
+              <X className="h-3.5 w-3.5" strokeWidth={1.5} />
             </button>
           </div>
           <p className="whitespace-pre-line text-xs leading-relaxed text-muted">
@@ -111,16 +122,21 @@ export function SynthesisReviewAction({
   const [mode, setMode] = useState(defaultMode);
   const [isLoading, setIsLoading] = useState(false);
   const [synthesisText, setSynthesisText] = useState('');
-  const [errorMsg, setErrorMsg] = useState('');
+  const [modeNote, setModeNote] = useState('');
   const [copied, setCopied] = useState(false);
   const [applied, setApplied] = useState(false);
 
   const handleSynthesize = async () => {
-    setErrorMsg('');
+    setModeNote('');
     setApplied(false);
 
     if (!geminiKey) {
-      setErrorMsg('Configure sua chave gratuita do Google Gemini no Perfil.');
+      setSynthesisText(
+        buildLocalReviewOrAbstractSynthesis({ item, linkedPosts, mode })
+      );
+      setModeNote(
+        'Síntese montada localmente a partir do seu fichamento, citações e notas.'
+      );
       return;
     }
 
@@ -133,7 +149,12 @@ export function SynthesisReviewAction({
       });
       setSynthesisText(output);
     } catch (error) {
-      setErrorMsg(error?.userMessage || error?.message || 'Erro ao sintetizar resenha/fichamento.');
+      setSynthesisText(
+        buildLocalReviewOrAbstractSynthesis({ item, linkedPosts, mode })
+      );
+      setModeNote(
+        `${error?.userMessage || 'Gemini indisponível.'} Exibindo rascunho local estruturado.`
+      );
     } finally {
       setIsLoading(false);
     }
@@ -170,17 +191,17 @@ export function SynthesisReviewAction({
   };
 
   return (
-    <div className="space-y-2.5 rounded-2xl border border-line bg-app p-3.5">
+    <div className="space-y-2.5 rounded-[4px] border border-line bg-app p-3.5">
       <div className="flex items-center justify-between gap-2">
         <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-ink">
-          <FileText className="h-3.5 w-3.5 text-accent" />
-          Síntese Editorial (Gemini)
+          <FileText className="h-3.5 w-3.5 text-accent" strokeWidth={1.5} />
+          Síntese Editorial
         </span>
-        <div className="flex rounded-lg border border-line bg-card p-0.5">
+        <div className="flex rounded-[4px] border border-line bg-card p-0.5">
           <button
             type="button"
             onClick={() => setMode('literary')}
-            className={`rounded-md px-2 py-0.5 text-[10px] font-medium transition-colors ${
+            className={`rounded-[2px] px-2 py-0.5 text-[10px] font-medium transition-colors ${
               mode === 'literary'
                 ? 'bg-accent text-accent-ink'
                 : 'text-muted hover:text-ink'
@@ -191,7 +212,7 @@ export function SynthesisReviewAction({
           <button
             type="button"
             onClick={() => setMode('academic')}
-            className={`rounded-md px-2 py-0.5 text-[10px] font-medium transition-colors ${
+            className={`rounded-[2px] px-2 py-0.5 text-[10px] font-medium transition-colors ${
               mode === 'academic'
                 ? 'bg-accent text-accent-ink'
                 : 'text-muted hover:text-ink'
@@ -206,9 +227,9 @@ export function SynthesisReviewAction({
         type="button"
         onClick={handleSynthesize}
         disabled={isLoading}
-        className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-accent/45 bg-accent/15 py-2.5 text-xs font-semibold text-ink transition-colors hover:bg-accent/25 disabled:opacity-55"
+        className="inline-flex min-h-[44px] w-full items-center justify-center gap-2 rounded-[4px] border border-accent/45 bg-accent/10 py-2.5 text-xs font-semibold text-ink transition-colors hover:bg-accent/20 disabled:opacity-55"
       >
-        <Sparkles className="h-3.5 w-3.5 text-accent" />
+        <Sparkles className="h-4 w-4 text-accent" strokeWidth={1.5} />
         <span>
           {isLoading
             ? 'Sintetizando com Gemini...'
@@ -218,16 +239,16 @@ export function SynthesisReviewAction({
         </span>
       </button>
 
-      {errorMsg && (
-        <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-[11px] text-rose-400">
-          <span>{errorMsg}</span>
+      {modeNote && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-[4px] border border-line bg-card px-3 py-2 text-[11px] text-muted">
+          <span>{modeNote}</span>
           {!geminiKey && onOpenGeminiSettings && (
             <button
               type="button"
               onClick={onOpenGeminiSettings}
-              className="inline-flex items-center gap-1 rounded-lg bg-accent px-2.5 py-1 text-[10px] font-semibold text-accent-ink"
+              className="inline-flex min-h-[32px] items-center gap-1 rounded-[4px] border border-line px-2 py-1 text-[10px] font-medium text-accent hover:border-accent"
             >
-              <KeyRound className="h-3 w-3" />
+              <KeyRound className="h-3 w-3" strokeWidth={1.5} />
               Configurar Chave
             </button>
           )}
@@ -235,7 +256,7 @@ export function SynthesisReviewAction({
       )}
 
       {synthesisText && (
-        <div className="space-y-2.5 rounded-xl border border-accent/35 bg-card p-3">
+        <div className="space-y-2.5 rounded-[4px] border border-accent/35 bg-card p-3">
           <p className="whitespace-pre-line text-xs leading-relaxed text-muted">
             {synthesisText}
           </p>
@@ -243,16 +264,16 @@ export function SynthesisReviewAction({
             <button
               type="button"
               onClick={handleCopy}
-              className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-line bg-app py-1.5 text-[11px] font-medium text-ink hover:border-accent"
+              className="inline-flex min-h-[40px] flex-1 items-center justify-center gap-1.5 rounded-[4px] border border-line bg-app py-1.5 text-[11px] font-medium text-ink hover:border-accent"
             >
               {copied ? (
                 <>
-                  <Check className="h-3 w-3 text-accent" />
+                  <Check className="h-3.5 w-3.5 text-accent" strokeWidth={1.5} />
                   Copiado
                 </>
               ) : (
                 <>
-                  <Copy className="h-3 w-3 text-accent" />
+                  <Copy className="h-3.5 w-3.5 text-accent" strokeWidth={1.5} />
                   Copiar
                 </>
               )}
@@ -261,11 +282,11 @@ export function SynthesisReviewAction({
             <button
               type="button"
               onClick={handleApply}
-              className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-accent py-1.5 text-[11px] font-semibold text-accent-ink hover:opacity-90"
+              className="inline-flex min-h-[40px] flex-1 items-center justify-center gap-1.5 rounded-[4px] bg-accent py-1.5 text-[11px] font-semibold text-accent-ink hover:opacity-90"
             >
               {applied ? (
                 <>
-                  <Check className="h-3 w-3" />
+                  <Check className="h-3.5 w-3.5" strokeWidth={1.5} />
                   Aplicado
                 </>
               ) : (

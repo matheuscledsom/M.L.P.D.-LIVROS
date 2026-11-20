@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useState } from 'react';
 import { domainConfig } from '../config/domainConfig';
+import { sanitizeGeminiKey } from '../services/geminiApi';
 
 const GEMINI_KEY_STORAGE = domainConfig.geminiStorageKey;
 
 function loadGeminiKey() {
   try {
-    return localStorage.getItem(GEMINI_KEY_STORAGE)?.trim() || '';
+    return sanitizeGeminiKey(localStorage.getItem(GEMINI_KEY_STORAGE));
   } catch {
     return '';
   }
@@ -27,7 +28,7 @@ export function useGeminiKey() {
   }, [apiKey]);
 
   const saveApiKey = useCallback((nextKey) => {
-    setApiKey(String(nextKey || '').trim());
+    setApiKey(sanitizeGeminiKey(nextKey));
   }, []);
 
   const clearApiKey = useCallback(() => {

@@ -1,6 +1,25 @@
-import { BookOpen, Bookmark, ExternalLink, FileText, Heart, Quote, SlidersHorizontal, Star, Trash2, X } from 'lucide-react';
+import {
+  BookOpen,
+  Bookmark,
+  ExternalLink,
+  FileText,
+  Heart,
+  MessageSquarePlus,
+  Quote,
+  Send,
+  Share2,
+  SlidersHorizontal,
+  Star,
+  Trash2,
+  X,
+} from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { domainConfig, getStatusList } from '../config/domainConfig';
+import { useToast } from '../context/ToastContext';
+import {
+  searchReaderProfiles,
+  sendDirectMessage,
+} from '../services/codiceBackend';
 import { getDisplayTitles, getVerdictMeta } from '../utils/backlogHelpers';
 import { CoverArt } from './CoverArt';
 import { LibraryCatalogSection } from './LibraryCatalogSection';
@@ -15,6 +34,7 @@ export function ItemDetailSheet({
   item,
   posts = [],
   geminiKey = '',
+  viewerId = null,
   hasStoredFile = false,
   onClose,
   onUpdateItem,
@@ -22,15 +42,83 @@ export function ItemDetailSheet({
   onOpenJournal,
   onOpenReader,
   onOpenGeminiSettings,
+  onRecommendToFeed,
+  onSocialActivityChanged,
 }) {
+  const { showToast } = useToast();
   const [activeSheetTab, setActiveSheetTab] = useState('catalog');
+  const [shareOpen, setShareOpen] = useState(false);
+  const [shareNote, setShareNote] = useState('');
+  const [sharePeers, setSharePeers] = useState([]);
+  const [sendingPeerId, setSendingPeerId] = useState(null);
   const progressSectionRef = useRef(null);
 
   useEffect(() => {
     setActiveSheetTab('catalog');
+    setShareOpen(false);
+    setShareNote('');
   }, [item?.id]);
 
+  useEffect(() => {
+    if (!shareOpen) return undefined;
+    let cancelled = false;
+    searchReaderProfiles('', { viewerId })
+      .then((list) => {
+        if (!cancelled) {
+          setSharePeers(
+            (Array.isArray(list) ? list : []).filter(
+              (p) => !p.isSelf && p.allowDms !== false
+            )
+          );
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setSharePeers([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [shareOpen, viewerId]);
+
   if (!item) return null;
+
+  const handleSendToPeer = async (peer) => {
+    if (!peer?.id || sendingPeerId) return;
+    setSendingPeerId(peer.id);
+    try {
+      await sendDirectMessage({
+        recipientId: peer.id,
+        content:
+          shareNote.trim() ||
+          `Indico a leitura de "${item.title}" para a sua estante.`,
+        attachedWorkSnapshot: item,
+        viewerId,
+      });
+      onSocialActivityChanged?.();
+      showToast({
+        message: `Indicação enviada para ${peer.displayName || peer.handle}`,
+        type: 'success',
+      });
+      setShareOpen(false);
+      setShareNote('');
+    } catch (err) {
+      showToast({
+        message:
+          err?.userMessage ||
+          err?.message ||
+          'Não foi possível enviar a indicação no chat.',
+        type: 'error',
+      });
+    } finally {
+      setSendingPeerId(null);
+    }
+  };
+
+  const handlePublishToFeed = () => {
+    onRecommendToFeed?.(item, shareNote.trim());
+    setShareOpen(false);
+    setShareNote('');
+  };
 
   const statuses = getStatusList();
   const { ui, cardFields } = domainConfig;
@@ -174,6 +262,86 @@ export function ItemDetailSheet({
             <SlidersHorizontal className="h-4 w-4 shrink-0 text-accent" strokeWidth={1.5} />
             <span>Atualizar Progresso</span>
           </button>
+        </div>
+
+        {/* Ação Social: Indicar Livro para colega ou mural/feed */}
+        <div className="mt-2">
+          <button
+            type="button"
+            onClick={() => setShareOpen((prev) => !prev)}
+            aria-expanded={shareOpen}
+            className={`flex min-h-[44px] w-full items-center justify-center gap-2 rounded-[4px] border px-3.5 py-2 text-xs font-medium transition-colors ${
+              shareOpen
+                ? 'border-accent bg-accent/10 text-accent'
+                : 'border-line bg-app text-ink hover:border-accent hover:text-accent'
+            }`}
+          >
+            <Share2 className="h-4 w-4 text-accent" strokeWidth={1.5} />
+            <span>Indicar Livro</span>
+          </button>
+
+          {shareOpen && (
+            <div className="mt-2 space-y-3 rounded-[4px] border border-line bg-app p-3">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[11px] font-semibold text-ink">
+                  Enviar indicação com comentário
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setShareOpen(false)}
+                  aria-label="Fechar painel de indicação"
+                  className="rounded-[4px] p-1 text-subtle hover:text-ink"
+                >
+                  <X className="h-3.5 w-3.5" strokeWidth={1.5} />
+                </button>
+              </div>
+
+              <textarea
+                rows={2}
+                value={shareNote}
+                onChange={(e) => setShareNote(e.target.value)}
+                placeholder={`Por que você indica "${item.title}"?`}
+                className="w-full resize-none rounded-[4px] border border-line bg-card px-2.5 py-2 text-xs text-ink placeholder:text-subtle focus:border-accent focus:outline-none"
+              />
+
+              {onRecommendToFeed && (
+                <button
+                  type="button"
+                  onClick={handlePublishToFeed}
+                  className="flex min-h-[40px] w-full items-center justify-center gap-1.5 rounded-[4px] border border-accent bg-accent/10 px-3 py-1.5 text-xs font-medium text-accent transition-colors hover:bg-accent hover:text-accent-ink"
+                >
+                  <MessageSquarePlus className="h-4 w-4" strokeWidth={1.5} />
+                  <span>Publicar no Feed &amp; Mural</span>
+                </button>
+              )}
+
+              <div className="space-y-1.5 border-t border-line pt-2">
+                <p className="text-[10px] font-medium uppercase tracking-wider text-muted">
+                  Ou enviar no Chat 1:1 para:
+                </p>
+                {sharePeers.length === 0 ? (
+                  <p className="text-[11px] text-muted">
+                    Nenhum colega disponível para mensagens no momento.
+                  </p>
+                ) : (
+                  <div className="flex flex-wrap gap-1.5">
+                    {sharePeers.slice(0, 6).map((peer) => (
+                      <button
+                        key={peer.id}
+                        type="button"
+                        disabled={sendingPeerId === peer.id}
+                        onClick={() => handleSendToPeer(peer)}
+                        className="inline-flex min-h-[36px] items-center gap-1.5 rounded-[4px] border border-line bg-card px-2.5 py-1 text-[11px] font-medium text-ink transition-colors hover:border-accent hover:text-accent disabled:opacity-50"
+                      >
+                        <Send className="h-3 w-3 text-accent" strokeWidth={1.5} />
+                        <span>{peer.displayName || peer.handle}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Seletor de Abas da Obra: Catalogação vs Citações & Fichamento */}

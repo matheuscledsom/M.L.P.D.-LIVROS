@@ -1,4 +1,5 @@
 import {
+  Activity,
   CheckCircle2,
   ExternalLink,
   Eye,
@@ -9,6 +10,7 @@ import {
   X,
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { sanitizeGeminiKey, testGeminiConnection } from '../services/geminiApi';
 
 export function GeminiConfigModal({
   isOpen,
@@ -19,11 +21,15 @@ export function GeminiConfigModal({
 }) {
   const [draftKey, setDraftKey] = useState(apiKey || '');
   const [showKey, setShowKey] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState(null);
 
   useEffect(() => {
     if (isOpen) {
       setDraftKey(apiKey || '');
       setShowKey(false);
+      setTesting(false);
+      setTestResult(null);
     }
   }, [isOpen, apiKey]);
 
@@ -31,27 +37,37 @@ export function GeminiConfigModal({
 
   const hasSaved = Boolean(apiKey);
 
+  const handleTest = async () => {
+    const clean = sanitizeGeminiKey(draftKey || apiKey);
+    setTesting(true);
+    setTestResult(null);
+    const res = await testGeminiConnection(clean);
+    setTestResult(res);
+    setTesting(false);
+  };
+
   const handleSubmit = (e) => {
     e.preventDefault();
-    onSaveKey(draftKey);
+    onSaveKey(sanitizeGeminiKey(draftKey));
     onClose();
   };
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 backdrop-blur-xs"
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/70 p-0 sm:p-4"
       onClick={onClose}
+      role="dialog"
+      aria-modal="true"
+      aria-label="Configuração da Inteligência Google Gemini"
     >
       <form
         onSubmit={handleSubmit}
-        className="w-full max-w-md rounded-t-3xl border-x border-t border-line bg-card p-5 pb-8 shadow-2xl"
+        className="w-full max-w-md rounded-t-[6px] sm:rounded-[6px] border border-line bg-card p-5 pb-8"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-line" />
-
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between border-b border-line pb-3">
           <div className="flex items-center gap-2">
-            <Sparkles className="h-4 w-4 text-accent" />
+            <Sparkles className="h-4 w-4 text-accent" strokeWidth={1.5} />
             <h3 className="text-base font-semibold text-ink">
               Inteligência Google Gemini
             </h3>
@@ -59,28 +75,28 @@ export function GeminiConfigModal({
           <button
             type="button"
             onClick={onClose}
-            aria-label="Fechar"
-            className="rounded-full p-1 text-muted hover:bg-elevated hover:text-ink"
+            aria-label="Fechar configuração Gemini"
+            className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-[4px] border border-line text-muted hover:text-ink"
           >
-            <X className="h-4 w-4" />
+            <X className="h-4 w-4" strokeWidth={1.5} />
           </button>
         </div>
 
         <div className="mt-4 space-y-4">
-          <div className="rounded-2xl border border-line bg-app p-3.5 text-xs leading-relaxed text-muted">
-            <div className="mb-1.5 flex items-center justify-between">
+          <div className="rounded-[4px] border border-line bg-app p-3.5 text-xs leading-relaxed text-muted">
+            <div className="mb-1.5 flex items-center justify-between gap-2">
               <span className="inline-flex items-center gap-1.5 font-semibold text-ink">
-                <KeyRound className="h-3.5 w-3.5 text-accent" />
-                Modelo gemini-2.5-flash
+                <KeyRound className="h-3.5 w-3.5 text-accent" strokeWidth={1.5} />
+                Fallback Multi-Modelo Automático
               </span>
               <span
-                className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ${
+                className={`inline-flex items-center gap-1 rounded-[4px] border px-2 py-0.5 text-[10px] font-medium ${
                   hasSaved
-                    ? 'bg-accent/15 text-accent'
-                    : 'bg-elevated text-subtle'
+                    ? 'border-accent/40 bg-accent/10 text-accent'
+                    : 'border-line text-subtle'
                 }`}
               >
-                {hasSaved && <CheckCircle2 className="h-3 w-3" />}
+                {hasSaved && <CheckCircle2 className="h-3 w-3" strokeWidth={1.5} />}
                 {hasSaved ? 'Chave salva' : 'Não configurada'}
               </span>
             </div>
@@ -96,7 +112,7 @@ export function GeminiConfigModal({
               className="mt-2 inline-flex items-center gap-1 font-medium text-accent hover:underline"
             >
               Gerar chave gratuita no Google AI Studio
-              <ExternalLink className="h-3 w-3" />
+              <ExternalLink className="h-3 w-3" strokeWidth={1.5} />
             </a>
           </div>
 
@@ -108,24 +124,66 @@ export function GeminiConfigModal({
               <input
                 type={showKey ? 'text' : 'password'}
                 value={draftKey}
-                onChange={(e) => setDraftKey(e.target.value)}
+                onChange={(e) => {
+                  setDraftKey(e.target.value);
+                  setTestResult(null);
+                }}
                 placeholder="AIza..."
-                className="w-full rounded-xl border border-line bg-app py-2.5 pl-3 pr-10 font-mono text-xs text-ink placeholder:text-subtle focus:border-accent focus:outline-none"
+                className="w-full min-h-[44px] rounded-[4px] border border-line bg-app py-2.5 pl-3 pr-11 font-mono text-xs text-ink placeholder:text-subtle focus:border-accent focus:outline-none"
               />
               <button
                 type="button"
                 onClick={() => setShowKey((prev) => !prev)}
                 aria-label={showKey ? 'Ocultar chave' : 'Mostrar chave'}
-                className="absolute right-2.5 rounded p-1 text-subtle hover:text-ink"
+                className="absolute right-1.5 flex min-h-[38px] min-w-[38px] items-center justify-center rounded-[4px] text-subtle hover:text-ink"
               >
                 {showKey ? (
-                  <EyeOff className="h-4 w-4" />
+                  <EyeOff className="h-4 w-4" strokeWidth={1.5} />
                 ) : (
-                  <Eye className="h-4 w-4" />
+                  <Eye className="h-4 w-4" strokeWidth={1.5} />
                 )}
               </button>
             </div>
           </label>
+
+          {/* Testar Conexão */}
+          <div className="space-y-2">
+            <button
+              type="button"
+              onClick={handleTest}
+              disabled={testing}
+              className="inline-flex min-h-[44px] w-full items-center justify-center gap-2 rounded-[4px] border border-line bg-app px-3 py-2 text-xs font-medium text-ink transition-colors hover:border-accent hover:text-accent disabled:opacity-55"
+            >
+              <Activity className="h-4 w-4 text-accent" strokeWidth={1.5} />
+              <span>{testing ? 'Testando conexão...' : 'Testar Conexão'}</span>
+            </button>
+
+            {testResult && (
+              <div
+                role="status"
+                className={`rounded-[4px] border p-3 text-xs ${
+                  testResult.ok
+                    ? 'border-accent/40 bg-accent/10 text-ink'
+                    : 'border-line bg-app text-ink'
+                }`}
+              >
+                {testResult.ok ? (
+                  <div className="flex flex-wrap items-center justify-between gap-2 tabular-nums">
+                    <span className="font-medium text-accent">
+                      Conectado: {testResult.model}
+                    </span>
+                    <span className="text-[11px] text-muted">
+                      {testResult.latencyMs} ms
+                    </span>
+                  </div>
+                ) : (
+                  <p className="leading-relaxed text-muted">
+                    {testResult.errorMessage}
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
 
           <div className="flex gap-2">
             {hasSaved && (
@@ -134,17 +192,18 @@ export function GeminiConfigModal({
                 onClick={() => {
                   onClearKey();
                   setDraftKey('');
+                  setTestResult(null);
                   onClose();
                 }}
-                className="inline-flex items-center justify-center gap-1.5 rounded-2xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-xs font-semibold text-rose-400 hover:bg-rose-500/20"
+                className="inline-flex min-h-[44px] items-center justify-center gap-1.5 rounded-[4px] border border-line bg-app px-4 py-2.5 text-xs font-semibold text-ink hover:border-accent"
               >
-                <Trash2 className="h-3.5 w-3.5" />
+                <Trash2 className="h-4 w-4" strokeWidth={1.5} />
                 Remover
               </button>
             )}
             <button
               type="submit"
-              className="flex-1 rounded-2xl bg-accent py-3 text-sm font-semibold text-accent-ink transition-opacity hover:opacity-90"
+              className="min-h-[44px] flex-1 rounded-[4px] bg-accent py-2.5 text-sm font-semibold text-accent-ink transition-opacity hover:opacity-90"
             >
               Salvar Chave
             </button>

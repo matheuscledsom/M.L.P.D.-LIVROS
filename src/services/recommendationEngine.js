@@ -1,4 +1,5 @@
 import { normalizePublisherName } from '../data/brazilianPublishers.js';
+import { catalogItems } from '../data/mockData.js';
 
 function normalizeToken(value) {
   return String(value || '')
@@ -260,5 +261,159 @@ export function generateOfflineRecommendations({
     reason: `${reasonParts}${refClause}`,
     alternatives,
     scoredCandidates: ranked.slice(0, limit),
+  };
+}
+
+function buildDetailedReasonLabel(item, tasteProfile, peerInfo = null) {
+  if (peerInfo?.handle) {
+    const ratingSuffix =
+      typeof peerInfo.rating === 'number' ? ` (${peerInfo.rating}/100)` : '';
+    return `Indicado por ${peerInfo.handle}${ratingSuffix}`;
+  }
+
+  const lovedWorks = Array.isArray(tasteProfile?.recentLovedWorks)
+    ? tasteProfile.recentLovedWorks
+    : [];
+
+  const itemGenres = Array.isArray(item?.genres) ? item.genres : [];
+  for (const loved of lovedWorks) {
+    const lovedGenres = new Set(
+      (Array.isArray(loved?.genres) ? loved.genres : []).map(normalizeToken)
+    );
+    const matchingGenre = itemGenres.find((g) => lovedGenres.has(normalizeToken(g)));
+    if (matchingGenre && typeof loved?.rating === 'number') {
+      return `Porque você avaliou ${matchingGenre} com ${loved.rating}`;
+    }
+    const lovedAuthor = normalizeToken(loved?.author || loved?.creator);
+    const candAuthor = normalizeToken(item?.author || item?.creator);
+    if (lovedAuthor && candAuthor && lovedAuthor === candAuthor) {
+      return typeof loved?.rating === 'number'
+        ? `Porque você avaliou "${loved.title}" com ${loved.rating}`
+        : `Autor recorrente no seu acervo (${item.author || item.creator})`;
+    }
+    const lovedCdd = extractCddMajorClass(loved?.cdu_cdd);
+    const candCdd = extractCddMajorClass(item?.cdu_cdd);
+    if (lovedCdd && candCdd && lovedCdd === candCdd) {
+      return `Assunto CDD ${item.cdu_cdd} alinhado a "${loved.title}"`;
+    }
+  }
+
+  const scored = scoreCandidateForMood(item, tasteProfile, '');
+  if (scored.reasons.length > 0) {
+    const firstReason = scored.reasons[0];
+    return `Alinhado ao seu perfil: ${firstReason}`;
+  }
+
+  if (item?.genres?.length > 0) {
+    return `Descoberta editorial em ${item.genres[0]}`;
+  }
+  return 'Sugestão curada para sua próxima leitura';
+}
+
+export function buildHomeBookRecommendations({
+  items = [],
+  profile = null,
+  peerRecommendations = [],
+  limit = 4,
+  excludeIds = [],
+} = {}) {
+  const safeItems = Array.isArray(items) ? items : [];
+  const tasteProfile = buildReaderTasteProfile(safeItems, profile);
+  const backlogTitles = new Set(
+    safeItems
+      .filter((i) => i && i.inBacklog !== false)
+      .flatMap((i) => [normalizeToken(i.title), normalizeToken(i.originalTitle)])
+      .filter(Boolean)
+  );
+  const completedTitles = new Set(
+    safeItems
+      .filter((i) => i?.status === 'completed' || i?.status === 'playing')
+      .flatMap((i) => [normalizeToken(i.title), normalizeToken(i.originalTitle)])
+      .filter(Boolean)
+  );
+
+  const candidateMap = new Map();
+
+  // 1) Obras bem avaliadas / lidas por colegas seguidos
+  (Array.isArray(peerRecommendations) ? peerRecommendations : []).forEach((entry) => {
+    const work = entry?.work || entry;
+    if (!work?.title) return;
+    const normTitle = normalizeToken(work.title);
+    if (!normTitle || completedTitles.has(normTitle)) return;
+
+    const scored = scoreCandidateForMood(work, tasteProfile, '');
+    const peerBoost =
+      (Number(entry?.rating ?? work.rating) >= 80 ? 22 : 12) +
+      (entry?.isFollowing ? 14 : 6);
+    const peerInfo = {
+      handle: entry?.peerHandle || entry?.handle || '@leitor',
+      rating: entry?.rating ?? work.rating ?? null,
+    };
+
+    const key = normTitle;
+    const existing = candidateMap.get(key);
+    const score = scored.score + peerBoost;
+    if (!existing || score > existing.score) {
+      candidateMap.set(key, {
+        id: work.id || `peer-${normTitle}`,
+        item: work,
+        score,
+        reason: buildDetailedReasonLabel(work, tasteProfile, peerInfo),
+        peerHandle: peerInfo.handle,
+        alreadyInBacklog: backlogTitles.has(normTitle),
+        sourceKind: 'peer',
+      });
+    }
+  });
+
+  // 2) Obras na estante (queued)
+  safeItems
+    .filter((i) => i && i.inBacklog !== false && i.status === 'queued')
+    .forEach((work) => {
+      const normTitle = normalizeToken(work.title);
+      if (!normTitle || candidateMap.has(normTitle)) return;
+      const scored = scoreCandidateForMood(work, tasteProfile, '');
+      candidateMap.set(normTitle, {
+        id: work.id,
+        item: work,
+        score: scored.score + 10,
+        reason: buildDetailedReasonLabel(work, tasteProfile, null),
+        peerHandle: null,
+        alreadyInBacklog: true,
+        sourceKind: 'shelf',
+      });
+    });
+
+  // 3) Descobertas curadas fora do acervo (catalogItems)
+  catalogItems.forEach((work) => {
+    const normTitle = normalizeToken(work.title);
+    if (!normTitle || completedTitles.has(normTitle) || candidateMap.has(normTitle)) {
+      return;
+    }
+    const scored = scoreCandidateForMood(work, tasteProfile, '');
+    candidateMap.set(normTitle, {
+      id: work.id,
+      item: work,
+      score: scored.score,
+      reason: buildDetailedReasonLabel(work, tasteProfile, null),
+      peerHandle: null,
+      alreadyInBacklog: backlogTitles.has(normTitle),
+      sourceKind: 'discovery',
+    });
+  });
+
+  const sortedPool = Array.from(candidateMap.values()).sort(
+    (a, b) =>
+      b.score - a.score ||
+      String(a.item?.title || '').localeCompare(String(b.item?.title || ''), 'pt-BR')
+  );
+
+  const excludeSet = new Set(Array.isArray(excludeIds) ? excludeIds : []);
+  const fresh = sortedPool.filter((entry) => !excludeSet.has(entry.id));
+  const finalPool = fresh.length > 0 ? fresh : sortedPool;
+
+  return {
+    recommendations: finalPool.slice(0, Math.max(1, limit)),
+    totalCandidates: sortedPool.length,
   };
 }

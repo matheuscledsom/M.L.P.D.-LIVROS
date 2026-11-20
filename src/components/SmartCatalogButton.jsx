@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { useToast } from '../context/ToastContext';
 import { normalizePublisherName } from '../data/brazilianPublishers';
 import { runSmartCataloging } from '../services/geminiApi';
+import { runLocalSmartCataloging } from '../services/localCatalogFallback';
 
 export function SmartCatalogButton({
   item,
@@ -12,25 +13,43 @@ export function SmartCatalogButton({
 }) {
   const { showToast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
+  const [statusNotice, setStatusNotice] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
-  const [done, setDone] = useState(false);
+  const [doneMode, setDoneMode] = useState('');
+
+  const applyLocalFallback = async (reason = '') => {
+    const localRes = await runLocalSmartCataloging(item);
+    onApplyFields(localRes.updates);
+    setDoneMode('local');
+    setStatusNotice(
+      reason
+        ? `${reason} Preenchimento Inteligente Local aplicado (CDD, Cutter e metadados).`
+        : 'Preenchimento Inteligente Local aplicado com CDD, Cutter e editora normalizada.'
+    );
+    showToast({
+      message: 'Ficha completada com Preenchimento Inteligente Local',
+      type: 'success',
+    });
+    setTimeout(() => setDoneMode(''), 3500);
+  };
 
   const handleRun = async () => {
     setErrorMsg('');
-    setDone(false);
+    setStatusNotice('');
+    setDoneMode('');
 
-    if (!geminiKey) {
-      setErrorMsg('Configure sua chave gratuita do Google Gemini no Perfil.');
-      return;
-    }
-
-    if (!item?.title?.trim()) {
+    if (!item?.title?.trim() && !item?.isbn && !item?.doi) {
       setErrorMsg('Informe ao menos o título da obra para catalogar.');
       return;
     }
 
     setIsLoading(true);
     try {
+      if (!geminiKey) {
+        await applyLocalFallback('');
+        return;
+      }
+
       const enriched = await runSmartCataloging(geminiKey, item);
       const updates = {};
 
@@ -73,11 +92,21 @@ export function SmartCatalogButton({
       }
 
       onApplyFields(updates);
-      setDone(true);
+      setDoneMode('gemini');
       showToast({ message: 'Ficha completada com Gemini', type: 'success' });
-      setTimeout(() => setDone(false), 3000);
+      setTimeout(() => setDoneMode(''), 3000);
     } catch (error) {
-      setErrorMsg(error?.userMessage || error?.message || 'Falha ao consultar Gemini.');
+      try {
+        await applyLocalFallback(
+          error?.userMessage || 'Gemini indisponível no momento.'
+        );
+      } catch (localErr) {
+        setErrorMsg(
+          localErr?.message ||
+            error?.userMessage ||
+            'Não foi possível completar a catalogação.'
+        );
+      }
     } finally {
       setIsLoading(false);
     }
@@ -89,35 +118,59 @@ export function SmartCatalogButton({
         type="button"
         onClick={handleRun}
         disabled={isLoading}
-        className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-accent/45 bg-accent/15 px-3 py-2.5 text-xs font-semibold text-ink transition-colors hover:bg-accent/25 disabled:opacity-55"
+        className="inline-flex min-h-[44px] w-full items-center justify-center gap-2 rounded-[4px] border border-accent/45 bg-accent/10 px-3 py-2 text-xs font-semibold text-ink transition-colors hover:bg-accent/20 disabled:opacity-55"
       >
-        {done ? (
+        {doneMode ? (
           <>
-            <Check className="h-3.5 w-3.5 text-accent" />
-            <span>Ficha completada com Gemini</span>
+            <Check className="h-4 w-4 text-accent" strokeWidth={1.5} />
+            <span>
+              {doneMode === 'gemini'
+                ? 'Ficha completada com Gemini'
+                : 'Ficha completada localmente'}
+            </span>
           </>
         ) : (
           <>
-            <Sparkles className="h-3.5 w-3.5 text-accent" />
+            <Sparkles className="h-4 w-4 text-accent" strokeWidth={1.5} />
             <span>
               {isLoading
-                ? 'Catalogando com Gemini...'
-                : 'Catalogação Inteligente (Gemini)'}
+                ? geminiKey
+                  ? 'Catalogando com Gemini...'
+                  : 'Aplicando catalogação local...'
+                : geminiKey
+                  ? 'Catalogação Inteligente (Gemini)'
+                  : 'Preenchimento Inteligente Local'}
             </span>
           </>
         )}
       </button>
 
+      {statusNotice && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-[4px] border border-line bg-app px-3 py-2 text-[11px] text-muted">
+          <span>{statusNotice}</span>
+          {!geminiKey && onOpenGeminiSettings && (
+            <button
+              type="button"
+              onClick={onOpenGeminiSettings}
+              className="inline-flex min-h-[32px] items-center gap-1 rounded-[4px] border border-line px-2 py-1 text-[10px] font-medium text-accent hover:border-accent"
+            >
+              <KeyRound className="h-3 w-3" strokeWidth={1.5} />
+              Ativar Gemini
+            </button>
+          )}
+        </div>
+      )}
+
       {errorMsg && (
-        <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-[11px] text-rose-400">
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-[4px] border border-line bg-app px-3 py-2 text-[11px] text-ink">
           <span>{errorMsg}</span>
           {!geminiKey && onOpenGeminiSettings && (
             <button
               type="button"
               onClick={onOpenGeminiSettings}
-              className="inline-flex items-center gap-1 rounded-lg bg-accent px-2.5 py-1 text-[10px] font-semibold text-accent-ink"
+              className="inline-flex items-center gap-1 rounded-[4px] bg-accent px-2.5 py-1 text-[10px] font-semibold text-accent-ink"
             >
-              <KeyRound className="h-3 w-3" />
+              <KeyRound className="h-3 w-3" strokeWidth={1.5} />
               Configurar Chave
             </button>
           )}

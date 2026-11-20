@@ -1,4 +1,5 @@
 import {
+  Activity,
   Award,
   Bookmark,
   BookMarked,
@@ -35,11 +36,14 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { CoverArt } from '../components/CoverArt';
 import { PostDetailModal } from '../components/PostDetailModal';
 import { ProfileEditModal } from '../components/ProfileEditModal';
+import { ReleaseHistoryModal } from '../components/ReleaseHistoryModal';
 import { ThemeModal } from '../components/ThemeModal';
 import { TitlesBadgesModal } from '../components/TitlesBadgesModal';
 import { VectorIcon } from '../components/VectorIcon';
 import { ProfileWall } from '../components/social/ProfileWall';
 import { domainConfig } from '../config/domainConfig';
+import { CODICE_RELEASE } from '../config/versioning';
+import { sanitizeGeminiKey, testGeminiConnection } from '../services/geminiApi';
 import { evaluateReaderTitles } from '../services/readerTitlesEngine';
 import { getHypeMeta, getPagesRead } from '../utils/backlogHelpers';
 import {
@@ -128,10 +132,12 @@ export function ProfileScreen({
   wallPostsCount = 0,
   chatMessagesCount = 0,
   themeProps,
+  geminiKey = '',
   hasGeminiKey = false,
   backendSession = null,
   onOpenAuthModal,
   onOpenGeminiSettings,
+  onSaveGeminiKey,
   onReopenOnboarding,
   onUpdateProfile,
   onSelectItem,
@@ -154,12 +160,32 @@ export function ProfileScreen({
   const [themeModalOpen, setThemeModalOpen] = useState(false);
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [titlesModalOpen, setTitlesModalOpen] = useState(false);
+  const [releaseModalOpen, setReleaseModalOpen] = useState(false);
+  const [inlineGeminiKey, setInlineGeminiKey] = useState(geminiKey || '');
+  const [geminiTesting, setGeminiTesting] = useState(false);
+  const [geminiTestResult, setGeminiTestResult] = useState(null);
   const [selectedPostId, setSelectedPostId] = useState(null);
   const [feedback, setFeedback] = useState(null);
   const [soundOn, setSoundOn] = useState(isSoundEnabled);
 
   const menuRef = useRef(null);
   const fileInputRef = useRef(null);
+
+  useEffect(() => {
+    setInlineGeminiKey(geminiKey || '');
+  }, [geminiKey]);
+
+  const handleTestInlineGemini = async () => {
+    const clean = sanitizeGeminiKey(inlineGeminiKey || geminiKey);
+    if (clean && onSaveGeminiKey && clean !== geminiKey) {
+      onSaveGeminiKey(clean);
+    }
+    setGeminiTesting(true);
+    setGeminiTestResult(null);
+    const res = await testGeminiConnection(clean);
+    setGeminiTestResult(res);
+    setGeminiTesting(false);
+  };
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -809,6 +835,79 @@ export function ProfileScreen({
             }
           />
         </div>
+
+        {/* Inteligência Google Gemini: chave local + Testar Conexão */}
+        <div className="space-y-2.5 border-t border-line pt-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span className="inline-flex items-center gap-1.5 text-xs font-medium text-ink">
+              <Sparkles className="h-3.5 w-3.5 text-accent" strokeWidth={1.5} />
+              <span>Chave Google Gemini &amp; Diagnóstico</span>
+            </span>
+            <button
+              type="button"
+              onClick={() => onOpenGeminiSettings?.()}
+              className="text-[11px] font-medium text-accent hover:underline"
+            >
+              Configuração completa
+            </button>
+          </div>
+
+          <div className="flex flex-col sm:flex-row gap-2">
+            <input
+              type="password"
+              value={inlineGeminiKey}
+              onChange={(e) => {
+                setInlineGeminiKey(e.target.value);
+                setGeminiTestResult(null);
+              }}
+              placeholder="Cole sua chave AIza..."
+              aria-label="Chave da API Google Gemini"
+              className="min-h-[44px] flex-1 rounded-[4px] border border-line bg-app px-3 py-2 font-mono text-xs text-ink placeholder:text-subtle focus:border-accent focus:outline-none"
+            />
+            {onSaveGeminiKey && inlineGeminiKey !== geminiKey && (
+              <button
+                type="button"
+                onClick={() => onSaveGeminiKey(sanitizeGeminiKey(inlineGeminiKey))}
+                className="min-h-[44px] shrink-0 rounded-[4px] bg-accent px-3.5 py-2 text-xs font-semibold text-accent-ink transition-opacity hover:opacity-90"
+              >
+                Salvar Chave
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={handleTestInlineGemini}
+              disabled={geminiTesting}
+              className="inline-flex min-h-[44px] shrink-0 items-center justify-center gap-1.5 rounded-[4px] border border-line bg-app px-3.5 py-2 text-xs font-medium text-ink transition-colors hover:border-accent hover:text-accent disabled:opacity-55"
+            >
+              <Activity className="h-4 w-4 text-accent" strokeWidth={1.5} />
+              <span>{geminiTesting ? 'Testando...' : 'Testar Conexão'}</span>
+            </button>
+          </div>
+
+          {geminiTestResult && (
+            <div
+              role="status"
+              className={`rounded-[4px] border px-3 py-2 text-xs ${
+                geminiTestResult.ok
+                  ? 'border-accent/40 bg-accent/10 text-ink'
+                  : 'border-line bg-app text-muted'
+              }`}
+            >
+              {geminiTestResult.ok ? (
+                <div className="flex flex-wrap items-center justify-between gap-2 tabular-nums">
+                  <span className="font-medium text-accent">
+                    Conectado ao modelo {geminiTestResult.model}
+                  </span>
+                  <span className="text-[11px] text-muted">
+                    {geminiTestResult.latencyMs} ms
+                  </span>
+                </div>
+              ) : (
+                <p>{geminiTestResult.errorMessage}</p>
+              )}
+            </div>
+          )}
+        </div>
       </section>
 
       {/* Abas internas de Perfil (Diário, Estante, Radar, Mural) */}
@@ -1071,6 +1170,22 @@ export function ProfileScreen({
         onDeletePost={onDeletePost}
         onAddComment={onAddPostComment}
         onDeleteComment={onDeletePostComment}
+      />
+
+      <footer className="pt-2 text-center">
+        <button
+          type="button"
+          onClick={() => setReleaseModalOpen(true)}
+          className="min-h-[36px] px-2 text-[11px] tabular-nums underline-offset-2 hover:underline"
+          style={{ color: 'var(--text-secondary)' }}
+        >
+          Códice {CODICE_RELEASE.label}
+        </button>
+      </footer>
+
+      <ReleaseHistoryModal
+        isOpen={releaseModalOpen}
+        onClose={() => setReleaseModalOpen(false)}
       />
     </div>
   );

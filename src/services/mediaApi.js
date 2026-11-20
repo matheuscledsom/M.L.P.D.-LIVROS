@@ -10,65 +10,84 @@ const OPENALEX_WORKS_URL = 'https://api.openalex.org/works';
 const GUTENDEX_BOOKS_URL = 'https://gutendex.com/books';
 const CROSSREF_POLITE_MAILTO = 'codice@projeto-codice.app';
 
-const SEARCH_CACHE_KEY = 'codice_search_cache_v4';
-export const MEDIA_SOURCES_STORAGE_KEY = 'codice_active_media_sources_v1';
+const SEARCH_CACHE_KEY = 'codice_search_cache_v2';
+export const MEDIA_SOURCES_STORAGE_KEY = 'codice_active_media_sources_v2';
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
-const CACHE_MAX_ENTRIES = 40;
-const API_TIMEOUT_MS = 8000;
+const CACHE_MAX_ENTRIES = 60;
+const API_TIMEOUT_MS = 4500;
+const MAX_RESULTS_PER_SOURCE = 10;
 
 export const MEDIA_API_SOURCES = [
-  { id: 'googleBooks', label: 'Google Books', hint: 'Livros em geral' },
-  { id: 'openLibrary', label: 'Open Library', hint: 'Edições e capas' },
+  { id: 'googleBooks', label: 'Google Books', hint: 'Livros em geral (~350ms)' },
+  { id: 'openLibrary', label: 'Open Library', hint: 'Edições e capas extras' },
   { id: 'jikan', label: 'Jikan / MAL', hint: 'Mangás, Light Novels e Manhwas' },
   { id: 'gutendex', label: 'Gutendex', hint: 'Clássicos com EPUB grátis' },
   { id: 'academic', label: 'CrossRef + OpenAlex', hint: 'Artigos, DOI e Open Access' },
   { id: 'wikidata', label: 'Wikidata', hint: 'Cruzamento bilíngue PT-BR/EN' },
 ];
 
-export const DEFAULT_MEDIA_SOURCES = MEDIA_API_SOURCES.map((s) => s.id);
+const ALL_MEDIA_SOURCE_IDS = MEDIA_API_SOURCES.map((s) => s.id);
+export const DEFAULT_MEDIA_SOURCES = ['googleBooks'];
+export const DEFAULT_SOURCES_BY_FILTER = {
+  all: ['googleBooks'],
+  book: ['googleBooks'],
+  manga: ['jikan'],
+  academic: ['academic'],
+};
+
+export function getDefaultSourcesForFilter(filter = 'all') {
+  return [...(DEFAULT_SOURCES_BY_FILTER[filter] || DEFAULT_MEDIA_SOURCES)];
+}
 
 export const MEDIA_SOURCE_PRESETS = [
+  {
+    id: 'all',
+    label: 'Geral · Rápido',
+    filter: 'all',
+    sources: ['googleBooks'],
+  },
   {
     id: 'books',
     label: 'Livros',
     filter: 'book',
-    sources: ['googleBooks', 'openLibrary', 'gutendex'],
+    sources: ['googleBooks'],
   },
   {
     id: 'manga',
     label: 'Mangás & Light Novels',
     filter: 'manga',
-    sources: ['jikan', 'googleBooks'],
+    sources: ['jikan'],
   },
   {
     id: 'academic',
     label: 'Acadêmico / TCC',
     filter: 'academic',
-    sources: ['academic', 'googleBooks'],
+    sources: ['academic'],
   },
   {
-    id: 'all',
-    label: 'Todas',
+    id: 'multi',
+    label: 'Multi-Fonte',
     filter: 'all',
-    sources: [...DEFAULT_MEDIA_SOURCES],
+    sources: [...ALL_MEDIA_SOURCE_IDS],
   },
 ];
 
-const VALID_SOURCE_IDS = new Set(DEFAULT_MEDIA_SOURCES);
+const VALID_SOURCE_IDS = new Set(ALL_MEDIA_SOURCE_IDS);
 
-export function loadActiveMediaSources() {
+export function loadActiveMediaSources(filter = 'all') {
+  const fallback = getDefaultSourcesForFilter(filter);
   try {
-    if (typeof localStorage === 'undefined') return [...DEFAULT_MEDIA_SOURCES];
+    if (typeof localStorage === 'undefined') return fallback;
     const raw = localStorage.getItem(MEDIA_SOURCES_STORAGE_KEY);
-    if (!raw) return [...DEFAULT_MEDIA_SOURCES];
+    if (!raw) return fallback;
     const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [...DEFAULT_MEDIA_SOURCES];
+    if (!Array.isArray(parsed)) return fallback;
     const cleaned = Array.from(
       new Set(parsed.filter((id) => VALID_SOURCE_IDS.has(id)))
     );
-    return cleaned.length > 0 ? cleaned : [...DEFAULT_MEDIA_SOURCES];
+    return cleaned.length > 0 ? cleaned : fallback;
   } catch {
-    return [...DEFAULT_MEDIA_SOURCES];
+    return fallback;
   }
 }
 
@@ -113,12 +132,39 @@ const LITERARY_WIKIDATA_HINTS =
 const memoryCache = new Map();
 let cacheHydrated = false;
 
+function getCacheStorage() {
+  try {
+    if (typeof localStorage !== 'undefined') return localStorage;
+  } catch {
+    // Fallback
+  }
+  try {
+    if (typeof sessionStorage !== 'undefined') return sessionStorage;
+  } catch {
+    // Sem storage
+  }
+  return null;
+}
+
+export function clearSearchMediaCache() {
+  memoryCache.clear();
+  cacheHydrated = false;
+  const storage = getCacheStorage();
+  if (!storage) return;
+  try {
+    storage.removeItem(SEARCH_CACHE_KEY);
+  } catch {
+    // Ignora falha de storage
+  }
+}
+
 function hydrateMemoryCache() {
   if (cacheHydrated) return;
   cacheHydrated = true;
+  const storage = getCacheStorage();
+  if (!storage) return;
   try {
-    if (typeof sessionStorage === 'undefined') return;
-    const raw = sessionStorage.getItem(SEARCH_CACHE_KEY);
+    const raw = storage.getItem(SEARCH_CACHE_KEY);
     if (!raw) return;
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return;
@@ -135,15 +181,16 @@ function hydrateMemoryCache() {
       }
     });
   } catch {
-    // Ignora falha ao ler sessionStorage
+    // Ignora falha ao ler storage
   }
 }
 
 function persistMemoryCache() {
+  const storage = getCacheStorage();
+  if (!storage) return;
   try {
-    if (typeof sessionStorage === 'undefined') return;
     const entries = Array.from(memoryCache.entries()).slice(-CACHE_MAX_ENTRIES);
-    sessionStorage.setItem(SEARCH_CACHE_KEY, JSON.stringify(entries));
+    storage.setItem(SEARCH_CACHE_KEY, JSON.stringify(entries));
   } catch {
     // Ignora erro de quota ou storage indisponível
   }
@@ -1171,7 +1218,7 @@ function buildGoogleBooksUrl(cleanQuery, isbn) {
   const qValue = isbn ? `isbn:${isbn}` : cleanQuery;
   url.search = new URLSearchParams({
     q: qValue,
-    maxResults: isbn ? '12' : '12',
+    maxResults: String(MAX_RESULTS_PER_SOURCE),
     printType: 'books',
   }).toString();
   return url.toString();
@@ -1180,7 +1227,9 @@ function buildGoogleBooksUrl(cleanQuery, isbn) {
 function buildOpenLibraryUrl(cleanQuery, isbn) {
   const url = new URL(OPEN_LIBRARY_BASE_URL);
   const params = new URLSearchParams(
-    isbn ? { isbn, limit: '8' } : { q: cleanQuery, limit: '8' }
+    isbn
+      ? { isbn, limit: String(MAX_RESULTS_PER_SOURCE) }
+      : { q: cleanQuery, limit: String(MAX_RESULTS_PER_SOURCE) }
   );
   url.search = params.toString();
   return url.toString();
@@ -1190,7 +1239,7 @@ function buildJikanUrl(cleanQuery) {
   const url = new URL(JIKAN_MANGA_BASE_URL);
   url.search = new URLSearchParams({
     q: cleanQuery,
-    limit: '15',
+    limit: String(MAX_RESULTS_PER_SOURCE),
   }).toString();
   return url.toString();
 }
@@ -1204,7 +1253,7 @@ function buildCrossRefUrl(cleanQuery, doi) {
   const url = new URL(CROSSREF_WORKS_URL);
   url.search = new URLSearchParams({
     query: cleanQuery,
-    rows: '8',
+    rows: String(MAX_RESULTS_PER_SOURCE),
     mailto: CROSSREF_POLITE_MAILTO,
   }).toString();
   return url.toString();
@@ -1219,7 +1268,7 @@ function buildOpenAlexUrl(cleanQuery, doi) {
   const url = new URL(OPENALEX_WORKS_URL);
   url.search = new URLSearchParams({
     search: cleanQuery,
-    'per-page': '6',
+    'per-page': String(MAX_RESULTS_PER_SOURCE),
     mailto: CROSSREF_POLITE_MAILTO,
   }).toString();
   return url.toString();
@@ -1452,60 +1501,73 @@ export async function searchMedia(
 
   const applySourcePayload = (sourceKey, value) => {
     if (sourceKey === 'google' && Array.isArray(value?.items)) {
-      itemsBySource.google = value.items.map((v) =>
-        mapGoogleBook(v, defaultWorkType, isbn || '')
-      );
+      itemsBySource.google = value.items
+        .slice(0, MAX_RESULTS_PER_SOURCE)
+        .map((v) => mapGoogleBook(v, defaultWorkType, isbn || ''));
     } else if (sourceKey === 'openlib' && Array.isArray(value?.docs)) {
-      itemsBySource.openlib = value.docs.map((d) =>
-        mapOpenLibraryDoc(d, defaultWorkType, isbn || '')
-      );
+      itemsBySource.openlib = value.docs
+        .slice(0, MAX_RESULTS_PER_SOURCE)
+        .map((d) => mapOpenLibraryDoc(d, defaultWorkType, isbn || ''));
     } else if (sourceKey === 'jikan' && Array.isArray(value?.data)) {
-      itemsBySource.jikan = value.data.map(mapJikanManga);
+      itemsBySource.jikan = value.data
+        .slice(0, MAX_RESULTS_PER_SOURCE)
+        .map(mapJikanManga);
     } else if (sourceKey === 'crossref') {
       if (Array.isArray(value?.message?.items)) {
-        itemsBySource.crossref = value.message.items.map(mapCrossRefWork);
+        itemsBySource.crossref = value.message.items
+          .slice(0, MAX_RESULTS_PER_SOURCE)
+          .map(mapCrossRefWork);
       } else if (value?.message && value.message.DOI) {
         itemsBySource.crossref = [mapCrossRefWork(value.message)];
       }
     } else if (sourceKey === 'openalex') {
       if (Array.isArray(value?.results)) {
-        itemsBySource.openalex = value.results.map(mapOpenAlexWork).filter(Boolean);
+        itemsBySource.openalex = value.results
+          .slice(0, MAX_RESULTS_PER_SOURCE)
+          .map(mapOpenAlexWork)
+          .filter(Boolean);
       } else if (value?.id && (value.title || value.display_name)) {
         const mapped = mapOpenAlexWork(value);
         if (mapped) itemsBySource.openalex = [mapped];
       }
     } else if (sourceKey === 'gutendex' && Array.isArray(value?.results)) {
       itemsBySource.gutendex = value.results
-        .slice(0, 6)
+        .slice(0, MAX_RESULTS_PER_SOURCE)
         .map((g) => mapGutendexBook(g, defaultWorkType))
         .filter(Boolean);
     } else if (sourceKey === 'wikidata' && Array.isArray(value)) {
-      itemsBySource.wikidata = value;
+      itemsBySource.wikidata = value.slice(0, MAX_RESULTS_PER_SOURCE);
     }
   };
 
   let remainingCount = sourcePlan.length;
 
   const tasks = sourcePlan.map((entry) =>
-    entry.run().then((value) => {
-      remainingCount -= 1;
-      applySourcePayload(entry.key, value);
-      if (onPartialResults && !signal?.aborted) {
-        const partialMerged = assembleMergedItems(
-          itemsBySource,
-          cleanQuery,
-          filter,
-          isbn,
-          doi
-        );
-        onPartialResults({
-          results: partialMerged,
-          completedSource: entry.key,
-          pendingCount: remainingCount,
-        });
-      }
-      return value;
-    })
+    entry
+      .run()
+      .then((value) => {
+        remainingCount -= 1;
+        applySourcePayload(entry.key, value);
+        if (onPartialResults && !signal?.aborted) {
+          const partialMerged = assembleMergedItems(
+            itemsBySource,
+            cleanQuery,
+            filter,
+            isbn,
+            doi
+          );
+          onPartialResults({
+            results: partialMerged,
+            completedSource: entry.key,
+            pendingCount: remainingCount,
+          });
+        }
+        return value;
+      })
+      .catch((err) => {
+        remainingCount -= 1;
+        throw err;
+      })
   );
 
   const settled = await Promise.allSettled(tasks);

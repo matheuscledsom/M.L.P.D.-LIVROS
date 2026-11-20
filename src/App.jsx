@@ -734,6 +734,51 @@ export function App() {
     [items, addItem, showToast]
   );
 
+  const handleRecommendWorkToFeed = useCallback(
+    (work, noteText = '') => {
+      if (!work?.title) return;
+      addPost({
+        itemId: work.id || null,
+        itemTitle: work.title,
+        itemSnapshot: {
+          title: work.title,
+          author: work.author || work.creator || '',
+          publisher: work.publisher || '',
+          coverUrl: work.coverUrl || null,
+        },
+        title: `Indicação de leitura: ${work.title}`,
+        caption:
+          noteText ||
+          `Recomendo a leitura de "${work.title}"${work.author ? ` (${work.author})` : ''}.`,
+        visibility: profile?.privacyLevel === 'private' ? 'private' : 'public',
+      });
+      refreshSocialSignals();
+      showToast({
+        message: `"${work.title}" indicada no Diário e Feed`,
+        type: 'success',
+      });
+    },
+    [addPost, profile?.privacyLevel, refreshSocialSignals, showToast]
+  );
+
+  const handleSelectOrAddFromRecommendation = useCallback(
+    (recItem) => {
+      if (!recItem) return;
+      const existing = items.find(
+        (i) =>
+          i.id === recItem.id ||
+          String(i.title || '').trim().toLowerCase() ===
+            String(recItem.title || '').trim().toLowerCase()
+      );
+      if (existing) {
+        setSelectedItemId(existing.id);
+      } else {
+        handleCopyWorkToWishlist(recItem);
+      }
+    },
+    [items, handleCopyWorkToWishlist]
+  );
+
   const streakProps = {
     streakCount,
     loggedToday,
@@ -794,14 +839,16 @@ export function App() {
               profile={profile}
               streakProps={streakProps}
               resolvedBadgeName={resolvedTitleBadge}
+              viewerId={activeViewerId}
               geminiKey={geminiKey}
               storedReaderWorkIds={storedReaderWorkIds}
               storedReaderBooks={storedReaderBooks}
-              onSelectItem={(item) => setSelectedItemId(item.id)}
+              onSelectItem={handleSelectOrAddFromRecommendation}
               onOpenReader={handleOpenReaderForWork}
               onOpenStoredBook={handleOpenStoredBook}
               onOpenQuickReader={handleOpenQuickReader}
               onOpenDigitalShelf={() => setDigitalShelfOpen(true)}
+              onAddToWishlist={handleCopyWorkToWishlist}
               onNavigateList={() => setActiveTab('list')}
               onNavigateAdd={() => setActiveTab('add')}
               onOpenGeminiSettings={() => setGeminiModalOpen(true)}
@@ -850,10 +897,18 @@ export function App() {
               storedReaderBooksCount={storedReaderWorkIds.length}
               wallPostsCount={socialCounts.wallPostsCount}
               chatMessagesCount={socialCounts.chatMessagesCount}
+              geminiKey={geminiKey}
               hasGeminiKey={hasGeminiKey}
               backendSession={backendSession}
               onOpenAuthModal={() => setAuthModalOpen(true)}
               onOpenGeminiSettings={() => setGeminiModalOpen(true)}
+              onSaveGeminiKey={(key) => {
+                saveApiKey(key);
+                showToast({
+                  message: key ? 'Chave Google Gemini salva' : 'Chave Gemini removida',
+                  type: 'success',
+                });
+              }}
               onReopenOnboarding={() => setOnboardingReopened(true)}
               themeProps={{
                 mode,
@@ -900,6 +955,7 @@ export function App() {
           item={selectedItem}
           posts={posts}
           geminiKey={geminiKey}
+          viewerId={activeViewerId}
           hasStoredFile={Boolean(
             selectedItem && storedReaderWorkIds.includes(selectedItem.id)
           )}
@@ -909,6 +965,8 @@ export function App() {
           onOpenJournal={handleOpenJournalComposer}
           onOpenReader={handleOpenReaderForWork}
           onOpenGeminiSettings={() => setGeminiModalOpen(true)}
+          onRecommendToFeed={handleRecommendWorkToFeed}
+          onSocialActivityChanged={refreshSocialSignals}
         />
 
         {readerSession.open && (

@@ -4,7 +4,15 @@ const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta/';
 const MODEL_CACHE_KEY = 'codice_gemini_resolved_model_v1';
 const MODEL_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const REQUEST_TIMEOUT_MS = 8000;
-const RATE_LIMIT_DELAYS_MS = [1000, 2000];
+const MAX_MODEL_FALLBACK_ATTEMPTS = 3;
+const RATE_LIMIT_DELAYS_MS = [800];
+
+export const PREFERRED_GEMINI_MODELS = [
+  'gemini-2.5-flash',
+  'gemini-2.0-flash',
+  'gemini-2.0-flash-lite',
+  'gemini-1.5-flash-latest',
+];
 
 const EXCLUDED_MODEL_PATTERNS = [
   /embedding/i,
@@ -19,6 +27,14 @@ const EXCLUDED_MODEL_PATTERNS = [
   /\blive\b/i,
   /gemma/i,
 ];
+
+export function sanitizeGeminiKey(apiKey) {
+  return String(apiKey || '')
+    .trim()
+    .replace(/^["'`]+|["'`]+$/g, '')
+    .replace(/[\r\n\t]+/g, '')
+    .trim();
+}
 
 export class GeminiError extends Error {
   constructor(code, userMessage, cause) {
@@ -222,25 +238,59 @@ function waitWithSignal(ms, signal) {
   });
 }
 
-function mapHttpStatusToGeminiError(status, detail = '') {
-  if (status === 400 || status === 401 || status === 403) {
+async function readResponseErrorPayload(response) {
+  try {
+    return await response.json();
+  } catch {
+    return null;
+  }
+}
+
+function isApiKeyFailurePayload(status, payload) {
+  if (status === 401) return true;
+  if (status !== 400) return false;
+  if (!payload || typeof payload !== 'object') return false;
+  const serialized = JSON.stringify(payload).toLowerCase();
+  return (
+    serialized.includes('api_key_invalid') ||
+    serialized.includes('api key not valid') ||
+    serialized.includes('invalid api key')
+  );
+}
+
+function mapHttpStatusToGeminiError(status, detail = '', payload = null) {
+  if (isApiKeyFailurePayload(status, payload)) {
     return new GeminiError(
       'AUTH_INVALID',
-      'Chave do Google Gemini inválida ou sem permissão. Verifique nas configurações do Perfil.',
+      'Chave da API inválida. Verifique se copiou a chave completa no Google AI Studio.',
+      detail
+    );
+  }
+  if (status === 403) {
+    return new GeminiError(
+      'AUTH_INVALID',
+      'Acesso bloqueado pela chave (verifique restrições de domínio/HTTP Referrer no Google AI Studio).',
+      detail
+    );
+  }
+  if (status === 400) {
+    return new GeminiError(
+      'BAD_REQUEST',
+      'Chave da API inválida ou parâmetro recusado pelo modelo Gemini. Verifique sua chave no Google AI Studio.',
       detail
     );
   }
   if (status === 404) {
     return new GeminiError(
       'MODEL_NOT_FOUND',
-      'Modelo Gemini indisponível no momento; já tentamos outro modelo automaticamente.',
+      'Modelo Gemini indisponível no momento; já tentamos os modelos alternativos automaticamente.',
       detail
     );
   }
   if (status === 429) {
     return new GeminiError(
       'RATE_LIMIT',
-      'Limite gratuito atingido. Tente novamente em alguns minutos.',
+      'Limite gratuito temporário atingido. Aguarde alguns segundos e tente novamente.',
       detail
     );
   }
@@ -251,27 +301,21 @@ function mapHttpStatusToGeminiError(status, detail = '') {
   );
 }
 
-export async function resolveModel(
-  apiKey,
+async function discoverCandidateModels(
+  cleanKey,
   { signal, forceRefresh = false, excludeModels = [] } = {}
 ) {
-  const cleanKey = String(apiKey || '').trim();
-  if (!cleanKey) {
-    throw new GeminiError(
-      'MISSING_KEY',
-      'Chave do Google Gemini não configurada. Adicione sua chave gratuita nas configurações do Perfil.'
-    );
-  }
-
   const excludedSet = new Set(excludeModels.map(extractModelId));
 
   if (!forceRefresh) {
     const cached = readCachedModels();
     if (cached) {
-      const candidate = [cached.model, ...cached.candidates].find(
-        (m) => m && !excludedSet.has(m)
+      const remaining = [cached.model, ...cached.candidates].filter(
+        (m, idx, arr) => m && !excludedSet.has(m) && arr.indexOf(m) === idx
       );
-      if (candidate) return candidate;
+      if (remaining.length > 0) {
+        return { chosen: remaining[0], candidates: remaining };
+      }
     }
   }
 
@@ -282,7 +326,8 @@ export async function resolveModel(
   });
 
   if (!response.ok) {
-    throw mapHttpStatusToGeminiError(response.status);
+    const errPayload = await readResponseErrorPayload(response);
+    throw mapHttpStatusToGeminiError(response.status, '', errPayload);
   }
 
   let data;
@@ -297,7 +342,40 @@ export async function resolveModel(
   }
 
   const rankedModels = selectBestGeminiModels(data?.models || []);
-  const chosen = rankedModels.find((m) => !excludedSet.has(m)) || rankedModels[0];
+  const availableModels = rankedModels.filter((m) => !excludedSet.has(m));
+  const chosen = availableModels[0] || null;
+
+  if (!chosen && rankedModels.length === 0) {
+    throw new GeminiError(
+      'NO_MODEL_AVAILABLE',
+      'Nenhum modelo compatível com geração de texto está disponível para esta chave.'
+    );
+  }
+
+  if (chosen) {
+    writeCachedModels(chosen, rankedModels);
+  }
+
+  return { chosen, candidates: availableModels };
+}
+
+export async function resolveModel(
+  apiKey,
+  { signal, forceRefresh = false, excludeModels = [] } = {}
+) {
+  const cleanKey = sanitizeGeminiKey(apiKey);
+  if (!cleanKey) {
+    throw new GeminiError(
+      'MISSING_KEY',
+      'Chave do Google Gemini não configurada. Adicione sua chave gratuita nas configurações do Perfil.'
+    );
+  }
+
+  const { chosen } = await discoverCandidateModels(cleanKey, {
+    signal,
+    forceRefresh,
+    excludeModels,
+  });
 
   if (!chosen) {
     throw new GeminiError(
@@ -306,37 +384,90 @@ export async function resolveModel(
     );
   }
 
-  writeCachedModels(chosen, rankedModels);
   return chosen;
 }
 
-function parseJsonResponse(rawText) {
-  const clean = String(rawText || '')
+function extractBalancedJsonSlice(text) {
+  const str = String(text || '');
+  const firstObj = str.indexOf('{');
+  const firstArr = str.indexOf('[');
+  let start = -1;
+  if (firstObj >= 0 && firstArr >= 0) start = Math.min(firstObj, firstArr);
+  else start = Math.max(firstObj, firstArr);
+  if (start < 0) return null;
+
+  const openChar = str[start];
+  const closeChar = openChar === '{' ? '}' : ']';
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+
+  for (let i = start; i < str.length; i += 1) {
+    const ch = str[i];
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (ch === '\\' && inString) {
+      escaped = true;
+      continue;
+    }
+    if (ch === '"') {
+      inString = !inString;
+      continue;
+    }
+    if (!inString) {
+      if (ch === openChar) depth += 1;
+      else if (ch === closeChar) {
+        depth -= 1;
+        if (depth === 0) {
+          return str.slice(start, i + 1);
+        }
+      }
+    }
+  }
+  return null;
+}
+
+export function parseJsonResponse(rawText) {
+  const stripped = String(rawText || '')
     .trim()
     .replace(/^```json\s*/i, '')
     .replace(/^```\s*/i, '')
     .replace(/\s*```$/i, '')
     .trim();
+
   try {
-    return JSON.parse(clean);
-  } catch (err) {
+    return JSON.parse(stripped);
+  } catch {
+    const extracted = extractBalancedJsonSlice(rawText);
+    if (extracted) {
+      try {
+        return JSON.parse(extracted);
+      } catch (err) {
+        throw new GeminiError(
+          'PARSE_ERROR',
+          'A resposta da IA veio em formato inesperado. Tente novamente.',
+          err
+        );
+      }
+    }
     throw new GeminiError(
       'PARSE_ERROR',
-      'A resposta da IA veio em formato inesperado. Tente novamente.',
-      err
+      'A resposta da IA veio em formato inesperado. Tente novamente.'
     );
   }
 }
 
-export async function callGemini({
+async function callGeminiDetailed({
   apiKey,
   systemInstruction = '',
   prompt,
-  jsonMode = false,
   temperature = 0.4,
+  maxOutputTokens,
   signal,
 }) {
-  const cleanKey = String(apiKey || '').trim();
+  const cleanKey = sanitizeGeminiKey(apiKey);
   if (!cleanKey) {
     throw new GeminiError(
       'MISSING_KEY',
@@ -344,6 +475,8 @@ export async function callGemini({
     );
   }
 
+  // Nao enviamos responseMimeType: 'application/json' para evitar HTTP 400 em modelos preview;
+  // parseJsonResponse faz extracao resiliente de {...} ou [...] quando JSON for solicitado no prompt.
   const body = {
     ...(systemInstruction
       ? {
@@ -360,51 +493,75 @@ export async function callGemini({
     ],
     generationConfig: {
       temperature,
-      ...(jsonMode ? { responseMimeType: 'application/json' } : {}),
+      ...(typeof maxOutputTokens === 'number' ? { maxOutputTokens } : {}),
     },
   };
 
-  let didRetry404 = false;
-  const excludedModels = [];
+  const triedModels = [];
   let modelId = await resolveModel(cleanKey, { signal });
+  let lastHttpError = null;
 
-  while (true) {
-    let response;
-    let rateLimitAttempt = 0;
+  for (let attempt = 0; attempt < MAX_MODEL_FALLBACK_ATTEMPTS; attempt += 1) {
+    let response = await fetchWithTimeout(buildGenerateContentUrl(modelId), {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-goog-api-key': cleanKey,
+      },
+      body: JSON.stringify(body),
+      signal,
+    });
 
-    while (true) {
-      response = await fetchWithTimeout(buildGenerateContentUrl(modelId), {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-goog-api-key': cleanKey,
-        },
-        body: JSON.stringify(body),
-        signal,
-      });
+    let errPayload = response.ok ? null : await readResponseErrorPayload(response);
 
-      if (response.status === 429 && rateLimitAttempt < RATE_LIMIT_DELAYS_MS.length) {
-        await waitWithSignal(RATE_LIMIT_DELAYS_MS[rateLimitAttempt], signal);
-        rateLimitAttempt += 1;
-        continue;
-      }
-      break;
+    if (!response.ok && isApiKeyFailurePayload(response.status, errPayload)) {
+      throw mapHttpStatusToGeminiError(response.status, '', errPayload);
+    }
+    if (!response.ok && response.status === 403) {
+      throw mapHttpStatusToGeminiError(403, '', errPayload);
     }
 
-    if (response.status === 404 && !didRetry404) {
-      didRetry404 = true;
-      excludedModels.push(modelId);
+    const isRecoverableModelHttp =
+      response.status === 404 || response.status === 400 || response.status === 429;
+
+    if (!response.ok && isRecoverableModelHttp) {
+      lastHttpError = mapHttpStatusToGeminiError(response.status, '', errPayload);
+      triedModels.push(modelId);
       invalidateGeminiModelCache();
-      modelId = await resolveModel(cleanKey, {
+
+      const nextDiscovery = await discoverCandidateModels(cleanKey, {
         signal,
         forceRefresh: true,
-        excludeModels: excludedModels,
-      });
-      continue;
+        excludeModels: triedModels,
+      }).catch(() => null);
+
+      if (nextDiscovery?.chosen && attempt + 1 < MAX_MODEL_FALLBACK_ATTEMPTS) {
+        modelId = nextDiscovery.chosen;
+        continue;
+      }
+
+      if (response.status === 429) {
+        await waitWithSignal(RATE_LIMIT_DELAYS_MS[0], signal);
+        response = await fetchWithTimeout(buildGenerateContentUrl(modelId), {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-goog-api-key': cleanKey,
+          },
+          body: JSON.stringify(body),
+          signal,
+        });
+        if (!response.ok) {
+          errPayload = await readResponseErrorPayload(response);
+          throw mapHttpStatusToGeminiError(response.status, '', errPayload);
+        }
+      } else {
+        throw lastHttpError;
+      }
     }
 
     if (!response.ok) {
-      throw mapHttpStatusToGeminiError(response.status);
+      throw mapHttpStatusToGeminiError(response.status, '', errPayload);
     }
 
     let data;
@@ -430,7 +587,57 @@ export async function callGemini({
       );
     }
 
-    return text;
+    return { text, model: modelId };
+  }
+
+  throw (
+    lastHttpError ||
+    new GeminiError(
+      'NO_MODEL_AVAILABLE',
+      'Nenhum modelo Gemini disponível respondeu com sucesso.'
+    )
+  );
+}
+
+export async function callGemini(options) {
+  const result = await callGeminiDetailed(options);
+  return result.text;
+}
+
+export async function testGeminiConnection(apiKey, { signal } = {}) {
+  const cleanKey = sanitizeGeminiKey(apiKey);
+  if (!cleanKey) {
+    return {
+      ok: false,
+      model: null,
+      latencyMs: 0,
+      errorMessage: 'Informe uma chave da API do Google AI Studio para testar.',
+    };
+  }
+
+  const startedAt = Date.now();
+  try {
+    const res = await callGeminiDetailed({
+      apiKey: cleanKey,
+      prompt: 'Responda apenas: OK',
+      temperature: 0,
+      maxOutputTokens: 16,
+      signal,
+    });
+    return {
+      ok: true,
+      model: res.model,
+      latencyMs: Math.max(1, Date.now() - startedAt),
+      errorMessage: '',
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      model: null,
+      latencyMs: Math.max(1, Date.now() - startedAt),
+      errorMessage:
+        err?.userMessage || err?.message || 'Não foi possível conectar ao Gemini.',
+    };
   }
 }
 

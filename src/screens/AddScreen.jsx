@@ -20,6 +20,7 @@ import {
   detectDoiQuery,
   detectIsbnQuery,
   getCachedSearchMedia,
+  getDefaultSourcesForFilter,
   loadActiveMediaSources,
   saveActiveMediaSources,
   searchMedia,
@@ -162,6 +163,67 @@ export function AddScreen({
     backlogLookup.byTitle.get(candidate.title.trim().toLowerCase()) ||
     null;
 
+  const quickSuggestions = useMemo(() => {
+    const libraryAuthors = Array.from(
+      new Set(
+        items
+          .filter((it) => it && it.inBacklog !== false && it.author)
+          .map((it) => String(it.author).split(/[;,]/)[0].trim())
+          .filter((name) => name.length >= 4 && name.length <= 28)
+      )
+    )
+      .slice(0, 3)
+      .map((author) => ({
+        label: author,
+        query: author,
+        filter: 'all',
+        sources: getDefaultSourcesForFilter('all'),
+      }));
+
+    const curated = [
+      {
+        label: 'Machado de Assis',
+        query: 'Machado de Assis',
+        filter: 'book',
+        sources: ['googleBooks'],
+      },
+      {
+        label: 'Clean Code',
+        query: 'Clean Code',
+        filter: 'book',
+        sources: ['googleBooks'],
+      },
+      {
+        label: 'Frank Herbert',
+        query: 'Frank Herbert',
+        filter: 'book',
+        sources: ['googleBooks'],
+      },
+      {
+        label: 'Berserk',
+        query: 'Berserk',
+        filter: 'manga',
+        sources: ['jikan'],
+      },
+      {
+        label: 'Metodologia Científica',
+        query: 'Metodologia Científica',
+        filter: 'academic',
+        sources: ['academic'],
+      },
+    ];
+
+    const seen = new Set();
+    return [...libraryAuthors, ...curated]
+      .filter((entry) => {
+        const key = entry.query.toLowerCase();
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      })
+      .slice(0, 6);
+  }, [items]);
+
   const updateSources = useCallback((nextList) => {
     setActiveSources(nextList);
     saveActiveMediaSources(nextList);
@@ -179,6 +241,20 @@ export function AddScreen({
   const handleSelectPreset = (preset) => {
     updateSources(preset.sources);
     setSearchFilter(preset.filter);
+  };
+
+  const handleSelectFilterTab = (nextFilter) => {
+    setSearchFilter(nextFilter);
+    updateSources(getDefaultSourcesForFilter(nextFilter));
+  };
+
+  const handleApplyQuickSuggestion = (sug) => {
+    searchAbortRef.current?.abort();
+    setSearchFilter(sug.filter || 'all');
+    if (Array.isArray(sug.sources) && sug.sources.length > 0) {
+      updateSources(sug.sources);
+    }
+    setQuery(sug.query);
   };
 
   const executeSearch = useCallback(
@@ -234,6 +310,8 @@ export function AddScreen({
             if (Array.isArray(partial.results) && partial.results.length > 0) {
               setResults(partial.results);
               setIsLoading(false);
+            } else if ((partial.pendingCount || 0) === 0) {
+              setIsLoading(false);
             }
           },
         });
@@ -263,6 +341,7 @@ export function AddScreen({
   useEffect(() => {
     const cleanQuery = query.trim();
     clearTimeout(debounceTimerRef.current);
+    searchAbortRef.current?.abort();
 
     if (!cleanQuery || cleanQuery.toLowerCase() === '#ovodepascoa67') {
       executeSearch(cleanQuery, searchFilter, activeSources);
@@ -282,7 +361,7 @@ export function AddScreen({
     setIsLoading(true);
     debounceTimerRef.current = setTimeout(() => {
       executeSearch(cleanQuery, searchFilter, activeSources);
-    }, 320);
+    }, 220);
 
     return () => {
       clearTimeout(debounceTimerRef.current);
@@ -547,6 +626,25 @@ export function AddScreen({
           )}
         </div>
 
+        {/* Sugestões rápidas clicáveis quando o campo está vazio */}
+        {!query.trim() && quickSuggestions.length > 0 && (
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-[10px] font-medium uppercase tracking-wider text-muted">
+              Sugestões:
+            </span>
+            {quickSuggestions.map((sug) => (
+              <button
+                key={sug.label}
+                type="button"
+                onClick={() => handleApplyQuickSuggestion(sug)}
+                className="min-h-[32px] rounded-[4px] border border-line bg-card px-2.5 py-1 text-[11px] font-medium text-ink transition-colors hover:border-accent hover:text-accent"
+              >
+                {sug.label}
+              </button>
+            ))}
+          </div>
+        )}
+
         {/* Seletor de Fontes Ativas + Predefinicoes de 1 clique */}
         <div className="space-y-1.5 rounded-[6px] border border-line bg-card p-2.5">
           <div className="flex flex-wrap items-center justify-between gap-2">
@@ -607,7 +705,7 @@ export function AddScreen({
               <button
                 key={filterItem.id}
                 type="button"
-                onClick={() => setSearchFilter(filterItem.id)}
+                onClick={() => handleSelectFilterTab(filterItem.id)}
                 className={`shrink-0 rounded-[4px] border px-3 py-1 text-[11px] font-medium transition-colors ${
                   isActive
                     ? 'border-accent bg-accent text-accent-ink'
