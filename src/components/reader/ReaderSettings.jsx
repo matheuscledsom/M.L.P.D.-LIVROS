@@ -219,7 +219,7 @@ export function ReaderSettings({
               onClick={() =>
                 onUpdateSettings({ focusRuler: !settings.focusRuler })
               }
-              className="min-h-[40px] rounded-[4px] border px-3 text-xs font-medium transition-colors duration-150 ease-out"
+              className="min-h-[44px] rounded-[4px] border px-3 text-xs font-medium transition-colors duration-150 ease-out"
               style={{
                 borderColor: settings.focusRuler
                   ? 'var(--reader-accent)'
@@ -227,9 +227,40 @@ export function ReaderSettings({
                 color: settings.focusRuler
                   ? 'var(--reader-accent)'
                   : 'var(--reader-muted)',
+                touchAction: 'manipulation',
               }}
             >
               {settings.focusRuler ? 'Ativa' : 'Desligada'}
+            </button>
+          </SettingRow>
+
+          <SettingRow
+            label="Gestos de toque"
+            hint="Toques laterais viram páginas; centro abre barras ou marca página"
+          >
+            <button
+              type="button"
+              role="switch"
+              aria-checked={settings.touchGesturesEnabled !== false}
+              onClick={() =>
+                onUpdateSettings({
+                  touchGesturesEnabled: !(settings.touchGesturesEnabled !== false),
+                })
+              }
+              className="min-h-[44px] rounded-[4px] border px-3 text-xs font-medium transition-colors duration-150 ease-out"
+              style={{
+                borderColor:
+                  settings.touchGesturesEnabled !== false
+                    ? 'var(--reader-accent)'
+                    : 'var(--reader-border)',
+                color:
+                  settings.touchGesturesEnabled !== false
+                    ? 'var(--reader-accent)'
+                    : 'var(--reader-muted)',
+                touchAction: 'manipulation',
+              }}
+            >
+              {settings.touchGesturesEnabled !== false ? 'Ativo' : 'Desligado'}
             </button>
           </SettingRow>
 

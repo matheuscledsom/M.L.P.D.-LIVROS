@@ -492,10 +492,24 @@ export function buildContinueReadingHub(items = [], storedReaderBooks = []) {
     const workId = String(item.id);
     consumedWorkIds.add(workId);
     const storedBook = storedByWorkId.get(workId) || null;
+    const readerPos = item.readerState?.position || null;
     const pct =
-      storedBook && Number(storedBook.progressPct) > 0 && Number(item.progress) === 0
-        ? storedBook.progressPct
-        : calculateWorkProgress(item);
+      readerPos && typeof readerPos.progressPct === 'number'
+        ? readerPos.progressPct
+        : storedBook &&
+            Number(storedBook.progressPct) > 0 &&
+            !(Number(item.progress) > 0 || Number(item.progressPercent) > 0)
+          ? storedBook.progressPct
+          : calculateWorkProgress(item);
+    const resolvedTotalPages =
+      Number(item.totalPages || readerPos?.totalPages || storedBook?.totalPages) || 0;
+    const resolvedCurrentPage =
+      resolvedTotalPages > 0
+        ? Math.max(
+            0,
+            Number(item.currentPage ?? readerPos?.page ?? storedBook?.currentPage) || 0
+          )
+        : 0;
     const workMs = Date.parse(item.updatedAt || item.createdAt || '') || 0;
     const storedMs = Date.parse(storedBook?.lastOpenedAt || storedBook?.savedAt || '') || 0;
 
@@ -511,6 +525,8 @@ export function buildContinueReadingHub(items = [], storedReaderBooks = []) {
       workType: item.workType || 'book',
       format: storedBook?.format ? storedBook.format.toUpperCase() : item.format || '',
       progressPct: Math.max(0, Math.min(100, Number(pct) || 0)),
+      currentPage: resolvedCurrentPage,
+      totalPages: resolvedTotalPages,
       metricLabel: formatFlexibleProgressMetric(item),
       lastActivityMs: Math.max(workMs, storedMs),
     });
@@ -523,6 +539,11 @@ export function buildContinueReadingHub(items = [], storedReaderBooks = []) {
 
     const linkedWork = sb.linkedWork || null;
     const lastMs = Date.parse(sb.lastOpenedAt || sb.savedAt || '') || 0;
+    const sbTotalPages = Number(linkedWork?.totalPages || sb.totalPages) || 0;
+    const sbCurrentPage =
+      sbTotalPages > 0
+        ? Math.max(0, Number(linkedWork?.currentPage ?? sb.currentPage) || 0)
+        : 0;
     unified.push({
       id: String(sb.bookId || sb.workId),
       kind: linkedWork ? 'work' : 'digital',
@@ -535,7 +556,9 @@ export function buildContinueReadingHub(items = [], storedReaderBooks = []) {
       workType: linkedWork?.workType || (sb.format === 'cbz' ? 'manga' : 'book'),
       format: String(sb.format || 'epub').toUpperCase(),
       progressPct: Math.max(0, Math.min(100, Number(sb.progressPct) || 0)),
-      metricLabel: `${Math.round(Number(sb.progressPct) || 0)}% · ${sb.sizeLabel || 'Offline'}`,
+      currentPage: sbCurrentPage,
+      totalPages: sbTotalPages,
+      metricLabel: `${Math.round((Number(sb.progressPct) || 0) * 10) / 10}% · ${sb.sizeLabel || 'Offline'}`,
       lastActivityMs: lastMs,
     });
   }

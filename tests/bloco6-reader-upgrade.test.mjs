@@ -89,28 +89,35 @@ test('6 cores de marcacao dessaturadas e normalizacao de legados', () => {
 
 test('telemetria dual (% <-> paginas) e banner Onde Parei (>24h)', () => {
   assert.equal(formatExactPercent(42.54), '42.5%');
+  assert.equal(formatExactPercent(104), '100%');
+  assert.equal(formatExactPercent(-5), '0.0%');
 
   const telemetry = computeTelemetryEstimate({
     position: {
       page: 148,
       totalPages: 347,
-      chapterPage: 4,
-      chapterTotalPages: 12,
       progressPct: 42.65,
-    },
-    activeSeconds: 300,
-    startPosition: {
-      page: 143,
-      progressPct: 41.2,
     },
   });
 
-  assert.equal(telemetry.percentText, '42.7%');
-  assert.equal(telemetry.pagesText, '148 lidas · faltam 199 págs (de 347)');
-  assert.ok(telemetry.chapterMinutesRemaining > 0);
-  assert.ok(telemetry.bookMinutesRemaining > 0);
-  assert.ok(telemetry.timeText.includes('para fim do capítulo'));
-  assert.ok(telemetry.timeText.includes('restantes no livro'));
+  assert.equal(telemetry.pct, 42.7);
+  assert.equal(telemetry.remainingPct, 57.3);
+  assert.equal(telemetry.percentText, '42.7% lido · falta 57.3%');
+  assert.equal(telemetry.pagesText, '148 págs lidas · faltam 199 págs');
+  assert.equal(telemetry.hasTotalPages, true);
+  assert.equal('timeText' in telemetry, false);
+  assert.equal('bookMinutesRemaining' in telemetry, false);
+
+  const noPagesTelemetry = computeTelemetryEstimate({
+    position: {
+      page: 0,
+      totalPages: 0,
+      progressPct: 33.34,
+    },
+  });
+  assert.equal(noPagesTelemetry.percentText, '33.3% lido · falta 66.7%');
+  assert.equal(noPagesTelemetry.hasTotalPages, false);
+  assert.equal(noPagesTelemetry.pagesText, '');
 
   const nowMinus25h = new Date(Date.now() - 25 * 3600 * 1000).toISOString();
   const nowMinus2h = new Date(Date.now() - 2 * 3600 * 1000).toISOString();

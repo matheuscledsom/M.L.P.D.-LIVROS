@@ -8,6 +8,10 @@ import {
   useState,
 } from 'react';
 import { resolveReaderDomColors } from '../../utils/readerThemes';
+import {
+  scrollContainerByViewportFraction,
+  useReaderGestures,
+} from './useReaderGestures';
 
 const IMAGE_EXT_REGEX = /\.(jpe?g|png|webp|gif|bmp|avif)$/i;
 
@@ -97,6 +101,8 @@ export const ComicView = forwardRef(function ComicView(
     onTocReady,
     onError,
     onCenterTap,
+    onCenterDoubleTap,
+    onLongPressSettings,
   },
   ref
 ) {
@@ -104,7 +110,6 @@ export const ComicView = forwardRef(function ComicView(
   const zipRef = useRef(null);
   const urlCacheRef = useRef(new Map());
   const webtoonRefs = useRef(new Map());
-  const lastTapRef = useRef(0);
 
   const [pages, setPages] = useState([]);
   const [currentIndex, setCurrentIndex] = useState(Math.max(0, (initialPage || 1) - 1));
@@ -323,31 +328,38 @@ export const ComicView = forwardRef(function ComicView(
     }
   };
 
-  const handleTap = (e) => {
-    const now = Date.now();
-    if (now - lastTapRef.current < 260) {
-      setIsZoomed((prev) => !prev);
-      lastTapRef.current = 0;
-      return;
-    }
-    lastTapRef.current = now;
+  const isZoomedOrPanned =
+    isZoomed ||
+    Boolean(
+      scrollContainerRef.current &&
+        (scrollContainerRef.current.scrollLeft > 4 ||
+          (settings.cbzMode !== 'webtoon' && scrollContainerRef.current.scrollTop > 4))
+    );
 
-    if (settings.cbzMode === 'webtoon') {
-      onCenterTap?.();
-      return;
-    }
-
-    const rect = e.currentTarget.getBoundingClientRect();
-    const xRatio = (e.clientX - rect.left) / rect.width;
-
-    if (xRatio < 0.25) {
-      goToIndex(isRtl ? currentIndex + stepSize : currentIndex - stepSize);
-    } else if (xRatio > 0.75) {
-      goToIndex(isRtl ? currentIndex - stepSize : currentIndex + stepSize);
-    } else {
-      onCenterTap?.();
-    }
-  };
+  const gestures = useReaderGestures({
+    enabled: settings.touchGesturesEnabled !== false,
+    allowCenterDoubleTap: !isZoomedOrPanned,
+    viewportRef: scrollContainerRef,
+    onLeftTap: () => {
+      if (isZoomed) return;
+      if (settings.cbzMode === 'webtoon') {
+        scrollContainerByViewportFraction(scrollContainerRef.current, -1, 0.9);
+      } else {
+        goToIndex(isRtl ? currentIndex + stepSize : currentIndex - stepSize);
+      }
+    },
+    onRightTap: () => {
+      if (isZoomed) return;
+      if (settings.cbzMode === 'webtoon') {
+        scrollContainerByViewportFraction(scrollContainerRef.current, 1, 0.9);
+      } else {
+        goToIndex(isRtl ? currentIndex - stepSize : currentIndex + stepSize);
+      }
+    },
+    onCenterTap,
+    onCenterDoubleTap,
+    onLongPressSettings,
+  });
 
   const fitClass =
     settings.cbzFit === 'height'
@@ -376,13 +388,19 @@ export const ComicView = forwardRef(function ComicView(
     <div
       ref={scrollContainerRef}
       onScroll={handleWebtoonScroll}
-      onClick={handleTap}
+      {...gestures.getContainerPointerProps()}
       onDoubleClick={(e) => {
-        e.stopPropagation();
-        setIsZoomed((prev) => !prev);
+        if (isZoomedOrPanned) {
+          e.stopPropagation();
+          setIsZoomed(false);
+        }
       }}
       className="h-full w-full overflow-auto px-2 pt-14 pb-20 no-scrollbar"
-      style={{ backgroundColor: domColors.bg, color: domColors.ink }}
+      style={{
+        backgroundColor: domColors.bg,
+        color: domColors.ink,
+        touchAction: isZoomed ? 'pan-x pan-y pinch-zoom' : 'manipulation',
+      }}
     >
       {settings.cbzMode === 'webtoon' ? (
         <div className="mx-auto flex max-w-3xl flex-col gap-1">

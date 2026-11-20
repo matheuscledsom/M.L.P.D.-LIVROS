@@ -2,7 +2,7 @@ import { detectBookFileFormat } from '../utils/fileFormatDetector.js';
 
 const DB_NAME = 'codice_reader_files_v1';
 const STORE_NAME = 'book_files';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 // Fallback em memória para ambientes headless/Node de teste sem IndexedDB
 const memoryStore = new Map();
@@ -268,6 +268,72 @@ export async function markStoredBookOpened(workId) {
 export async function getBookReaderState(workId) {
   const record = await getBookFileRecord(workId);
   return record?.readerState || null;
+}
+
+export async function getBookEpubLocations(workId) {
+  const record = await getBookFileRecord(workId);
+  return record?.epubLocations || null;
+}
+
+export async function saveBookEpubLocations(workId, epubLocations) {
+  if (!workId || !epubLocations) return false;
+  const key = String(workId);
+  const nowIso = new Date().toISOString();
+
+  if (!hasIndexedDb()) {
+    const existing = memoryStore.get(key) || {
+      workId: key,
+      blob: null,
+      fileHandle: null,
+      fileName: 'obra',
+      format: 'epub',
+      size: 0,
+      savedAt: nowIso,
+      lastOpenedAt: nowIso,
+    };
+    memoryStore.set(key, {
+      ...existing,
+      workId: key,
+      epubLocations,
+    });
+    return true;
+  }
+
+  try {
+    const db = await openReaderDb();
+    return await new Promise((resolve) => {
+      const tx = db.transaction(STORE_NAME, 'readwrite');
+      const store = tx.objectStore(STORE_NAME);
+      const req = store.get(key);
+      req.onsuccess = () => {
+        const existing = req.result || {
+          workId: key,
+          blob: null,
+          fileHandle: null,
+          fileName: 'obra',
+          format: 'epub',
+          size: 0,
+          savedAt: nowIso,
+          lastOpenedAt: nowIso,
+        };
+        store.put({
+          ...existing,
+          workId: key,
+          epubLocations,
+        });
+      };
+      tx.oncomplete = () => {
+        db.close();
+        resolve(true);
+      };
+      tx.onerror = () => {
+        db.close();
+        resolve(false);
+      };
+    });
+  } catch {
+    return false;
+  }
 }
 
 export async function getBookFileRecord(workId) {

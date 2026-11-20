@@ -14,6 +14,10 @@ import {
   resolveReaderDomColors,
 } from '../../utils/readerThemes';
 import { FONT_PRESETS } from '../../utils/themeTokens';
+import {
+  scrollContainerByViewportFraction,
+  useReaderGestures,
+} from './useReaderGestures';
 
 const CHAPTER_HEADING_REGEX =
   /^(?:#{1,3}\s+(.+)|((?:cap[íi]tulo|chapter|parte|part|se[çc][ãa]o|livro)\s+[0-9ivxlcdm]+[^\n]*))$/i;
@@ -225,6 +229,8 @@ export const TextView = forwardRef(function TextView(
     onTextSelect,
     onError,
     onCenterTap,
+    onCenterDoubleTap,
+    onLongPressSettings,
   },
   ref
 ) {
@@ -561,25 +567,27 @@ export const TextView = forwardRef(function TextView(
     });
   };
 
-  const handleTap = (e) => {
-    const sel = window.getSelection?.()?.toString()?.trim();
-    if (sel) return;
-
-    if (settings.textFlow === 'scrolled') {
-      onCenterTap?.();
-      return;
-    }
-
-    const rect = e.currentTarget.getBoundingClientRect();
-    const xRatio = (e.clientX - rect.left) / rect.width;
-    if (xRatio < 0.25) {
-      goToSection(activeSectionIndex - 1);
-    } else if (xRatio > 0.75) {
-      goToSection(activeSectionIndex + 1);
-    } else {
-      onCenterTap?.();
-    }
-  };
+  const gestures = useReaderGestures({
+    enabled: settings.touchGesturesEnabled !== false,
+    viewportRef: scrollRef,
+    onLeftTap: () => {
+      if (settings.textFlow === 'scrolled') {
+        scrollContainerByViewportFraction(scrollRef.current, -1, 0.9);
+      } else {
+        goToSection(activeSectionIndex - 1);
+      }
+    },
+    onRightTap: () => {
+      if (settings.textFlow === 'scrolled') {
+        scrollContainerByViewportFraction(scrollRef.current, 1, 0.9);
+      } else {
+        goToSection(activeSectionIndex + 1);
+      }
+    },
+    onCenterTap,
+    onCenterDoubleTap,
+    onLongPressSettings,
+  });
 
   const fontPreset = useMemo(
     () => FONT_PRESETS.find((f) => f.id === settings.fontId) || FONT_PRESETS[0],
@@ -638,10 +646,16 @@ export const TextView = forwardRef(function TextView(
       ref={scrollRef}
       onScroll={handleScroll}
       onMouseUp={handleSelectionRelease}
-      onTouchEnd={handleSelectionRelease}
-      onClick={handleTap}
+      onTouchEnd={() => {
+        setTimeout(handleSelectionRelease, 15);
+      }}
+      {...gestures.getContainerPointerProps()}
       className={`h-full w-full overflow-y-auto pt-16 pb-24 no-scrollbar ${marginPad}`}
-      style={{ backgroundColor: domColors.bg, color: domColors.ink }}
+      style={{
+        backgroundColor: domColors.bg,
+        color: domColors.ink,
+        touchAction: 'manipulation',
+      }}
     >
       <div
         className="codice-prose mx-auto max-w-[68ch] space-y-8"

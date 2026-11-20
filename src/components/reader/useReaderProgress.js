@@ -15,6 +15,7 @@ export const DEFAULT_READER_SETTINGS = {
   sepiaWarmth: 50,
   brightnessPct: 100,
   focusRuler: false,
+  touchGesturesEnabled: true,
   fontId: 'lora',
   fontSizePct: 110,
   lineHeight: 1.65,
@@ -69,6 +70,7 @@ export function normalizeReaderSettings(rawSettings = {}) {
       Math.min(100, Number(merged.brightnessPct ?? 100) || 100)
     ),
     focusRuler: Boolean(merged.focusRuler),
+    touchGesturesEnabled: merged.touchGesturesEnabled !== false,
     fontSizePct: Math.max(80, Math.min(200, Number(merged.fontSizePct) || 110)),
     lineHeight: Math.max(1.35, Math.min(2.1, Number(merged.lineHeight) || 1.65)),
     paragraphSpacing: Math.max(
@@ -78,132 +80,53 @@ export function normalizeReaderSettings(rawSettings = {}) {
   };
 }
 
+export function clampProgressPct(rawPct) {
+  const num = Number(rawPct);
+  if (!Number.isFinite(num) || num <= 0) return 0;
+  if (num >= 99.95) return 100;
+  return Math.round(num * 10) / 10;
+}
+
 export function formatExactPercent(rawPct) {
-  const num = Math.max(0, Math.min(100, Number(rawPct) || 0));
-  const rounded = Math.round(num * 10) / 10;
-  return `${rounded.toFixed(1)}%`;
+  const clamped = clampProgressPct(rawPct);
+  if (clamped >= 100) return '100%';
+  return `${clamped.toFixed(1)}%`;
 }
 
-export function formatBookRemainingLabel(minutes) {
-  const mins = Math.max(0, Math.round(Number(minutes) || 0));
-  if (mins <= 0) return 'leitura concluída';
-  if (mins < 60) return `${mins} min restantes no livro`;
-  const hours = Math.floor(mins / 60);
-  const remMins = mins % 60;
-  return remMins > 0
-    ? `${hours}h ${remMins}min restantes no livro`
-    : `${hours}h restantes no livro`;
-}
+export function computeTelemetryEstimate({ position = {} } = {}) {
+  const pct = clampProgressPct(position.progressPct);
+  const remainingPct = clampProgressPct(Math.max(0, 100 - pct));
+  const rawTotal = Number(position.totalPages);
+  const totalPages =
+    Number.isFinite(rawTotal) && rawTotal > 0 ? Math.round(rawTotal) : 0;
 
-export function computeTelemetryEstimate({
-  position = {},
-  activeSeconds = 0,
-  startPosition = {},
-  chapters = [],
-}) {
-  const pct = Math.max(0, Math.min(100, Number(position.progressPct) || 0));
-  const remainingPct = Math.max(0, 100 - pct);
-  const totalPages = Math.max(0, Number(position.totalPages) || 0);
-  const readPages =
-    totalPages > 0
-      ? Math.max(1, Math.min(totalPages, Number(position.page) || 1))
-      : Math.max(0, Number(position.page) || 0);
-  const remainingPages = Math.max(0, totalPages - readPages);
-
-  // Calcula velocidade real (segundos por % e por página) após amostra mínima
-  const startPct = Math.max(
-    0,
-    Math.min(100, Number(startPosition?.progressPct) || 0)
-  );
-  const pctGained = pct - startPct;
-  const startPage = Math.max(0, Number(startPosition?.page) || 0);
-  const pagesGained = readPages - startPage;
-
-  let secondsPerPage = 90; // ritmo editorial padrão (~1,5 min/pág)
-  if (activeSeconds >= 25 && pagesGained >= 1) {
-    const measured = activeSeconds / pagesGained;
-    secondsPerPage = Math.max(20, Math.min(360, measured));
-  } else if (activeSeconds >= 30 && pctGained >= 0.3 && totalPages > 0) {
-    const equivPagesGained = (pctGained / 100) * totalPages;
-    if (equivPagesGained >= 0.25) {
-      secondsPerPage = Math.max(
-        20,
-        Math.min(360, activeSeconds / equivPagesGained)
-      );
-    }
+  let readPages = 0;
+  let remainingPages = 0;
+  if (totalPages > 0) {
+    const rawPage = Number(position.page);
+    const derivedPage =
+      Number.isFinite(rawPage) && rawPage > 0
+        ? Math.round(rawPage)
+        : Math.max(1, Math.round((pct / 100) * totalPages));
+    readPages = Math.max(1, Math.min(totalPages, derivedPage));
+    remainingPages = Math.max(0, totalPages - readPages);
   }
 
-  let bookMinutesRemaining = 0;
-  if (remainingPct > 0) {
-    if (activeSeconds >= 30 && pctGained >= 0.3) {
-      const secondsPerPct = Math.max(
-        6,
-        Math.min(1800, activeSeconds / pctGained)
-      );
-      bookMinutesRemaining = Math.max(
-        1,
-        Math.round((remainingPct * secondsPerPct) / 60)
-      );
-    } else if (totalPages > 0) {
-      bookMinutesRemaining = Math.max(
-        1,
-        Math.round((remainingPages * secondsPerPage) / 60)
-      );
-    } else {
-      bookMinutesRemaining = Math.max(1, Math.round(remainingPct * 1.2));
-    }
-  }
-
-  // Tempo restante no capítulo atual
-  let chapterMinutesRemaining = 0;
-  const chPage = Number(position.chapterPage) || 0;
-  const chTotal = Number(position.chapterTotalPages) || 0;
-  if (chTotal > 0 && chPage > 0 && chTotal >= chPage) {
-    const chRemainingPages = Math.max(0, chTotal - chPage);
-    if (chRemainingPages > 0) {
-      chapterMinutesRemaining = Math.max(
-        1,
-        Math.round((chRemainingPages * secondsPerPage) / 60)
-      );
-    }
-  } else if (Array.isArray(chapters) && chapters.length > 0 && remainingPct > 0) {
-    const nextChapter = chapters.find((ch) => {
-      const chPct = Number(ch?.pct);
-      return Number.isFinite(chPct) && chPct > pct + 0.5;
-    });
-    if (nextChapter) {
-      const deltaPct = Math.max(0, Number(nextChapter.pct) - pct);
-      if (deltaPct > 0 && bookMinutesRemaining > 0) {
-        chapterMinutesRemaining = Math.max(
-          1,
-          Math.round((deltaPct / remainingPct) * bookMinutesRemaining)
-        );
-      }
-    }
-  }
-
-  const percentText = formatExactPercent(pct);
+  const percentText = `${formatExactPercent(pct)} lido · falta ${formatExactPercent(remainingPct)}`;
   const pagesText =
     totalPages > 0
-      ? `${readPages} lidas · faltam ${remainingPages} págs (de ${totalPages})`
-      : `${readPages} págs lidas`;
-
-  const bookLabel = formatBookRemainingLabel(bookMinutesRemaining);
-  const timeText =
-    bookMinutesRemaining > 0 && chapterMinutesRemaining > 0
-      ? `${chapterMinutesRemaining} min para fim do capítulo · ${bookLabel}`
-      : bookLabel;
+      ? `${readPages} págs lidas · faltam ${remainingPages} págs`
+      : '';
 
   return {
     pct,
+    remainingPct,
     percentText,
     readPages,
     totalPages,
     remainingPages,
+    hasTotalPages: totalPages > 0,
     pagesText,
-    bookMinutesRemaining,
-    chapterMinutesRemaining,
-    timeText,
   };
 }
 
@@ -257,23 +180,30 @@ export function useReaderProgress({
     chapterPage: Number(work?.readerState?.position?.chapterPage) || 0,
     chapterTotalPages:
       Number(work?.readerState?.position?.chapterTotalPages) || 0,
-    progressPct:
+    progressPct: clampProgressPct(
       typeof work?.readerState?.position?.progressPct === 'number'
         ? work.readerState.position.progressPct
-        : Number(work?.progress) || 0,
+        : Number(work?.progressPercent ?? work?.progress) || 0
+    ),
   }));
 
   const [recapInfo, setRecapInfo] = useState(null);
   const [activeSeconds, setActiveSeconds] = useState(0);
+  const [persistWarning, setPersistWarning] = useState('');
   const startedAtRef = useRef(new Date().toISOString());
   const startPositionRef = useRef(position);
   const debounceRef = useRef(null);
   const latestWorkIdRef = useRef(effectiveStorageKey);
+  const hasHydratedRef = useRef(false);
 
   // Hidrata estado unindo dados da obra + IndexedDB (prevalece o mais recente) + ajustes globais
   useEffect(() => {
-    if (!isOpen) return undefined;
+    if (!isOpen) {
+      hasHydratedRef.current = false;
+      return undefined;
+    }
     let cancelled = false;
+    hasHydratedRef.current = false;
     latestWorkIdRef.current = effectiveStorageKey;
 
     const hydrateState = async () => {
@@ -286,7 +216,7 @@ export function useReaderProgress({
       const workTs = Date.parse(workSaved.lastReadAt || '') || 0;
       const idbTs = Date.parse(idbSaved?.lastReadAt || '') || 0;
       const saved =
-        idbSaved && idbTs > workTs ? { ...workSaved, ...idbSaved } : workSaved;
+        idbSaved && idbTs >= workTs ? { ...workSaved, ...idbSaved } : workSaved;
 
       const globalSettings = loadGlobalReaderSettings();
       const nextSettings = normalizeReaderSettings({
@@ -294,21 +224,31 @@ export function useReaderProgress({
         ...(saved.settings || {}),
       });
 
+      const rawTotalPages =
+        Number(saved.position?.totalPages) || Number(work?.totalPages) || 0;
+      const rawPct =
+        typeof saved.position?.progressPct === 'number'
+          ? saved.position.progressPct
+          : Number(work?.progressPercent ?? work?.progress) || 0;
+
       const nextPos = {
         page:
-          Number(saved.position?.page) ||
-          Math.max(1, Number(work?.currentPage) || 1),
-        totalPages:
-          Number(saved.position?.totalPages) || Number(work?.totalPages) || 0,
+          rawTotalPages > 0
+            ? Math.max(
+                1,
+                Math.min(
+                  rawTotalPages,
+                  Number(saved.position?.page) || Number(work?.currentPage) || 1
+                )
+              )
+            : Number(saved.position?.page) || Number(work?.currentPage) || 0,
+        totalPages: rawTotalPages,
         cfi: saved.position?.cfi || '',
         scrollRatio: Number(saved.position?.scrollRatio) || 0,
         chapterLabel: saved.position?.chapterLabel || '',
         chapterPage: Number(saved.position?.chapterPage) || 0,
         chapterTotalPages: Number(saved.position?.chapterTotalPages) || 0,
-        progressPct:
-          typeof saved.position?.progressPct === 'number'
-            ? saved.position.progressPct
-            : Number(work?.progress) || 0,
+        progressPct: clampProgressPct(rawPct),
       };
 
       const savedHighlights = Array.isArray(saved.highlights)
@@ -324,8 +264,10 @@ export function useReaderProgress({
       setHighlights(savedHighlights);
       setPosition(nextPos);
       setActiveSeconds(0);
+      setPersistWarning('');
       startedAtRef.current = new Date().toISOString();
       startPositionRef.current = nextPos;
+      hasHydratedRef.current = true;
 
       const prevReadIso = saved.lastReadAt || work?.updatedAt || '';
       if (shouldShowRecapBanner(prevReadIso, nextPos)) {
@@ -396,24 +338,98 @@ export function useReaderProgress({
     };
   }, [isOpen]);
 
-  // Persistência com debounce (400ms) na obra e no IndexedDB
+  const latestSnapshotRef = useRef({
+    isOpen,
+    workId: work?.id || '',
+    storageKey: effectiveStorageKey,
+    settings,
+    bookmarks,
+    highlights,
+    position,
+    onPersistReaderState,
+  });
+
+  latestSnapshotRef.current = {
+    isOpen,
+    workId: work?.id || '',
+    storageKey: effectiveStorageKey,
+    settings,
+    bookmarks,
+    highlights,
+    position,
+    onPersistReaderState,
+  };
+
+  const buildNormalizedPayload = useCallback((snap) => {
+    const pos = snap.position || {};
+    const clampedPct = clampProgressPct(pos.progressPct);
+    const rawTotal = Number(pos.totalPages);
+    const safeTotal =
+      Number.isFinite(rawTotal) && rawTotal > 0 ? Math.round(rawTotal) : 0;
+    const rawPage = Number(pos.page);
+    const safePage =
+      safeTotal > 0
+        ? Math.max(
+            1,
+            Math.min(
+              safeTotal,
+              Number.isFinite(rawPage) && rawPage > 0
+                ? Math.round(rawPage)
+                : Math.max(1, Math.round((clampedPct / 100) * safeTotal))
+            )
+          )
+        : 0;
+
+    return {
+      settings: snap.settings,
+      bookmarks: snap.bookmarks,
+      highlights: snap.highlights,
+      position: {
+        ...pos,
+        progressPct: clampedPct,
+        totalPages: safeTotal,
+        page: safePage,
+      },
+      lastReadAt: new Date().toISOString(),
+    };
+  }, []);
+
+  const flushPersistence = useCallback(async () => {
+    clearTimeout(debounceRef.current);
+    const snap = latestSnapshotRef.current;
+    if (!hasHydratedRef.current) return true;
+    const payload = buildNormalizedPayload(snap);
+    let idbOk = true;
+    if (snap.storageKey) {
+      try {
+        idbOk = await saveBookReaderState(snap.storageKey, payload);
+      } catch {
+        idbOk = false;
+      }
+    }
+    if (!idbOk) {
+      setPersistWarning(
+        'Não foi possível gravar o progresso no dispositivo neste momento.'
+      );
+    } else {
+      setPersistWarning('');
+    }
+    if (snap.workId && snap.onPersistReaderState) {
+      try {
+        snap.onPersistReaderState(snap.workId, payload);
+      } catch {
+        // Última escrita tolerante sem travar interface
+      }
+    }
+    return idbOk;
+  }, [buildNormalizedPayload]);
+
+  // Persistência com debounce (400ms) no IndexedDB e na obra (última escrita vence)
   useEffect(() => {
-    if (!isOpen) return undefined;
+    if (!isOpen || !hasHydratedRef.current) return undefined;
     clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => {
-      const payload = {
-        settings,
-        bookmarks,
-        highlights,
-        position,
-        lastReadAt: new Date().toISOString(),
-      };
-      if (work?.id && onPersistReaderState) {
-        onPersistReaderState(work.id, payload);
-      }
-      if (effectiveStorageKey) {
-        saveBookReaderState(effectiveStorageKey, payload);
-      }
+      flushPersistence();
     }, 400);
 
     return () => clearTimeout(debounceRef.current);
@@ -425,8 +441,31 @@ export function useReaderProgress({
     bookmarks,
     highlights,
     position,
-    onPersistReaderState,
+    flushPersistence,
   ]);
+
+  // Flush garantido em visibilitychange (hidden), pagehide e desmontagem
+  useEffect(() => {
+    if (!isOpen) return undefined;
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        flushPersistence();
+      }
+    };
+    const handlePageHide = () => {
+      flushPersistence();
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('pagehide', handlePageHide);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('pagehide', handlePageHide);
+      flushPersistence();
+    };
+  }, [isOpen, flushPersistence]);
 
   const updateSettings = useCallback((updates) => {
     setSettings((prev) => {
@@ -437,7 +476,42 @@ export function useReaderProgress({
   }, []);
 
   const updatePosition = useCallback((nextPos) => {
-    setPosition((prev) => ({ ...prev, ...nextPos }));
+    setPosition((prev) => {
+      const mergedPct =
+        nextPos?.progressPct !== undefined
+          ? clampProgressPct(nextPos.progressPct)
+          : prev.progressPct;
+      const mergedTotal =
+        nextPos?.totalPages !== undefined
+          ? Math.max(0, Math.round(Number(nextPos.totalPages) || 0))
+          : prev.totalPages;
+      const mergedPage =
+        mergedTotal > 0
+          ? Math.max(
+              1,
+              Math.min(
+                mergedTotal,
+                Math.round(
+                  Number(
+                    nextPos?.page !== undefined ? nextPos.page : prev.page
+                  ) || 1
+                )
+              )
+            )
+          : 0;
+      const next = {
+        ...prev,
+        ...nextPos,
+        progressPct: mergedPct,
+        totalPages: mergedTotal,
+        page: mergedPage,
+      };
+      latestSnapshotRef.current = {
+        ...latestSnapshotRef.current,
+        position: next,
+      };
+      return next;
+    });
   }, []);
 
   const dismissRecap = useCallback(() => {
@@ -538,34 +612,39 @@ export function useReaderProgress({
     () =>
       computeTelemetryEstimate({
         position,
-        activeSeconds,
-        startPosition: startPositionRef.current,
-        chapters,
       }),
-    [position, activeSeconds, chapters]
+    [position]
   );
 
   const buildSessionSummary = useCallback(() => {
     const startPage = Number(startPositionRef.current?.page) || 0;
     const endPage = Number(position.page) || 0;
     const pagesDelta = Math.max(0, endPage - startPage);
+    const latestState = buildNormalizedPayload({
+      settings,
+      bookmarks,
+      highlights,
+      position,
+    });
     return {
       workId: work?.id || '',
       startedAt: startedAtRef.current,
       endedAt: new Date().toISOString(),
       durationSeconds: activeSeconds,
       startPosition: startPositionRef.current,
-      endPosition: position,
+      endPosition: latestState.position,
       pagesRead: pagesDelta,
-      latestState: {
-        settings,
-        bookmarks,
-        highlights,
-        position,
-        lastReadAt: new Date().toISOString(),
-      },
+      latestState,
     };
-  }, [work?.id, activeSeconds, position, settings, bookmarks, highlights]);
+  }, [
+    work?.id,
+    activeSeconds,
+    position,
+    settings,
+    bookmarks,
+    highlights,
+    buildNormalizedPayload,
+  ]);
 
   return {
     settings,
@@ -573,13 +652,17 @@ export function useReaderProgress({
     bookmarks,
     highlights,
     position,
+    progressPercent: telemetry.pct,
+    currentPage: telemetry.readPages,
+    totalPages: telemetry.totalPages,
     activeSeconds,
     telemetry,
-    estimatedMinutesRemaining: telemetry.bookMinutesRemaining,
+    persistWarning,
     recapInfo,
     dismissRecap,
     updateSettings,
     updatePosition,
+    flushPersistence,
     toggleBookmark,
     removeBookmark,
     addHighlight,

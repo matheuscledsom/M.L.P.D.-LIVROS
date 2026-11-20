@@ -1,5 +1,6 @@
 import {
   AlertCircle,
+  Bookmark,
   BookOpen,
   FileUp,
   FolderOpen,
@@ -54,6 +55,7 @@ const TextView = lazy(() =>
 const KEYBOARD_SHORTCUTS = [
   { keys: '← / → ou PageUp / PageDown', desc: 'página anterior / próxima' },
   { keys: 'Espaço', desc: 'avançar página' },
+  { keys: 'B', desc: 'alternar marcador' },
   { keys: 'A', desc: 'tipografia e tema (Aa)' },
   { keys: 'F', desc: 'alternar tela cheia' },
   { keys: 'T', desc: 'abrir índice e notas' },
@@ -129,6 +131,8 @@ export function ReaderShell({
   const [tocItems, setTocItems] = useState([]);
   const [selectionState, setSelectionState] = useState(null);
   const [rulerY, setRulerY] = useState(48);
+  const [bookmarkFeedback, setBookmarkFeedback] = useState(null);
+  const bookmarkTimerRef = useRef(null);
 
   const quickStorageKey = useMemo(() => {
     if (work?.id) return '';
@@ -146,11 +150,16 @@ export function ReaderShell({
     bookmarks,
     highlights,
     position,
+    progressPercent,
+    currentPage,
+    totalPages,
     telemetry,
+    persistWarning,
     recapInfo,
     dismissRecap,
     updateSettings,
     updatePosition,
+    flushPersistence,
     toggleBookmark,
     removeBookmark,
     addHighlight,
@@ -327,17 +336,63 @@ export function ReaderShell({
     };
   }, [isOpen, work?.id, work?.title, initialBookId, initialFile, loadSelectedFile]);
 
+  const isBookmarkedHere = bookmarks.some(
+    (b) =>
+      (position.cfi && b.cfi === position.cfi) ||
+      (!position.cfi && currentPage > 0 && b.page === currentPage)
+  );
+
+  const handleToggleBars = useCallback(() => {
+    setBarsVisible((prev) => {
+      const next = !prev;
+      if (next) scheduleAutoHide();
+      return next;
+    });
+  }, [scheduleAutoHide]);
+
+  const handleToggleBookmark = useCallback(() => {
+    const wasBookmarked = bookmarks.some(
+      (b) =>
+        (position.cfi && b.cfi === position.cfi) ||
+        (!position.cfi && currentPage > 0 && b.page === currentPage)
+    );
+    toggleBookmark({
+      label:
+        position.chapterLabel ||
+        (currentPage > 0
+          ? `Página ${currentPage}`
+          : `Posição ${formatExactPercent(progressPercent)}`),
+      page: currentPage || 1,
+      cfi: position.cfi || '',
+      progressPct: progressPercent || 0,
+    });
+    clearTimeout(bookmarkTimerRef.current);
+    setBookmarkFeedback({
+      added: !wasBookmarked,
+      label: !wasBookmarked ? 'Marcador adicionado' : 'Marcador removido',
+      key: Date.now(),
+    });
+    bookmarkTimerRef.current = setTimeout(() => {
+      setBookmarkFeedback(null);
+    }, 1800);
+  }, [
+    bookmarks,
+    position.cfi,
+    position.chapterLabel,
+    currentPage,
+    progressPercent,
+    toggleBookmark,
+  ]);
+
+  useEffect(() => () => clearTimeout(bookmarkTimerRef.current), []);
+
   const handleCloseReader = useCallback(() => {
     if (document.fullscreenElement) {
       document.exitFullscreen?.().catch(() => {});
     }
+    flushPersistence?.();
     const summary = buildSessionSummary();
-    const targetKey = work?.id || quickStorageKey;
-    if (targetKey) {
-      saveBookReaderState(targetKey, summary.latestState);
-    }
     if (work?.id) {
-      onPersistReaderState?.(work.id, summary.latestState);
       if (summary.durationSeconds >= 5 || summary.pagesRead > 0) {
         onRecordSession?.(summary);
       }
@@ -347,11 +402,10 @@ export function ReaderShell({
     }
     onClose?.();
   }, [
+    flushPersistence,
     buildSessionSummary,
     work,
-    quickStorageKey,
     fileBlob,
-    onPersistReaderState,
     onRecordSession,
     onSyncWorkProgress,
     onClose,
@@ -430,6 +484,9 @@ export function ReaderShell({
       } else if (e.key === ' ') {
         e.preventDefault();
         engineRef.current?.nextPage?.();
+      } else if (e.key.toLowerCase() === 'b') {
+        e.preventDefault();
+        handleToggleBookmark();
       } else if (e.key.toLowerCase() === 'a') {
         e.preventDefault();
         setSettingsOpen((prev) => !prev);
@@ -486,17 +543,12 @@ export function ReaderShell({
     settings.pdfZoomScale,
     settings.fontSizePct,
     updateSettings,
+    handleToggleBookmark,
     handleToggleFullscreen,
     handleCloseReader,
   ]);
 
   if (!isOpen) return null;
-
-  const isBookmarkedHere = bookmarks.some(
-    (b) =>
-      (position.cfi && b.cfi === position.cfi) ||
-      (!position.cfi && position.page && b.page === position.page)
-  );
 
   const handleLinkSystemFile = async () => {
     try {
@@ -631,15 +683,15 @@ export function ReaderShell({
       }}
       onDragLeave={() => setIsDraggingOver(false)}
       onDrop={handleDropFile}
-      className="fixed inset-0 z-50 flex flex-col overflow-hidden"
+      className="fixed inset-0 z-50 flex h-[100dvh] flex-col overflow-hidden"
     >
       <ReaderToolbar
         title={work?.title || fileName || 'Leitor Códice'}
         formatLabel={fileFormat}
         visible={barsVisible || !fileBlob || Boolean(errorMsg)}
         telemetry={telemetry}
-        progressPct={position.progressPct}
-        totalPages={position.totalPages}
+        progressPct={progressPercent}
+        totalPages={totalPages}
         chapterLabel={position.chapterLabel}
         chapters={tocItems}
         isBookmarked={isBookmarkedHere}
@@ -656,20 +708,53 @@ export function ReaderShell({
         }}
         onCycleQuickTheme={handleCycleQuickTheme}
         onToggleSettings={() => setSettingsOpen((prev) => !prev)}
-        onToggleBookmark={() =>
-          toggleBookmark({
-            label:
-              position.chapterLabel ||
-              (position.page ? `Página ${position.page}` : 'Marcador'),
-            page: position.page || 1,
-            cfi: position.cfi || '',
-            progressPct: position.progressPct || 0,
-          })
-        }
+        onToggleBookmark={handleToggleBookmark}
         onToggleFullscreen={handleToggleFullscreen}
         onToggleHelp={() => setHelpOpen(true)}
         onScrubPercent={(pct) => engineRef.current?.goToPercent?.(pct)}
       />
+
+      {/* Feedback acessível discreto para marcador (duplo toque ou tecla B) */}
+      <div
+        role="status"
+        aria-live="polite"
+        className={`pointer-events-none fixed left-1/2 top-16 z-50 -translate-x-1/2 transition-opacity duration-150 ease-out ${
+          bookmarkFeedback ? 'opacity-100' : 'opacity-0'
+        }`}
+      >
+        {bookmarkFeedback && (
+          <div
+            className="inline-flex items-center gap-1.5 rounded-[4px] border px-3 py-1.5 text-xs font-medium"
+            style={{
+              backgroundColor: 'var(--reader-surface)',
+              borderColor: 'var(--reader-border)',
+              color: 'var(--reader-ink)',
+            }}
+          >
+            <Bookmark
+              className={`h-3.5 w-3.5 ${bookmarkFeedback.added ? 'fill-current' : ''}`}
+              style={{ color: 'var(--reader-accent)' }}
+              strokeWidth={1.5}
+            />
+            <span>{bookmarkFeedback.label}</span>
+          </div>
+        )}
+      </div>
+
+      {/* Aviso não-bloqueante se persistência local falhar */}
+      {persistWarning && (
+        <div
+          role="status"
+          className="fixed bottom-16 left-1/2 z-50 -translate-x-1/2 rounded-[4px] border px-3 py-1 text-[11px]"
+          style={{
+            backgroundColor: 'var(--reader-surface)',
+            borderColor: 'var(--reader-border)',
+            color: 'var(--reader-muted)',
+          }}
+        >
+          {persistWarning}
+        </div>
+      )}
 
       {/* Cartão discreto "Onde Parei" (>24h sem leitura na obra) */}
       {fileBlob && recapInfo && !errorMsg && (
@@ -686,8 +771,9 @@ export function ReaderShell({
           <div className="mx-auto flex max-w-5xl items-center justify-between gap-3 px-4 py-1.5 text-xs tabular-nums">
             <p className="min-w-0 flex-1 truncate">
               <span>
-                Retomando da Pág. {recapInfo.page} (
-                {formatExactPercent(recapInfo.progressPct)})
+                {recapInfo.page > 0
+                  ? `Retomando da Pág. ${recapInfo.page} (${formatExactPercent(recapInfo.progressPct)})`
+                  : `Retomando leitura (${formatExactPercent(recapInfo.progressPct)})`}
                 {recapInfo.chapterLabel
                   ? ` · Último capítulo: ${recapInfo.chapterLabel}`
                   : ''}
@@ -875,19 +961,16 @@ export function ReaderShell({
                   onTocReady={setTocItems}
                   onError={setErrorMsg}
                   onUpdateSettings={updateSettings}
-                  onCenterTap={() => {
-                    setBarsVisible((prev) => {
-                      const next = !prev;
-                      if (next) scheduleAutoHide();
-                      return next;
-                    });
-                  }}
+                  onCenterTap={handleToggleBars}
+                  onCenterDoubleTap={handleToggleBookmark}
+                  onLongPressSettings={() => setSettingsOpen(true)}
                 />
               )}
               {fileFormat === 'epub' && (
                 <EpubView
                   ref={engineRef}
                   fileBlob={fileBlob}
+                  storageKey={work?.id || quickStorageKey}
                   settings={settings}
                   activeTheme={activeTheme}
                   initialCfi={position.cfi || ''}
@@ -898,13 +981,9 @@ export function ReaderShell({
                   onTocReady={setTocItems}
                   onTextSelect={setSelectionState}
                   onError={setErrorMsg}
-                  onCenterTap={() => {
-                    setBarsVisible((prev) => {
-                      const next = !prev;
-                      if (next) scheduleAutoHide();
-                      return next;
-                    });
-                  }}
+                  onCenterTap={handleToggleBars}
+                  onCenterDoubleTap={handleToggleBookmark}
+                  onLongPressSettings={() => setSettingsOpen(true)}
                 />
               )}
               {fileFormat === 'cbz' && (
@@ -918,13 +997,9 @@ export function ReaderShell({
                   onPositionChange={updatePosition}
                   onTocReady={setTocItems}
                   onError={setErrorMsg}
-                  onCenterTap={() => {
-                    setBarsVisible((prev) => {
-                      const next = !prev;
-                      if (next) scheduleAutoHide();
-                      return next;
-                    });
-                  }}
+                  onCenterTap={handleToggleBars}
+                  onCenterDoubleTap={handleToggleBookmark}
+                  onLongPressSettings={() => setSettingsOpen(true)}
                 />
               )}
               {(fileFormat === 'txt' || fileFormat === 'markdown') && (
@@ -943,13 +1018,9 @@ export function ReaderShell({
                   onTocReady={setTocItems}
                   onTextSelect={setSelectionState}
                   onError={setErrorMsg}
-                  onCenterTap={() => {
-                    setBarsVisible((prev) => {
-                      const next = !prev;
-                      if (next) scheduleAutoHide();
-                      return next;
-                    });
-                  }}
+                  onCenterTap={handleToggleBars}
+                  onCenterDoubleTap={handleToggleBookmark}
+                  onLongPressSettings={() => setSettingsOpen(true)}
                 />
               )}
             </Suspense>

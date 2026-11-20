@@ -53,13 +53,15 @@ export function ReaderToolbar({
       ? Math.max(1, Math.min(totalPages, Math.round((scrubbingPct / 100) * totalPages)))
       : null;
 
-  const percentDisplay = telemetry?.percentText || formatExactPercent(safePct);
-  const pagesDisplay =
-    telemetry?.pagesText ||
-    (totalPages > 0
-      ? `${Math.max(1, Math.round((safePct / 100) * totalPages))} lidas · de ${totalPages}`
-      : percentDisplay);
-  const timeDisplay = telemetry?.timeText || '';
+  const percentDisplay =
+    telemetry?.percentText ||
+    `${formatExactPercent(safePct)} lido · falta ${formatExactPercent(Math.max(0, 100 - safePct))}`;
+  const hasKnownPages = Boolean(
+    telemetry?.hasTotalPages && totalPages > 0 && telemetry?.pagesText
+  );
+  const pagesDisplay = hasKnownPages ? telemetry.pagesText : '';
+  const shownMetricText =
+    metricMode === 'pages' && hasKnownPages ? pagesDisplay : percentDisplay;
 
   return (
     <>
@@ -91,14 +93,14 @@ export function ReaderToolbar({
         }}
       >
         <div className="mx-auto flex max-w-5xl items-center justify-between gap-2 px-3 py-1.5">
-          <div className="flex min-w-0 items-center gap-2">
+          <div className="flex min-w-0 items-center gap-1.5">
             <button
               type="button"
               onClick={onBack}
               aria-label="Fechar leitor"
               title="Fechar leitor (Esc)"
-              className="flex min-h-[40px] min-w-[40px] items-center justify-center rounded-[4px] transition-colors duration-150 ease-out"
-              style={{ color: 'var(--reader-muted)' }}
+              className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-[4px] transition-colors duration-150 ease-out"
+              style={{ color: 'var(--reader-muted)', touchAction: 'manipulation' }}
             >
               <ArrowLeft className="h-4 w-4" strokeWidth={1.5} />
             </button>
@@ -133,8 +135,8 @@ export function ReaderToolbar({
               onClick={onToggleToc}
               aria-label="Abrir índice e anotações"
               title="Índice e notas (T)"
-              className="flex min-h-[40px] min-w-[40px] items-center justify-center rounded-[4px] transition-colors duration-150 ease-out"
-              style={{ color: 'var(--reader-muted)' }}
+              className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-[4px] transition-colors duration-150 ease-out"
+              style={{ color: 'var(--reader-muted)', touchAction: 'manipulation' }}
             >
               <ListTree className="h-4 w-4" strokeWidth={1.5} />
             </button>
@@ -144,8 +146,8 @@ export function ReaderToolbar({
               onClick={onOpenSearch}
               aria-label="Buscar no texto"
               title="Buscar no texto (/)"
-              className="flex min-h-[40px] min-w-[40px] items-center justify-center rounded-[4px] transition-colors duration-150 ease-out"
-              style={{ color: 'var(--reader-muted)' }}
+              className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-[4px] transition-colors duration-150 ease-out"
+              style={{ color: 'var(--reader-muted)', touchAction: 'manipulation' }}
             >
               <Search className="h-4 w-4" strokeWidth={1.5} />
             </button>
@@ -155,10 +157,11 @@ export function ReaderToolbar({
               onClick={onToggleBookmark}
               aria-label={isBookmarked ? 'Remover marcador' : 'Adicionar marcador'}
               aria-pressed={isBookmarked}
-              title={isBookmarked ? 'Marcador ativo' : 'Marcar página'}
-              className="flex min-h-[40px] min-w-[40px] items-center justify-center rounded-[4px] transition-colors duration-150 ease-out"
+              title={isBookmarked ? 'Marcador ativo (B)' : 'Marcar página (B)'}
+              className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-[4px] transition-colors duration-150 ease-out"
               style={{
                 color: isBookmarked ? 'var(--reader-accent)' : 'var(--reader-muted)',
+                touchAction: 'manipulation',
               }}
             >
               <Bookmark
@@ -172,7 +175,7 @@ export function ReaderToolbar({
               onClick={onCycleQuickTheme}
               aria-label="Alternar tema rápido entre White, Sépia e OLED"
               title="Alternar tema (White / Sépia / OLED)"
-              className="flex min-h-[40px] items-center gap-1 rounded-[4px] border px-2 text-[11px] font-medium transition-colors duration-150 ease-out"
+              className="flex min-h-[44px] min-w-[44px] items-center justify-center gap-1 rounded-[4px] border px-2 text-[11px] font-medium transition-colors duration-150 ease-out"
               style={{
                 borderColor: 'var(--reader-border)',
                 color:
@@ -181,6 +184,7 @@ export function ReaderToolbar({
                   activeThemeId === 'oled'
                     ? 'var(--reader-accent)'
                     : 'var(--reader-muted)',
+                touchAction: 'manipulation',
               }}
             >
               <Contrast className="h-3.5 w-3.5" strokeWidth={1.5} />
@@ -200,10 +204,11 @@ export function ReaderToolbar({
               onClick={onToggleSettings}
               aria-label="Abrir configurações de tipografia e leitura (Aa)"
               title="Tipografia e tema (A)"
-              className="flex min-h-[40px] items-center gap-1 rounded-[4px] border px-2.5 text-xs font-medium transition-colors duration-150 ease-out"
+              className="flex min-h-[44px] min-w-[44px] items-center justify-center gap-1 rounded-[4px] border px-2.5 text-xs font-medium transition-colors duration-150 ease-out"
               style={{
                 borderColor: 'var(--reader-border)',
                 color: 'var(--reader-ink)',
+                touchAction: 'manipulation',
               }}
             >
               <span className="font-serif text-[13px] font-semibold leading-none tracking-tight">
@@ -222,9 +227,10 @@ export function ReaderToolbar({
               onClick={onToggleFullscreen}
               aria-label={isFullscreen ? 'Sair de tela cheia' : 'Tela cheia'}
               title="Tela cheia (F)"
-              className="hidden sm:flex min-h-[40px] min-w-[40px] items-center justify-center rounded-[4px] transition-colors duration-150 ease-out"
+              className="hidden sm:flex min-h-[44px] min-w-[44px] items-center justify-center rounded-[4px] transition-colors duration-150 ease-out"
               style={{
                 color: isFullscreen ? 'var(--reader-accent)' : 'var(--reader-muted)',
+                touchAction: 'manipulation',
               }}
             >
               {isFullscreen ? (
@@ -239,8 +245,8 @@ export function ReaderToolbar({
               onClick={onToggleHelp}
               aria-label="Atalhos de teclado"
               title="Atalhos (?)"
-              className="hidden sm:flex min-h-[40px] min-w-[40px] items-center justify-center rounded-[4px] transition-colors duration-150 ease-out"
-              style={{ color: 'var(--reader-muted)' }}
+              className="hidden sm:flex min-h-[44px] min-w-[44px] items-center justify-center rounded-[4px] transition-colors duration-150 ease-out"
+              style={{ color: 'var(--reader-muted)', touchAction: 'manipulation' }}
             >
               <HelpCircle className="h-4 w-4" strokeWidth={1.5} />
             </button>
@@ -328,23 +334,30 @@ export function ReaderToolbar({
           </div>
 
           {/* Linha única discreta que alterna % <-> Páginas ao toque/clique */}
-          <div className="flex min-h-[28px] items-center justify-center sm:justify-start">
+          <div className="flex min-h-[36px] items-center justify-center sm:justify-start">
             <button
               type="button"
-              onClick={() =>
-                setMetricMode((prev) => (prev === 'percent' ? 'pages' : 'percent'))
+              onClick={() => {
+                if (!hasKnownPages) return;
+                setMetricMode((prev) => (prev === 'percent' ? 'pages' : 'percent'));
+              }}
+              title={
+                hasKnownPages
+                  ? 'Toque para alternar entre percentual e páginas'
+                  : 'Percentual exato de leitura'
               }
-              title="Toque para alternar entre percentual e páginas"
-              aria-label={`Progresso de leitura: ${
-                metricMode === 'percent' ? percentDisplay : pagesDisplay
-              }. Toque para alternar visualização.`}
-              className="w-full truncate text-left text-[12px] sm:text-[13px] tabular-nums transition-opacity duration-150 ease-out hover:opacity-80"
-              style={{ color: 'var(--reader-muted)' }}
+              aria-label={`Progresso de leitura: ${shownMetricText}${
+                hasKnownPages ? '. Toque para alternar visualização.' : ''
+              }`}
+              className={`min-h-[44px] w-full truncate text-left text-[12px] sm:text-[13px] tabular-nums transition-opacity duration-150 ease-out ${
+                hasKnownPages ? 'cursor-pointer hover:opacity-80' : 'cursor-default'
+              }`}
+              style={{
+                color: 'var(--reader-ink)',
+                touchAction: 'manipulation',
+              }}
             >
-              <span style={{ color: 'var(--reader-ink)' }}>
-                {metricMode === 'percent' ? percentDisplay : pagesDisplay}
-              </span>
-              {timeDisplay ? ` · ${timeDisplay}` : ''}
+              {shownMetricText}
             </button>
           </div>
         </div>

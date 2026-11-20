@@ -9,6 +9,10 @@ import {
   useState,
 } from 'react';
 import { resolveReaderDomColors } from '../../utils/readerThemes';
+import {
+  scrollContainerByViewportFraction,
+  useReaderGestures,
+} from './useReaderGestures';
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
 
@@ -205,6 +209,8 @@ export const PdfView = forwardRef(function PdfView(
     onError,
     onUpdateSettings,
     onCenterTap,
+    onCenterDoubleTap,
+    onLongPressSettings,
   },
   ref
 ) {
@@ -481,21 +487,27 @@ export const PdfView = forwardRef(function PdfView(
     pinchStartDistRef.current = null;
   };
 
-  const handleViewportClick = (e) => {
-    if (settings.pdfMode !== 'single') {
-      onCenterTap?.();
-      return;
-    }
-    const rect = e.currentTarget.getBoundingClientRect();
-    const xRatio = (e.clientX - rect.left) / rect.width;
-    if (xRatio < 0.25) {
-      goToPage(currentPage - 1);
-    } else if (xRatio > 0.75) {
-      goToPage(currentPage + 1);
-    } else {
-      onCenterTap?.();
-    }
-  };
+  const gestures = useReaderGestures({
+    enabled: settings.touchGesturesEnabled !== false,
+    viewportRef: containerRef,
+    onLeftTap: () => {
+      if (settings.pdfMode === 'continuous') {
+        scrollContainerByViewportFraction(containerRef.current, -1, 0.9);
+      } else {
+        goToPage(currentPage - 1);
+      }
+    },
+    onRightTap: () => {
+      if (settings.pdfMode === 'continuous') {
+        scrollContainerByViewportFraction(containerRef.current, 1, 0.9);
+      } else {
+        goToPage(currentPage + 1);
+      }
+    },
+    onCenterTap,
+    onCenterDoubleTap,
+    onLongPressSettings,
+  });
 
   const handleJumpSubmit = (e) => {
     e.preventDefault();
@@ -541,8 +553,9 @@ export const PdfView = forwardRef(function PdfView(
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
-        onClick={handleViewportClick}
+        {...gestures.getContainerPointerProps()}
         className="relative flex-1 overflow-auto px-4 pt-16 pb-24 no-scrollbar"
+        style={{ touchAction: 'manipulation' }}
       >
         {totalPages > 0 && (
           <form

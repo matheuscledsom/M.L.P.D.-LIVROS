@@ -10,6 +10,7 @@ import { DigitalShelfModal } from './components/reader/DigitalShelfModal';
 import { CommunityScreen } from './components/social/CommunityScreen';
 import { DirectChatDrawer } from './components/social/DirectChatDrawer';
 import { UserProfileModal } from './components/social/UserProfileModal';
+import { formatExactPercent } from './components/reader/useReaderProgress';
 import { useToast } from './context/ToastContext';
 import { useBacklog } from './hooks/useBacklog';
 import { useGeminiKey } from './hooks/useGeminiKey';
@@ -303,9 +304,35 @@ export function App() {
 
   const handlePersistReaderState = useCallback(
     (workId, nextReaderState) => {
-      updateItem(workId, { readerState: nextReaderState });
+      if (!workId || !nextReaderState) return;
+      const existing = items.find((entry) => entry.id === workId);
+      const pos = nextReaderState.position || {};
+      const nextTotal =
+        Number(pos.totalPages) > 0
+          ? Number(pos.totalPages)
+          : Number(existing?.totalPages) || 0;
+      const nextPct = Math.max(0, Math.min(100, Number(pos.progressPct) || 0));
+      const nextPage = Math.max(0, Number(pos.page) || 0);
+
+      updateItem(workId, {
+        readerState: nextReaderState,
+        progressPercent: nextPct,
+        updatedAt: nextReaderState.lastReadAt || new Date().toISOString(),
+        ...(nextTotal > 0
+          ? {
+              totalPages: nextTotal,
+              currentPage:
+                nextPage > 0
+                  ? Math.min(nextTotal, nextPage)
+                  : Math.max(1, Math.round((nextPct / 100) * nextTotal)),
+            }
+          : { progressMode: 'percent' }),
+        ...(existing?.status === 'queued' && (nextPct > 0 || nextPage > 0)
+          ? { status: 'playing' }
+          : {}),
+      });
     },
-    [updateItem]
+    [items, updateItem]
   );
 
   const handleSyncWorkProgress = useCallback(
@@ -334,14 +361,13 @@ export function App() {
 
       const updates = {
         currentPage:
-          nextPage > 0
-            ? nextPage
+          resolvedTotal > 0 && nextPage > 0
+            ? Math.min(resolvedTotal, nextPage)
             : resolvedTotal > 0 && nextPct > 0
               ? Math.round((nextPct / 100) * resolvedTotal)
               : work.currentPage || 0,
-        ...(nextPct > 0 ? { progressPercent: nextPct } : {}),
-        ...(!resolvedTotal && nextPct > 0 ? { progressMode: 'percent' } : {}),
-        ...(nextTotal && !work.totalPages ? { totalPages: nextTotal } : {}),
+        progressPercent: nextPct,
+        ...(resolvedTotal > 0 ? { totalPages: resolvedTotal } : { progressMode: 'percent' }),
         ...(work.status === 'queued' && (nextPage > 0 || nextPct > 0)
           ? { status: 'playing' }
           : {}),
@@ -351,12 +377,8 @@ export function App() {
 
       const summaryLabel =
         nextPage > 0 && resolvedTotal > 0
-          ? `Pág. ${nextPage}/${resolvedTotal}`
-          : nextPct > 0
-            ? `${nextPct}%`
-            : nextPage > 0
-              ? `Pág. ${nextPage}`
-              : '0%';
+          ? `Pág. ${nextPage}/${resolvedTotal} · ${formatExactPercent(nextPct)}`
+          : formatExactPercent(nextPct);
 
       showToast({
         message: `Atualizar progresso da obra (${summaryLabel})`,

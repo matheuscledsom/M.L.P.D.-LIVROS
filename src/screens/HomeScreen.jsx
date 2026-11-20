@@ -1,7 +1,6 @@
 import {
   ArrowRight,
   BookOpen,
-  Clock,
   FilePlus2,
   Library,
   Play,
@@ -18,59 +17,18 @@ import { RecommendationsSection } from '../components/RecommendationsSection';
 import { ReleaseHistoryModal } from '../components/ReleaseHistoryModal';
 import { StatusBadge } from '../components/StatusBadge';
 import { VectorIcon } from '../components/VectorIcon';
+import {
+  computeTelemetryEstimate,
+  formatExactPercent,
+} from '../components/reader/useReaderProgress';
 import { domainConfig, getWorkTypeConfig } from '../config/domainConfig';
 import { CODICE_RELEASE } from '../config/versioning';
 import { useToast } from '../context/ToastContext';
 import {
   buildContinueReadingHub,
-  calculateWorkProgress,
-  formatFlexibleProgressMetric,
   getDisplayTitles,
-  normalizeProgressMode,
 } from '../utils/backlogHelpers';
 import { detectBookFileFormat } from '../utils/fileFormatDetector';
-
-function getProgressMetricLabel(item) {
-  return formatFlexibleProgressMetric(item);
-}
-
-function formatDurationMinutes(minutes) {
-  if (!minutes || minutes <= 0) return 'Menos de 5 min restantes';
-  if (minutes < 60) return `~${Math.max(1, Math.round(minutes))} min restantes`;
-  const hours = Math.floor(minutes / 60);
-  const mins = Math.round(minutes % 60);
-  return mins > 0 ? `~${hours}h ${mins}min restantes` : `~${hours}h restantes`;
-}
-
-function estimateRemainingTime(item) {
-  if (!item) return 'Em andamento';
-  if (item.workType === 'manga') {
-    const totalChap = Number(item.totalChapters) || 0;
-    const currentChap = Math.max(0, Number(item.currentChapter) || 0);
-    if (totalChap > 0) {
-      const remainingChap = Math.max(0, totalChap - currentChap);
-      if (remainingChap === 0) return 'Quase concluído';
-      return formatDurationMinutes(remainingChap * 8);
-    }
-    return 'Progresso contínuo';
-  }
-
-  const totalPages = Number(item.totalPages) || 0;
-  const currentPage = Math.max(0, Number(item.currentPage) || 0);
-  if (totalPages > 0) {
-    const remainingPages = Math.max(0, totalPages - currentPage);
-    if (remainingPages === 0) return 'Quase concluído';
-    return formatDurationMinutes(remainingPages * 1.6);
-  }
-
-  const pct = calculateWorkProgress(item);
-  if (pct > 0 || normalizeProgressMode(item.progressMode) !== 'pages') {
-    if (pct >= 100) return 'Quase concluído';
-    return `${pct}% lido`;
-  }
-
-  return 'Informe o total de págs para estimar';
-}
 
 export function HomeScreen({
   items,
@@ -93,6 +51,7 @@ export function HomeScreen({
   const { showToast } = useToast();
   const { ui, cardFields, currentYear } = domainConfig;
   const [releaseModalOpen, setReleaseModalOpen] = useState(false);
+  const [hubMetricMode, setHubMetricMode] = useState('percent');
   const quickReadInputRef = useRef(null);
 
   const handleQuickFileSelected = async (event) => {
@@ -399,7 +358,7 @@ export function HomeScreen({
                       </span>
                     </span>
                     <span className="text-[11px] font-semibold tabular-nums text-ink">
-                      {Math.min(100, Math.round(featuredHub.progressPct))}%
+                      {formatExactPercent(featuredHub.progressPct)}
                     </span>
                   </div>
 
@@ -429,49 +388,84 @@ export function HomeScreen({
                   )}
                 </div>
 
-                <div className="space-y-2">
-                  <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] tabular-nums text-muted">
-                    <span>{featuredHub.metricLabel}</span>
-                    {featuredHub.work ? (
-                      <span className="inline-flex items-center gap-1 text-subtle">
-                        <Clock className="h-3.5 w-3.5 text-subtle" strokeWidth={1.5} />
-                        {estimateRemainingTime(featuredHub.work)}
-                      </span>
-                    ) : (
-                      <span className="text-subtle">Salvo localmente em IndexedDB</span>
-                    )}
-                  </div>
+                {(() => {
+                  const featuredTelemetry = computeTelemetryEstimate({
+                    position: {
+                      progressPct: featuredHub.progressPct,
+                      page: featuredHub.currentPage || 0,
+                      totalPages: featuredHub.totalPages || 0,
+                    },
+                  });
+                  const canShowPages = Boolean(featuredTelemetry.hasTotalPages);
+                  const shownText =
+                    hubMetricMode === 'pages' && canShowPages
+                      ? featuredTelemetry.pagesText
+                      : featuredTelemetry.percentText;
 
-                  <div className="h-[2px] w-full overflow-hidden rounded-[2px] bg-line">
-                    <div
-                      className="codice-goal-fill h-full"
-                      style={{
-                        width: `${Math.min(100, featuredHub.progressPct)}%`,
-                        backgroundColor: 'var(--accent-color)',
-                      }}
-                    />
-                  </div>
+                  return (
+                    <div className="space-y-2">
+                      <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] tabular-nums text-muted">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (!canShowPages) return;
+                            setHubMetricMode((prev) =>
+                              prev === 'percent' ? 'pages' : 'percent'
+                            );
+                          }}
+                          className={`min-h-[28px] text-left tabular-nums transition-opacity ${
+                            canShowPages
+                              ? 'cursor-pointer hover:text-ink'
+                              : 'cursor-default'
+                          }`}
+                          style={{ touchAction: 'manipulation' }}
+                          title={
+                            canShowPages
+                              ? 'Toque para alternar entre percentual e páginas'
+                              : undefined
+                          }
+                        >
+                          {shownText}
+                        </button>
+                        {!featuredHub.work && (
+                          <span className="text-subtle">
+                            Salvo localmente em IndexedDB
+                          </span>
+                        )}
+                      </div>
 
-                  <div className="flex flex-wrap items-center justify-end gap-2 pt-1">
-                    {featuredHub.work && (
-                      <button
-                        type="button"
-                        onClick={() => onSelectItem(featuredHub.work)}
-                        className="inline-flex min-h-[40px] items-center rounded-[4px] border border-line bg-app px-3 py-1.5 text-xs font-medium text-muted transition-colors hover:border-accent hover:text-ink"
-                      >
-                        Ficha
-                      </button>
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => openHubEntry(featuredHub)}
-                      className="inline-flex min-h-[44px] items-center gap-1.5 rounded-[4px] bg-accent px-4 py-2 text-xs font-semibold text-accent-ink transition-opacity hover:opacity-90"
-                    >
-                      <Play className="h-4 w-4" strokeWidth={1.5} />
-                      <span>Continuar Lendo</span>
-                    </button>
-                  </div>
-                </div>
+                      <div className="h-[2px] w-full overflow-hidden rounded-[2px] bg-line">
+                        <div
+                          className="codice-goal-fill h-full"
+                          style={{
+                            width: `${featuredTelemetry.pct}%`,
+                            backgroundColor: 'var(--accent-color)',
+                          }}
+                        />
+                      </div>
+
+                      <div className="flex flex-wrap items-center justify-end gap-2 pt-1">
+                        {featuredHub.work && (
+                          <button
+                            type="button"
+                            onClick={() => onSelectItem(featuredHub.work)}
+                            className="inline-flex min-h-[40px] items-center rounded-[4px] border border-line bg-app px-3 py-1.5 text-xs font-medium text-muted transition-colors hover:border-accent hover:text-ink"
+                          >
+                            Ficha
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => openHubEntry(featuredHub)}
+                          className="inline-flex min-h-[44px] items-center gap-1.5 rounded-[4px] bg-accent px-4 py-2 text-xs font-semibold text-accent-ink transition-opacity hover:opacity-90"
+                        >
+                          <Play className="h-4 w-4" strokeWidth={1.5} />
+                          <span>Continuar Lendo</span>
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
             </article>
 
