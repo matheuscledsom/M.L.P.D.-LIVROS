@@ -15,9 +15,13 @@ import {
 import { normalizePublisherName } from '../data/brazilianPublishers';
 import { createUuid } from '../services/codiceDatabase';
 import {
+  MEDIA_API_SOURCES,
+  MEDIA_SOURCE_PRESETS,
   detectDoiQuery,
   detectIsbnQuery,
   getCachedSearchMedia,
+  loadActiveMediaSources,
+  saveActiveMediaSources,
   searchMedia,
   searchMockMedia,
 } from '../services/mediaApi';
@@ -117,8 +121,10 @@ export function AddScreen({
 }) {
   const [query, setQuery] = useState('');
   const [searchFilter, setSearchFilter] = useState('all');
+  const [activeSources, setActiveSources] = useState(loadActiveMediaSources);
   const [results, setResults] = useState(() => searchMockMedia('', 'all'));
   const [isLoading, setIsLoading] = useState(false);
+  const [pendingSourcesCount, setPendingSourcesCount] = useState(0);
   const [partialFailure, setPartialFailure] = useState(false);
   const [allFailed, setAllFailed] = useState(false);
 
@@ -156,100 +162,139 @@ export function AddScreen({
     backlogLookup.byTitle.get(candidate.title.trim().toLowerCase()) ||
     null;
 
-  const executeSearch = useCallback(async (cleanQuery, filter, { skipCache = false } = {}) => {
-    searchAbortRef.current?.abort();
+  const updateSources = useCallback((nextList) => {
+    setActiveSources(nextList);
+    saveActiveMediaSources(nextList);
+  }, []);
 
-    if (!cleanQuery) {
-      setResults(searchMockMedia('', filter));
-      setIsLoading(false);
-      setPartialFailure(false);
-      setAllFailed(false);
-      return;
-    }
+  const handleToggleSource = (sourceId) => {
+    const exists = activeSources.includes(sourceId);
+    if (exists && activeSources.length === 1) return;
+    const next = exists
+      ? activeSources.filter((s) => s !== sourceId)
+      : [...activeSources, sourceId];
+    updateSources(next);
+  };
 
-    if (cleanQuery.toLowerCase() === '#ovodepascoa67') {
-      setResults([]);
-      setIsLoading(false);
-      setPartialFailure(false);
-      setAllFailed(false);
-      return;
-    }
+  const handleSelectPreset = (preset) => {
+    updateSources(preset.sources);
+    setSearchFilter(preset.filter);
+  };
 
-    if (!skipCache) {
-      const cached = getCachedSearchMedia(cleanQuery, filter);
-      if (cached) {
-        setResults(cached.results);
-        setPartialFailure(Boolean(cached.partialFailure));
-        setAllFailed(false);
+  const executeSearch = useCallback(
+    async (cleanQuery, filter, sources, { skipCache = false } = {}) => {
+      searchAbortRef.current?.abort();
+
+      if (!cleanQuery) {
+        setResults(searchMockMedia('', filter));
         setIsLoading(false);
+        setPendingSourcesCount(0);
+        setPartialFailure(false);
+        setAllFailed(false);
         return;
       }
-    }
 
-    const controller = new AbortController();
-    searchAbortRef.current = controller;
-    setIsLoading(true);
-    setPartialFailure(false);
-    setAllFailed(false);
-
-    try {
-      const response = await searchMedia(cleanQuery, {
-        signal: controller.signal,
-        filter,
-        skipCache,
-      });
-      if (!controller.signal.aborted) {
-        setResults(response.results);
-        setPartialFailure(Boolean(response.partialFailure));
-        setAllFailed(Boolean(response.allFailed));
-      }
-    } catch (error) {
-      if (error.name !== 'AbortError') {
+      if (cleanQuery.toLowerCase() === '#ovodepascoa67') {
         setResults([]);
-        setPartialFailure(false);
-        setAllFailed(true);
-      }
-    } finally {
-      if (!controller.signal.aborted) {
         setIsLoading(false);
+        setPendingSourcesCount(0);
+        setPartialFailure(false);
+        setAllFailed(false);
+        return;
       }
-    }
-  }, []);
+
+      if (!skipCache) {
+        const cached = getCachedSearchMedia(cleanQuery, filter, sources);
+        if (cached) {
+          setResults(cached.results);
+          setPartialFailure(Boolean(cached.partialFailure));
+          setAllFailed(false);
+          setPendingSourcesCount(0);
+          setIsLoading(false);
+          return;
+        }
+      }
+
+      const controller = new AbortController();
+      searchAbortRef.current = controller;
+      setIsLoading(true);
+      setPendingSourcesCount(sources.length);
+      setPartialFailure(false);
+      setAllFailed(false);
+
+      try {
+        const response = await searchMedia(cleanQuery, {
+          signal: controller.signal,
+          filter,
+          sources,
+          skipCache,
+          onPartialResults: (partial) => {
+            if (controller.signal.aborted) return;
+            setPendingSourcesCount(partial.pendingCount || 0);
+            if (Array.isArray(partial.results) && partial.results.length > 0) {
+              setResults(partial.results);
+              setIsLoading(false);
+            }
+          },
+        });
+        if (!controller.signal.aborted) {
+          setResults(response.results);
+          setPartialFailure(Boolean(response.partialFailure));
+          setAllFailed(Boolean(response.allFailed));
+          setPendingSourcesCount(0);
+        }
+      } catch (error) {
+        if (error.name !== 'AbortError') {
+          setResults([]);
+          setPartialFailure(false);
+          setAllFailed(true);
+          setPendingSourcesCount(0);
+        }
+      } finally {
+        if (!controller.signal.aborted) {
+          setIsLoading(false);
+          setPendingSourcesCount(0);
+        }
+      }
+    },
+    []
+  );
 
   useEffect(() => {
     const cleanQuery = query.trim();
     clearTimeout(debounceTimerRef.current);
 
     if (!cleanQuery || cleanQuery.toLowerCase() === '#ovodepascoa67') {
-      executeSearch(cleanQuery, searchFilter);
+      executeSearch(cleanQuery, searchFilter, activeSources);
       return undefined;
     }
 
-    const cached = getCachedSearchMedia(cleanQuery, searchFilter);
+    const cached = getCachedSearchMedia(cleanQuery, searchFilter, activeSources);
     if (cached) {
       setResults(cached.results);
       setPartialFailure(Boolean(cached.partialFailure));
       setAllFailed(false);
+      setPendingSourcesCount(0);
       setIsLoading(false);
       return undefined;
     }
 
     setIsLoading(true);
     debounceTimerRef.current = setTimeout(() => {
-      executeSearch(cleanQuery, searchFilter);
-    }, 350);
+      executeSearch(cleanQuery, searchFilter, activeSources);
+    }, 320);
 
     return () => {
       clearTimeout(debounceTimerRef.current);
       searchAbortRef.current?.abort();
     };
-  }, [query, searchFilter, executeSearch]);
+  }, [query, searchFilter, activeSources, executeSearch]);
 
   const handleSearchKeyDown = (e) => {
     if (e.key === 'Enter') {
       e.preventDefault();
       clearTimeout(debounceTimerRef.current);
-      executeSearch(query.trim(), searchFilter);
+      executeSearch(query.trim(), searchFilter, activeSources);
     }
   };
 
@@ -294,6 +339,8 @@ export function AddScreen({
           citedByCount: Number(item.citedByCount) || 0,
           freeEpubUrl: item.freeEpubUrl || '',
           isPublicDomain: Boolean(item.isPublicDomain),
+          coverCandidates: item.coverCandidates || item.coverSources || [],
+          coverSources: item.coverSources || item.coverCandidates || [],
           publisher: normalizePublisherName(item.publisher || ''),
           isbn: item.isbn || '',
           doi: item.doi || '',
@@ -474,27 +521,83 @@ export function AddScreen({
         </button>
       </header>
 
-      <div className="sticky top-0 z-20 space-y-2.5 bg-app/95 py-2 backdrop-blur-xs">
+      <div className="sticky top-0 z-20 space-y-2.5 border-b border-line bg-app py-2">
         <div className="relative flex items-center">
-          <Search className="pointer-events-none absolute left-3.5 h-4 w-4 text-subtle" />
+          <Search
+            className="pointer-events-none absolute left-3.5 h-4 w-4 text-subtle"
+            strokeWidth={1.5}
+          />
           <input
             type="search"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={handleSearchKeyDown}
             placeholder={add.searchPlaceholder}
-            className="w-full rounded-2xl border border-line bg-card py-3 pl-10 pr-10 text-sm text-ink placeholder:text-subtle focus:border-accent focus:outline-none"
+            className="w-full rounded-[6px] border border-line bg-card py-3 pl-10 pr-10 text-sm text-ink placeholder:text-subtle focus:border-accent focus:outline-none"
           />
           {query && (
             <button
               type="button"
               onClick={() => setQuery('')}
               aria-label="Limpar busca"
-              className="absolute right-3 rounded-full p-1 text-subtle hover:text-ink"
+              className="absolute right-3 rounded-[4px] p-1 text-subtle hover:text-ink"
             >
-              <X className="h-3.5 w-3.5" />
+              <X className="h-3.5 w-3.5" strokeWidth={1.5} />
             </button>
           )}
+        </div>
+
+        {/* Seletor de Fontes Ativas + Predefinicoes de 1 clique */}
+        <div className="space-y-1.5 rounded-[6px] border border-line bg-card p-2.5">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span className="text-[11px] font-medium text-muted">
+              Fontes Ativas
+            </span>
+            <div className="flex flex-wrap gap-1">
+              {MEDIA_SOURCE_PRESETS.map((preset) => {
+                const isPresetActive =
+                  activeSources.length === preset.sources.length &&
+                  preset.sources.every((s) => activeSources.includes(s)) &&
+                  searchFilter === preset.filter;
+                return (
+                  <button
+                    key={preset.id}
+                    type="button"
+                    onClick={() => handleSelectPreset(preset)}
+                    className={`min-h-[30px] rounded-[4px] border px-2 py-0.5 text-[11px] font-medium transition-colors ${
+                      isPresetActive
+                        ? 'border-accent bg-accent/15 text-accent'
+                        : 'border-line bg-app text-muted hover:text-ink'
+                    }`}
+                  >
+                    {preset.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="flex flex-wrap gap-1">
+            {MEDIA_API_SOURCES.map((source) => {
+              const active = activeSources.includes(source.id);
+              return (
+                <button
+                  key={source.id}
+                  type="button"
+                  aria-pressed={active}
+                  onClick={() => handleToggleSource(source.id)}
+                  title={source.hint}
+                  className={`min-h-[28px] rounded-[4px] border px-2 py-0.5 text-[10px] font-medium transition-colors ${
+                    active
+                      ? 'border-accent text-accent'
+                      : 'border-line text-subtle hover:text-ink'
+                  }`}
+                >
+                  {source.label}
+                </button>
+              );
+            })}
+          </div>
         </div>
 
         <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar">
@@ -505,7 +608,7 @@ export function AddScreen({
                 key={filterItem.id}
                 type="button"
                 onClick={() => setSearchFilter(filterItem.id)}
-                className={`shrink-0 rounded-full border px-3 py-1 text-[11px] font-medium transition-colors ${
+                className={`shrink-0 rounded-[4px] border px-3 py-1 text-[11px] font-medium transition-colors ${
                   isActive
                     ? 'border-accent bg-accent text-accent-ink'
                     : 'border-line bg-card text-muted hover:text-ink'
@@ -518,14 +621,14 @@ export function AddScreen({
         </div>
 
         {isIsbnActive && (
-          <div className="inline-flex items-center gap-1.5 rounded-xl border border-accent/40 bg-accent/10 px-2.5 py-1 text-[11px] font-medium text-accent">
+          <div className="inline-flex items-center gap-1.5 rounded-[4px] border border-accent/40 bg-accent/10 px-2.5 py-1 text-[11px] font-medium text-accent">
             <Barcode className="h-4 w-4" strokeWidth={1.5} />
             <span>{add.isbnDetectedLabel}</span>
           </div>
         )}
 
         {isDoiActive && (
-          <div className="inline-flex items-center gap-1.5 rounded-xl border border-accent/40 bg-accent/10 px-2.5 py-1 text-[11px] font-medium text-accent">
+          <div className="inline-flex items-center gap-1.5 rounded-[4px] border border-accent/40 bg-accent/10 px-2.5 py-1 text-[11px] font-medium text-accent">
             <FileText className="h-4 w-4" strokeWidth={1.5} />
             <span>Busca direta por DOI detectada (CrossRef)</span>
           </div>
@@ -534,7 +637,7 @@ export function AddScreen({
         {!isLoading && (partialFailure || allFailed) && query.trim() && (
           <div
             role="status"
-            className="flex items-center justify-between gap-2 rounded-xl border border-line bg-card px-3 py-2 text-xs text-muted"
+            className="flex items-center justify-between gap-2 rounded-[4px] border border-line bg-card px-3 py-2 text-xs text-muted"
           >
             <span className="inline-flex items-center gap-2 min-w-0">
               <AlertCircle className="h-4 w-4 shrink-0 text-accent" strokeWidth={1.5} />
@@ -547,9 +650,11 @@ export function AddScreen({
             <button
               type="button"
               onClick={() =>
-                executeSearch(query.trim(), searchFilter, { skipCache: true })
+                executeSearch(query.trim(), searchFilter, activeSources, {
+                  skipCache: true,
+                })
               }
-              className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-line bg-app px-2.5 py-1 text-[11px] font-medium text-accent hover:border-accent"
+              className="inline-flex shrink-0 items-center gap-1 rounded-[4px] border border-line bg-app px-2.5 py-1 text-[11px] font-medium text-accent hover:border-accent"
             >
               <RefreshCw className="h-3.5 w-3.5" strokeWidth={1.5} />
               Tentar de novo
@@ -560,8 +665,11 @@ export function AddScreen({
 
       <section className="space-y-2.5">
         <div className="flex items-center justify-between text-xs text-subtle">
-          <span>{query.trim() ? add.resultsLabel : add.suggestionsLabel}</span>
-          {!isLoading && <span>{results.length}</span>}
+          <span>
+            {query.trim() ? add.resultsLabel : add.suggestionsLabel}
+            {pendingSourcesCount > 0 ? ' (completando outras fontes...)' : ''}
+          </span>
+          {!isLoading && <span className="tabular-nums">{results.length}</span>}
         </div>
 
         {isEasterEgg67 ? (

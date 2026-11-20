@@ -10,10 +10,79 @@ const OPENALEX_WORKS_URL = 'https://api.openalex.org/works';
 const GUTENDEX_BOOKS_URL = 'https://gutendex.com/books';
 const CROSSREF_POLITE_MAILTO = 'codice@projeto-codice.app';
 
-const SEARCH_CACHE_KEY = 'codice_search_cache_v3';
+const SEARCH_CACHE_KEY = 'codice_search_cache_v4';
+export const MEDIA_SOURCES_STORAGE_KEY = 'codice_active_media_sources_v1';
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const CACHE_MAX_ENTRIES = 40;
 const API_TIMEOUT_MS = 8000;
+
+export const MEDIA_API_SOURCES = [
+  { id: 'googleBooks', label: 'Google Books', hint: 'Livros em geral' },
+  { id: 'openLibrary', label: 'Open Library', hint: 'Edições e capas' },
+  { id: 'jikan', label: 'Jikan / MAL', hint: 'Mangás, Light Novels e Manhwas' },
+  { id: 'gutendex', label: 'Gutendex', hint: 'Clássicos com EPUB grátis' },
+  { id: 'academic', label: 'CrossRef + OpenAlex', hint: 'Artigos, DOI e Open Access' },
+  { id: 'wikidata', label: 'Wikidata', hint: 'Cruzamento bilíngue PT-BR/EN' },
+];
+
+export const DEFAULT_MEDIA_SOURCES = MEDIA_API_SOURCES.map((s) => s.id);
+
+export const MEDIA_SOURCE_PRESETS = [
+  {
+    id: 'books',
+    label: 'Livros',
+    filter: 'book',
+    sources: ['googleBooks', 'openLibrary', 'gutendex'],
+  },
+  {
+    id: 'manga',
+    label: 'Mangás & Light Novels',
+    filter: 'manga',
+    sources: ['jikan', 'googleBooks'],
+  },
+  {
+    id: 'academic',
+    label: 'Acadêmico / TCC',
+    filter: 'academic',
+    sources: ['academic', 'googleBooks'],
+  },
+  {
+    id: 'all',
+    label: 'Todas',
+    filter: 'all',
+    sources: [...DEFAULT_MEDIA_SOURCES],
+  },
+];
+
+const VALID_SOURCE_IDS = new Set(DEFAULT_MEDIA_SOURCES);
+
+export function loadActiveMediaSources() {
+  try {
+    if (typeof localStorage === 'undefined') return [...DEFAULT_MEDIA_SOURCES];
+    const raw = localStorage.getItem(MEDIA_SOURCES_STORAGE_KEY);
+    if (!raw) return [...DEFAULT_MEDIA_SOURCES];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [...DEFAULT_MEDIA_SOURCES];
+    const cleaned = Array.from(
+      new Set(parsed.filter((id) => VALID_SOURCE_IDS.has(id)))
+    );
+    return cleaned.length > 0 ? cleaned : [...DEFAULT_MEDIA_SOURCES];
+  } catch {
+    return [...DEFAULT_MEDIA_SOURCES];
+  }
+}
+
+export function saveActiveMediaSources(sources) {
+  try {
+    if (typeof localStorage === 'undefined') return;
+    const cleaned = Array.from(
+      new Set((Array.isArray(sources) ? sources : []).filter((id) => VALID_SOURCE_IDS.has(id)))
+    );
+    localStorage.setItem(MEDIA_SOURCES_STORAGE_KEY, JSON.stringify(cleaned));
+  } catch {
+    // Ignora falha de storage
+  }
+}
 
 const WIKIDATA_COUNTRY_MAP = {
   Q30: 'Estados Unidos',
@@ -80,13 +149,18 @@ function persistMemoryCache() {
   }
 }
 
-function makeCacheKey(query, filter) {
-  return `${filter || 'all'}:${String(query || '').trim().toLowerCase()}`;
+function makeSourcesCacheToken(sources) {
+  if (!Array.isArray(sources) || sources.length === 0) return 'default';
+  return [...sources].sort().join(',');
 }
 
-export function getCachedSearchMedia(query, filter = 'all') {
+function makeCacheKey(query, filter, sources) {
+  return `${filter || 'all'}:${makeSourcesCacheToken(sources)}:${String(query || '').trim().toLowerCase()}`;
+}
+
+export function getCachedSearchMedia(query, filter = 'all', sources = null) {
   hydrateMemoryCache();
-  const key = makeCacheKey(query, filter);
+  const key = makeCacheKey(query, filter, sources);
   const entry = memoryCache.get(key);
   if (!entry) return null;
 
@@ -101,9 +175,9 @@ export function getCachedSearchMedia(query, filter = 'all') {
   return entry;
 }
 
-function setCachedSearchMedia(query, filter, payload) {
+function setCachedSearchMedia(query, filter, sources, payload) {
   hydrateMemoryCache();
-  const key = makeCacheKey(query, filter);
+  const key = makeCacheKey(query, filter, sources);
   if (memoryCache.has(key)) {
     memoryCache.delete(key);
   }
@@ -147,20 +221,51 @@ function getMonogram(title) {
   return String(title || 'OB').slice(0, 2).toUpperCase();
 }
 
-function cleanCoverUrl(rawUrl) {
+export function cleanCoverUrl(rawUrl) {
   if (!rawUrl || typeof rawUrl !== 'string') return null;
-  return rawUrl
-    .trim()
+  const clean = rawUrl.trim();
+  if (!clean) return null;
+  return clean
     .replace(/^http:\/\//i, 'https://')
     .replace(/&edge=curl/gi, '')
     .replace(/\?edge=curl&?/gi, '?')
     .replace(/\?$/, '');
 }
 
+function buildGoogleFrontCoverUrl(volumeId) {
+  const cleanId = String(volumeId || '').trim();
+  if (!cleanId) return null;
+  return `https://books.google.com/books/content?id=${encodeURIComponent(cleanId)}&printsec=frontcover&img=1&zoom=1`;
+}
+
 function buildOpenLibraryIsbnCover(isbn) {
   const clean = String(isbn || '').replace(/[-\s]/g, '').trim();
   if (!clean) return null;
   return `https://covers.openlibrary.org/b/isbn/${encodeURIComponent(clean)}-L.jpg?default=false`;
+}
+
+export function buildCoverCascade({
+  primaryUrl = null,
+  googleVolumeId = '',
+  googleUrl = null,
+  isbn = '',
+  openLibIdUrl = null,
+  jikanUrls = [],
+} = {}) {
+  const googleFrontUrl = buildGoogleFrontCoverUrl(googleVolumeId);
+  const isbnUrl = buildOpenLibraryIsbnCover(isbn);
+  return Array.from(
+    new Set(
+      [
+        cleanCoverUrl(primaryUrl),
+        cleanCoverUrl(googleUrl),
+        cleanCoverUrl(googleFrontUrl),
+        isbnUrl,
+        cleanCoverUrl(openLibIdUrl),
+        ...(Array.isArray(jikanUrls) ? jikanUrls.map(cleanCoverUrl) : []),
+      ].filter(Boolean)
+    )
+  );
 }
 
 function extractReleaseYear(publishedDate) {
@@ -206,16 +311,6 @@ function extractGoogleIsbn(industryIdentifiers) {
   return isbn10 || '';
 }
 
-function buildCoverCascade({ googleUrl = null, isbn = '', openLibIdUrl = null, jikanUrls = [] }) {
-  const isbnUrl = buildOpenLibraryIsbnCover(isbn);
-  return Array.from(
-    new Set(
-      [cleanCoverUrl(googleUrl), isbnUrl, cleanCoverUrl(openLibIdUrl), ...jikanUrls.map(cleanCoverUrl)]
-        .filter(Boolean)
-    )
-  );
-}
-
 function mapGoogleBook(volume, defaultWorkType = 'book', isbnFallback = '') {
   const volumeInfo = volume?.volumeInfo || {};
   const title = volumeInfo.title || 'Sem título';
@@ -223,11 +318,18 @@ function mapGoogleBook(volume, defaultWorkType = 'book', isbnFallback = '') {
     ? volumeInfo.authors.filter(Boolean).join(', ')
     : '';
   const rawThumbnail =
+    volumeInfo.imageLinks?.large ||
+    volumeInfo.imageLinks?.medium ||
     volumeInfo.imageLinks?.thumbnail ||
     volumeInfo.imageLinks?.smallThumbnail ||
     null;
   const isbn = extractGoogleIsbn(volumeInfo.industryIdentifiers) || isbnFallback;
-  const coverSources = buildCoverCascade({ googleUrl: rawThumbnail, isbn });
+  const googleVolumeId = String(volume?.id || '').trim();
+  const coverCandidates = buildCoverCascade({
+    primaryUrl: rawThumbnail,
+    googleVolumeId,
+    isbn,
+  });
 
   const totalPages =
     typeof volumeInfo.pageCount === 'number' && volumeInfo.pageCount > 0
@@ -241,13 +343,15 @@ function mapGoogleBook(volume, defaultWorkType = 'book', isbnFallback = '') {
   const isPt = rawLang === 'pt' || rawLang === 'pt-br' || rawLang === 'por';
 
   return {
-    id: `gb-${String(volume.id)}`,
+    id: `gb-${googleVolumeId}`,
+    googleVolumeId,
     title,
     originalTitle: !isPt && rawLang ? title : '',
     language: volumeInfo.language || '',
     author,
-    coverUrl: coverSources[0] || null,
-    coverSources,
+    coverUrl: coverCandidates[0] || null,
+    coverCandidates,
+    coverSources: coverCandidates,
     googleCoverUrl: cleanCoverUrl(rawThumbnail),
     openLibIsbnCover: buildOpenLibraryIsbnCover(isbn),
     openLibIdCover: null,
@@ -280,7 +384,7 @@ function mapOpenLibraryDoc(doc, defaultWorkType = 'book', isbnFallback = '') {
   const openLibIdCover = doc?.cover_i
     ? `https://covers.openlibrary.org/b/id/${encodeURIComponent(String(doc.cover_i))}-L.jpg?default=false`
     : null;
-  const coverSources = buildCoverCascade({ isbn, openLibIdUrl: openLibIdCover });
+  const coverCandidates = buildCoverCascade({ isbn, openLibIdUrl: openLibIdCover });
 
   const releaseYear =
     typeof doc?.first_publish_year === 'number' ? doc.first_publish_year : null;
@@ -304,8 +408,9 @@ function mapOpenLibraryDoc(doc, defaultWorkType = 'book', isbnFallback = '') {
     originalTitle: !hasPor && langs.length > 0 ? title : '',
     language: langs[0] || '',
     author,
-    coverUrl: coverSources[0] || null,
-    coverSources,
+    coverUrl: coverCandidates[0] || null,
+    coverCandidates,
+    coverSources: coverCandidates,
     googleCoverUrl: null,
     openLibIsbnCover: buildOpenLibraryIsbnCover(isbn),
     openLibIdCover,
@@ -326,16 +431,25 @@ function mapOpenLibraryDoc(doc, defaultWorkType = 'book', isbnFallback = '') {
 
 function mapJikanOrigin(type) {
   const normalized = String(type || '').toLowerCase();
-  if (normalized.includes('light novel') || normalized === 'novel') {
+  if (normalized.includes('light novel')) {
+    return 'Light Novel';
+  }
+  if (normalized === 'novel') {
     return 'Light Novel';
   }
   if (normalized.includes('manhwa')) {
     return 'Manhwa';
   }
+  if (normalized.includes('manhua')) {
+    return 'Manhua';
+  }
+  if (normalized.includes('one-shot')) {
+    return 'One-shot';
+  }
   return 'Mangá';
 }
 
-function mapJikanManga(entry) {
+export function mapJikanManga(entry) {
   const title = entry?.title || entry?.title_english || 'Sem título';
   const originalTitle =
     entry?.title_japanese && entry.title_japanese !== title
@@ -351,13 +465,13 @@ function mapJikanManga(entry) {
   const jikanCoverUrls = [
     entry?.images?.webp?.large_image_url,
     entry?.images?.jpg?.large_image_url,
-    entry?.images?.webp?.image_url,
     entry?.images?.jpg?.image_url,
+    entry?.images?.webp?.image_url,
   ]
     .map(cleanCoverUrl)
     .filter(Boolean);
 
-  const coverSources = buildCoverCascade({ jikanUrls: jikanCoverUrls });
+  const coverCandidates = buildCoverCascade({ jikanUrls: jikanCoverUrls });
 
   const genres = Array.from(
     new Set(
@@ -372,12 +486,15 @@ function mapJikanManga(entry) {
   ).slice(0, 4);
 
   return {
-    id: `jikan-${entry.mal_id}`,
+    id: `jikan-${entry?.mal_id || normalizeText(title)}`,
     title,
     originalTitle,
+    titleEnglish: entry?.title_english || '',
+    titleJapanese: entry?.title_japanese || '',
     author,
-    coverUrl: coverSources[0] || null,
-    coverSources,
+    coverUrl: coverCandidates[0] || null,
+    coverCandidates,
+    coverSources: coverCandidates,
     googleCoverUrl: null,
     openLibIsbnCover: null,
     openLibIdCover: null,
@@ -392,6 +509,7 @@ function mapJikanManga(entry) {
         ? entry.chapters
         : null,
     totalPages: null,
+    mangaType: entry?.type || 'Manga',
     demographicOrigin: mapJikanOrigin(entry?.type),
     publicationStatus:
       entry?.status === 'Finished' ? 'Completo' : 'Em lançamento',
@@ -449,15 +567,16 @@ function mapCrossRefWork(entry) {
     ? entry.subject.filter(Boolean).slice(0, 3)
     : [];
   const genres = subjects.length ? subjects : ['Artigo / Pesquisa'];
-  const coverSources = buildCoverCascade({ isbn });
+  const coverCandidates = buildCoverCascade({ isbn });
 
   return {
     id: `cr-${doi || normalizeText(title)}`,
     title,
     originalTitle: entry?.language && entry.language !== 'pt' ? title : '',
     author,
-    coverUrl: coverSources[0] || null,
-    coverSources,
+    coverUrl: coverCandidates[0] || null,
+    coverCandidates,
+    coverSources: coverCandidates,
     googleCoverUrl: null,
     openLibIsbnCover: buildOpenLibraryIsbnCover(isbn),
     openLibIdCover: null,
@@ -530,6 +649,7 @@ export function mapOpenAlexWork(entry) {
     language: entry.language || '',
     author,
     coverUrl: null,
+    coverCandidates: [],
     coverSources: [],
     googleCoverUrl: null,
     openLibIsbnCover: null,
@@ -581,7 +701,7 @@ export function mapGutendexBook(entry, defaultWorkType = 'book') {
         ''
     ) || '';
   const coverUrl = cleanCoverUrl(formats['image/jpeg'] || null);
-  const coverSources = coverUrl ? [coverUrl] : [];
+  const coverCandidates = coverUrl ? [coverUrl] : [];
 
   const genres = Array.from(
     new Set(
@@ -597,8 +717,9 @@ export function mapGutendexBook(entry, defaultWorkType = 'book') {
     originalTitle: !hasPt && langs.length > 0 ? title : '',
     language: langs.join(', '),
     author,
-    coverUrl: coverSources[0] || null,
-    coverSources,
+    coverUrl: coverCandidates[0] || null,
+    coverCandidates,
+    coverSources: coverCandidates,
     googleCoverUrl: null,
     openLibIsbnCover: null,
     openLibIdCover: null,
@@ -674,7 +795,7 @@ export function mapWikidataEntityToWork(entity, defaultWorkType = 'book') {
     claims.P957?.[0]?.mainsnak?.datavalue?.value ||
     '';
   const isbn = String(rawIsbn).replace(/[-\s]/g, '').trim();
-  const coverSources = buildCoverCascade({ isbn });
+  const coverCandidates = buildCoverCascade({ isbn });
 
   const description = String(
     entity.descriptions?.['pt-br']?.value ||
@@ -692,8 +813,9 @@ export function mapWikidataEntityToWork(entity, defaultWorkType = 'book') {
     enTitle: enLabel,
     originCountry,
     author: '',
-    coverUrl: coverSources[0] || null,
-    coverSources,
+    coverUrl: coverCandidates[0] || null,
+    coverCandidates,
+    coverSources: coverCandidates,
     googleCoverUrl: null,
     openLibIsbnCover: buildOpenLibraryIsbnCover(isbn),
     openLibIdCover: null,
@@ -766,6 +888,13 @@ export function enrichBilingualTitles(items = [], wikidataWorks = []) {
           ? item.originalTitle
           : '';
 
+    const mergedCovers = Array.from(
+      new Set([
+        ...(item.coverCandidates || item.coverSources || []),
+        ...(match.coverCandidates || []),
+      ].filter(Boolean))
+    );
+
     return {
       ...item,
       title: nextTitle,
@@ -773,13 +902,24 @@ export function enrichBilingualTitles(items = [], wikidataWorks = []) {
       originCountry: item.originCountry || match.originCountry || '',
       releaseYear: item.releaseYear || match.releaseYear || null,
       wikidataId: match.wikidataId,
+      coverCandidates: mergedCovers,
+      coverSources: mergedCovers,
+      coverUrl: item.coverUrl || mergedCovers[0] || null,
     };
   });
 }
 
+function hasValidCover(item) {
+  return Boolean(
+    item?.coverUrl ||
+      (Array.isArray(item?.coverCandidates) && item.coverCandidates.length > 0) ||
+      (Array.isArray(item?.coverSources) && item.coverSources.length > 0)
+  );
+}
+
 function scoreResultRichness(item) {
   return (
-    (item.coverUrl ? 4 : 0) +
+    (hasValidCover(item) ? 20 : 0) +
     (item.originalTitle ? 1 : 0) +
     (item.totalPages || item.totalChapters ? 2 : 0) +
     (item.isbn ? 2 : 0) +
@@ -825,15 +965,26 @@ function scoreQueryRelevance(item, query, filter, isbn, doi) {
   return score;
 }
 
-function mergeTwoResults(primary, secondary) {
-  const winner =
-    scoreResultRichness(primary) >= scoreResultRichness(secondary)
-      ? primary
-      : secondary;
+export function mergeTwoResults(primary, secondary) {
+  const primaryCover = hasValidCover(primary);
+  const secondaryCover = hasValidCover(secondary);
+
+  let winner;
+  if (primaryCover && !secondaryCover) {
+    winner = primary;
+  } else if (!primaryCover && secondaryCover) {
+    winner = secondary;
+  } else {
+    winner =
+      scoreResultRichness(primary) >= scoreResultRichness(secondary)
+        ? primary
+        : secondary;
+  }
   const loser = winner === primary ? secondary : primary;
 
   const isbn = winner.isbn || loser.isbn || '';
   const doi = winner.doi || loser.doi || '';
+  const googleVolumeId = winner.googleVolumeId || loser.googleVolumeId || '';
   const googleCoverUrl = winner.googleCoverUrl || loser.googleCoverUrl || null;
   const openLibIdCover = winner.openLibIdCover || loser.openLibIdCover || null;
   const jikanCoverUrls = Array.from(
@@ -841,20 +992,28 @@ function mergeTwoResults(primary, secondary) {
   );
 
   const mergedCascade = buildCoverCascade({
+    primaryUrl: winner.coverUrl || loser.coverUrl || null,
+    googleVolumeId,
     googleUrl: googleCoverUrl,
     isbn,
     openLibIdUrl: openLibIdCover,
     jikanUrls: jikanCoverUrls,
   });
 
-  const extraSources = Array.from(
-    new Set([
-      ...mergedCascade,
-      ...(winner.coverSources || []),
-      winner.coverUrl,
-      ...(loser.coverSources || []),
-      loser.coverUrl,
-    ].filter(Boolean))
+  const coverCandidates = Array.from(
+    new Set(
+      [
+        ...(winner.coverCandidates || []),
+        ...(winner.coverSources || []),
+        winner.coverUrl,
+        ...mergedCascade,
+        ...(loser.coverCandidates || []),
+        ...(loser.coverSources || []),
+        loser.coverUrl,
+      ]
+        .map(cleanCoverUrl)
+        .filter(Boolean)
+    )
   );
 
   const candidateOriginal =
@@ -866,6 +1025,7 @@ function mergeTwoResults(primary, secondary) {
 
   return {
     ...winner,
+    googleVolumeId,
     originalTitle:
       candidateOriginal &&
       normalizeText(candidateOriginal) !== normalizeText(winner.title)
@@ -877,6 +1037,8 @@ function mergeTwoResults(primary, secondary) {
     issn: winner.issn || loser.issn || '',
     releaseYear: winner.releaseYear || loser.releaseYear || null,
     totalPages: winner.totalPages || loser.totalPages || null,
+    totalVolumes: winner.totalVolumes || loser.totalVolumes || null,
+    totalChapters: winner.totalChapters || loser.totalChapters || null,
     publisher: normalizePublisherName(winner.publisher || loser.publisher || ''),
     institution: winner.institution || loser.institution || '',
     citedByCount: Math.max(
@@ -892,8 +1054,9 @@ function mergeTwoResults(primary, secondary) {
     googleCoverUrl,
     openLibIdCover,
     jikanCoverUrls,
-    coverUrl: extraSources[0] || null,
-    coverSources: extraSources,
+    coverUrl: coverCandidates[0] || null,
+    coverCandidates,
+    coverSources: coverCandidates,
   };
 }
 
@@ -1008,7 +1171,7 @@ function buildGoogleBooksUrl(cleanQuery, isbn) {
   const qValue = isbn ? `isbn:${isbn}` : cleanQuery;
   url.search = new URLSearchParams({
     q: qValue,
-    maxResults: isbn ? '12' : '10',
+    maxResults: isbn ? '12' : '12',
     printType: 'books',
   }).toString();
   return url.toString();
@@ -1027,7 +1190,7 @@ function buildJikanUrl(cleanQuery) {
   const url = new URL(JIKAN_MANGA_BASE_URL);
   url.search = new URLSearchParams({
     q: cleanQuery,
-    limit: '8',
+    limit: '15',
   }).toString();
   return url.toString();
 }
@@ -1115,9 +1278,50 @@ async function fetchWikidataSource(cleanQuery, defaultWorkType, { signal }) {
     .filter(Boolean);
 }
 
+function assembleMergedItems(itemsBySource, cleanQuery, filter, isbn, doi) {
+  const baseCombined = [
+    ...itemsBySource.google,
+    ...itemsBySource.openlib,
+    ...itemsBySource.jikan,
+    ...itemsBySource.crossref,
+    ...itemsBySource.openalex,
+    ...itemsBySource.gutendex,
+  ];
+
+  const enrichedCombined = enrichBilingualTitles(
+    baseCombined,
+    itemsBySource.wikidata
+  );
+
+  const existingNormTitles = new Set(
+    enrichedCombined.flatMap((it) =>
+      [normalizeText(it.title), normalizeText(it.originalTitle)].filter(Boolean)
+    )
+  );
+  const uniqueWikidataExtras = itemsBySource.wikidata.filter(
+    (wd) =>
+      !existingNormTitles.has(normalizeText(wd.title)) &&
+      (!wd.originalTitle || !existingNormTitles.has(normalizeText(wd.originalTitle)))
+  );
+
+  return deduplicateAndSortResults(
+    [...enrichedCombined, ...uniqueWikidataExtras],
+    cleanQuery,
+    filter,
+    isbn,
+    doi
+  );
+}
+
 export async function searchMedia(
   query,
-  { signal, filter = 'all', skipCache = false } = {}
+  {
+    signal,
+    filter = 'all',
+    sources = null,
+    skipCache = false,
+    onPartialResults = null,
+  } = {}
 ) {
   const cleanQuery = String(query || '').trim();
   if (!cleanQuery) {
@@ -1131,8 +1335,13 @@ export async function searchMedia(
     };
   }
 
+  const explicitSources =
+    Array.isArray(sources) && sources.length > 0
+      ? sources.filter((s) => VALID_SOURCE_IDS.has(s))
+      : null;
+
   if (!skipCache) {
-    const cached = getCachedSearchMedia(cleanQuery, filter);
+    const cached = getCachedSearchMedia(cleanQuery, filter, explicitSources);
     if (cached) {
       return {
         results: cached.results,
@@ -1149,6 +1358,10 @@ export async function searchMedia(
   const doi = isbn ? null : detectDoiQuery(cleanQuery);
   const defaultWorkType =
     filter === 'manga' ? 'manga' : filter === 'academic' ? 'academic' : 'book';
+
+  const hasExplicit = Boolean(explicitSources && explicitSources.length > 0);
+  const isSourceEnabled = (sourceId) =>
+    hasExplicit ? explicitSources.includes(sourceId) : true;
 
   const sourcePlan = [];
   if (doi) {
@@ -1174,33 +1387,46 @@ export async function searchMedia(
       }
     );
   } else {
-    sourcePlan.push(
-      {
+    if (isSourceEnabled('googleBooks')) {
+      sourcePlan.push({
         key: 'google',
         run: () => fetchJsonWithTimeout(buildGoogleBooksUrl(cleanQuery, null), { signal }),
-      },
-      {
+      });
+    }
+    if (isSourceEnabled('openLibrary')) {
+      sourcePlan.push({
         key: 'openlib',
         run: () => fetchJsonWithTimeout(buildOpenLibraryUrl(cleanQuery, null), { signal }),
-      },
-      {
+      });
+    }
+    if (isSourceEnabled('wikidata')) {
+      sourcePlan.push({
         key: 'wikidata',
         run: () => fetchWikidataSource(cleanQuery, defaultWorkType, { signal }),
-      }
-    );
-    if (filter === 'all' || filter === 'manga') {
+      });
+    }
+    if (
+      isSourceEnabled('jikan') &&
+      (hasExplicit || filter === 'all' || filter === 'manga')
+    ) {
       sourcePlan.push({
         key: 'jikan',
         run: () => fetchJsonWithTimeout(buildJikanUrl(cleanQuery), { signal }),
       });
     }
-    if (filter === 'all' || filter === 'book') {
+    if (
+      isSourceEnabled('gutendex') &&
+      (hasExplicit || filter === 'all' || filter === 'book')
+    ) {
       sourcePlan.push({
         key: 'gutendex',
         run: () => fetchJsonWithTimeout(buildGutendexUrl(cleanQuery), { signal }),
       });
     }
-    if (filter === 'all' || filter === 'academic') {
+    if (
+      isSourceEnabled('academic') &&
+      (hasExplicit || filter === 'all' || filter === 'academic')
+    ) {
       sourcePlan.push(
         {
           key: 'crossref',
@@ -1214,18 +1440,6 @@ export async function searchMedia(
     }
   }
 
-  const settled = await Promise.allSettled(
-    sourcePlan.map((entry) => entry.run())
-  );
-
-  const abortErr = settled.find(
-    (res) => res.status === 'rejected' && res.reason?.name === 'AbortError'
-  );
-  if (abortErr) {
-    throw abortErr.reason;
-  }
-
-  const failedSources = [];
   const itemsBySource = {
     google: [],
     openlib: [],
@@ -1236,14 +1450,7 @@ export async function searchMedia(
     wikidata: [],
   };
 
-  settled.forEach((res, idx) => {
-    const sourceKey = sourcePlan[idx].key;
-    if (res.status !== 'fulfilled') {
-      failedSources.push(sourceKey);
-      return;
-    }
-
-    const value = res.value;
+  const applySourcePayload = (sourceKey, value) => {
     if (sourceKey === 'google' && Array.isArray(value?.items)) {
       itemsBySource.google = value.items.map((v) =>
         mapGoogleBook(v, defaultWorkType, isbn || '')
@@ -1275,9 +1482,49 @@ export async function searchMedia(
     } else if (sourceKey === 'wikidata' && Array.isArray(value)) {
       itemsBySource.wikidata = value;
     }
+  };
+
+  let remainingCount = sourcePlan.length;
+
+  const tasks = sourcePlan.map((entry) =>
+    entry.run().then((value) => {
+      remainingCount -= 1;
+      applySourcePayload(entry.key, value);
+      if (onPartialResults && !signal?.aborted) {
+        const partialMerged = assembleMergedItems(
+          itemsBySource,
+          cleanQuery,
+          filter,
+          isbn,
+          doi
+        );
+        onPartialResults({
+          results: partialMerged,
+          completedSource: entry.key,
+          pendingCount: remainingCount,
+        });
+      }
+      return value;
+    })
+  );
+
+  const settled = await Promise.allSettled(tasks);
+
+  const abortErr = settled.find(
+    (res) => res.status === 'rejected' && res.reason?.name === 'AbortError'
+  );
+  if (abortErr) {
+    throw abortErr.reason;
+  }
+
+  const failedSources = [];
+  settled.forEach((res, idx) => {
+    if (res.status !== 'fulfilled') {
+      failedSources.push(sourcePlan[idx].key);
+    }
   });
 
-  const allFailed = failedSources.length === sourcePlan.length;
+  const allFailed = sourcePlan.length > 0 && failedSources.length === sourcePlan.length;
   const partialFailure = failedSources.length > 0 && !allFailed;
 
   if (allFailed) {
@@ -1292,34 +1539,8 @@ export async function searchMedia(
     };
   }
 
-  const baseCombined = [
-    ...itemsBySource.google,
-    ...itemsBySource.openlib,
-    ...itemsBySource.jikan,
-    ...itemsBySource.crossref,
-    ...itemsBySource.openalex,
-    ...itemsBySource.gutendex,
-  ];
-
-  const enrichedCombined = enrichBilingualTitles(
-    baseCombined,
-    itemsBySource.wikidata
-  );
-
-  // Só adiciona obras do Wikidata que ainda não existam em outras fontes
-  const existingNormTitles = new Set(
-    enrichedCombined.flatMap((it) =>
-      [normalizeText(it.title), normalizeText(it.originalTitle)].filter(Boolean)
-    )
-  );
-  const uniqueWikidataExtras = itemsBySource.wikidata.filter(
-    (wd) =>
-      !existingNormTitles.has(normalizeText(wd.title)) &&
-      (!wd.originalTitle || !existingNormTitles.has(normalizeText(wd.originalTitle)))
-  );
-
-  const merged = deduplicateAndSortResults(
-    [...enrichedCombined, ...uniqueWikidataExtras],
+  const merged = assembleMergedItems(
+    itemsBySource,
     cleanQuery,
     filter,
     isbn,
@@ -1337,7 +1558,7 @@ export async function searchMedia(
   };
 
   if (merged.length > 0 && !partialFailure) {
-    setCachedSearchMedia(cleanQuery, filter, payload);
+    setCachedSearchMedia(cleanQuery, filter, explicitSources, payload);
   }
   return payload;
 }

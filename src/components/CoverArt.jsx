@@ -10,10 +10,22 @@ export function CoverArt({ item, className = '', showTitle = false, compact = fa
     ? `https://covers.openlibrary.org/b/isbn/${encodeURIComponent(cleanIsbn)}-L.jpg?default=false`
     : null;
 
+  const googleId =
+    item.googleVolumeId ||
+    (String(item.id || '').startsWith('gb-') ? String(item.id).slice(3) : '');
+  const googleFallback = googleId
+    ? `https://books.google.com/books/content?id=${encodeURIComponent(googleId)}&printsec=frontcover&img=1&zoom=1`
+    : null;
+
   const sources = [
+    ...(Array.isArray(item.coverCandidates) ? item.coverCandidates : []),
     ...(Array.isArray(item.coverSources) ? item.coverSources : []),
     item.coverUrl,
+    item.googleCoverUrl,
+    googleFallback,
     isbnFallback,
+    item.openLibIdCover,
+    ...(Array.isArray(item.jikanCoverUrls) ? item.jikanCoverUrls : []),
   ].filter(Boolean);
 
   return (
@@ -22,7 +34,6 @@ export function CoverArt({ item, className = '', showTitle = false, compact = fa
       title={item.title}
       author={item[domainConfig.cardFields.creator]}
       workType={item.workType || 'book'}
-      palette={item.palette}
       badge={primaryBadge}
       className={className}
       showTitle={showTitle}

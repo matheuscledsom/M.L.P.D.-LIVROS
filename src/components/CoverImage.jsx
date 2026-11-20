@@ -7,6 +7,17 @@ const WORK_ICONS = {
   academic: GraduationCap,
 };
 
+export function sanitizeHttpsCoverUrl(rawUrl) {
+  if (!rawUrl || typeof rawUrl !== 'string') return null;
+  const trimmed = rawUrl.trim();
+  if (!trimmed) return null;
+  return trimmed
+    .replace(/^http:\/\//i, 'https://')
+    .replace(/&edge=curl/gi, '')
+    .replace(/\?edge=curl&?/gi, '?')
+    .replace(/\?$/, '');
+}
+
 export function CoverImage({
   sources = [],
   title = '',
@@ -20,11 +31,7 @@ export function CoverImage({
   const cleanSources = useMemo(() => {
     const list = Array.isArray(sources) ? sources : [sources];
     return Array.from(
-      new Set(
-        list
-          .filter((url) => typeof url === 'string' && url.trim().length > 0)
-          .map((url) => url.trim())
-      )
+      new Set(list.map(sanitizeHttpsCoverUrl).filter(Boolean))
     );
   }, [sources]);
 
@@ -50,33 +57,29 @@ export function CoverImage({
 
   return (
     <div
-      className={`relative aspect-[2/3] overflow-hidden border border-line bg-card select-none ${className}`}
-      style={{
-        backgroundImage:
-          'radial-gradient(circle at 82% 16%, color-mix(in srgb, var(--accent-color) 32%, transparent) 0%, transparent 58%), radial-gradient(circle at 18% 86%, color-mix(in srgb, var(--accent-color) 16%, transparent) 0%, transparent 52%), linear-gradient(155deg, color-mix(in srgb, var(--accent-color) 14%, var(--bg-card)) 0%, var(--bg-app) 100%)',
-      }}
+      className={`relative aspect-[2/3] overflow-hidden rounded-[4px] border border-line bg-elevated select-none ${className}`}
     >
-      {/* Capa tipográfica vetorial derivada de --accent-color exibida como fallback ou durante o carregamento */}
+      {/* Capa tipográfica vetorial exibida quando todos os candidatos falham ou carregam */}
       <div
-        className={`absolute inset-0 flex flex-col justify-between p-2.5 transition-opacity duration-200 ${
+        className={`absolute inset-0 flex flex-col justify-between bg-card p-2.5 transition-opacity duration-150 ${
           isLoaded ? 'opacity-0 pointer-events-none' : 'opacity-100'
         }`}
       >
         <div className="flex items-center justify-between gap-1">
-          <span className="flex h-6 w-6 items-center justify-center rounded-lg border border-line bg-app/75 text-accent backdrop-blur-xs">
+          <span className="flex h-6 w-6 items-center justify-center rounded-[4px] border border-line bg-app text-muted">
             <FallbackIcon
               className={compact ? 'h-3.5 w-3.5' : 'h-4 w-4'}
               strokeWidth={1.5}
             />
           </span>
           {!compact && badge && (
-            <span className="truncate rounded border border-line bg-app/80 px-1.5 py-0.5 text-[10px] font-medium tracking-wider text-muted">
+            <span className="truncate rounded-[4px] border border-line bg-app px-1.5 py-0.5 text-[10px] font-medium tracking-wider text-muted">
               {badge}
             </span>
           )}
         </div>
 
-        <div className="space-y-1">
+        <div className="space-y-1 border-t border-line pt-2">
           {title && (
             <p
               className={`font-semibold leading-tight text-ink ${
@@ -103,8 +106,8 @@ export function CoverImage({
             referrerPolicy="no-referrer"
             onLoad={(e) => {
               if (
-                e.currentTarget.naturalWidth <= 1 ||
-                e.currentTarget.naturalHeight <= 1
+                e.currentTarget.naturalWidth < 15 ||
+                e.currentTarget.naturalHeight < 15
               ) {
                 handleImageError();
                 return;
@@ -112,12 +115,12 @@ export function CoverImage({
               setLoadedSrc(currentSrc);
             }}
             onError={handleImageError}
-            className={`relative h-full w-full object-cover transition-opacity duration-200 ${
+            className={`relative h-full w-full object-cover transition-opacity duration-150 ${
               isLoaded ? 'opacity-100' : 'opacity-0'
             }`}
           />
           {showTitle && isLoaded && title && (
-            <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/90 via-black/45 to-transparent p-2 pt-6">
+            <div className="absolute inset-x-0 bottom-0 border-t border-black/30 bg-black/75 p-2">
               <p className="line-clamp-2 text-[10px] font-medium leading-tight text-white">
                 {title}
               </p>
