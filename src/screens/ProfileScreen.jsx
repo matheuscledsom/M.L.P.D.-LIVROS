@@ -36,8 +36,11 @@ import { CoverArt } from '../components/CoverArt';
 import { PostDetailModal } from '../components/PostDetailModal';
 import { ProfileEditModal } from '../components/ProfileEditModal';
 import { ThemeModal } from '../components/ThemeModal';
+import { TitlesBadgesModal } from '../components/TitlesBadgesModal';
 import { VectorIcon } from '../components/VectorIcon';
+import { ProfileWall } from '../components/social/ProfileWall';
 import { domainConfig } from '../config/domainConfig';
+import { evaluateReaderTitles } from '../services/readerTitlesEngine';
 import { getHypeMeta, getPagesRead } from '../utils/backlogHelpers';
 import {
   isSoundEnabled,
@@ -49,6 +52,7 @@ const TAB_ICONS = {
   Grid3X3,
   Trophy,
   Bookmark,
+  MessageSquare,
 };
 
 const VISIBILITY_OPTIONS = [
@@ -117,6 +121,12 @@ export function ProfileScreen({
   items,
   profile,
   posts,
+  readingSessions = [],
+  streakCount = 0,
+  viewerId = null,
+  storedReaderBooksCount = 0,
+  wallPostsCount = 0,
+  chatMessagesCount = 0,
   themeProps,
   hasGeminiKey = false,
   backendSession = null,
@@ -134,6 +144,8 @@ export function ProfileScreen({
   onExportBibtex,
   onImportBackup,
   onOpenBackupModal,
+  onWallMutated,
+  onSelectPeerProfile,
 }) {
   const { ui, cardFields } = domainConfig;
   const { profile: profileCfg } = ui;
@@ -141,6 +153,7 @@ export function ProfileScreen({
   const [menuOpen, setMenuOpen] = useState(false);
   const [themeModalOpen, setThemeModalOpen] = useState(false);
   const [editModalOpen, setEditModalOpen] = useState(false);
+  const [titlesModalOpen, setTitlesModalOpen] = useState(false);
   const [selectedPostId, setSelectedPostId] = useState(null);
   const [feedback, setFeedback] = useState(null);
   const [soundOn, setSoundOn] = useState(isSoundEnabled);
@@ -268,6 +281,38 @@ export function ProfileScreen({
     VISIBILITY_OPTIONS.find((opt) => opt.id === privacyLevel) ||
     VISIBILITY_OPTIONS[0];
   const isSupabaseMode = backendSession?.mode === 'supabase';
+
+  const titleEvaluation = useMemo(
+    () =>
+      evaluateReaderTitles({
+        items,
+        profile,
+        readingSessions,
+        streakCount,
+        posts,
+        wallPostsCount,
+        chatMessagesCount,
+        storedReaderBooksCount,
+      }),
+    [
+      items,
+      profile,
+      readingSessions,
+      streakCount,
+      posts,
+      wallPostsCount,
+      chatMessagesCount,
+      storedReaderBooksCount,
+    ]
+  );
+
+  const profileTabs = useMemo(
+    () => [
+      ...profileCfg.tabs,
+      { id: 'wall', label: 'Mural', icon: 'MessageSquare' },
+    ],
+    [profileCfg.tabs]
+  );
 
   return (
     <div className="space-y-4 pb-24">
@@ -560,11 +605,16 @@ export function ProfileScreen({
             <div className="flex flex-wrap items-center gap-2">
               <p className="font-semibold text-ink">{profile.displayName}</p>
               <span className="text-[11px] text-subtle">{profile.handle}</span>
-              {gamificationEnabled && profile.activeTitleBadge && (
-                <span className="inline-flex items-center gap-1 rounded-full border border-accent/40 bg-accent/15 px-2 py-0.5 text-[10px] font-semibold text-accent">
-                  <Award className="h-3 w-3" strokeWidth={1.5} />
-                  {profile.activeTitleBadge}
-                </span>
+              {gamificationEnabled && titleEvaluation.resolvedActiveBadge?.name && (
+                <button
+                  type="button"
+                  onClick={() => setTitlesModalOpen(true)}
+                  aria-label="Abrir títulos e insígnias do leitor"
+                  className="inline-flex min-h-[28px] items-center gap-1 rounded-[4px] border border-accent/40 bg-accent/10 px-2 py-0.5 text-[11px] font-medium text-accent transition-colors hover:bg-accent/20"
+                >
+                  <Award className="h-3.5 w-3.5" strokeWidth={1.5} />
+                  <span>{titleEvaluation.resolvedActiveBadge.name}</span>
+                </button>
               )}
             </div>
             {profile.bio && (
@@ -585,10 +635,10 @@ export function ProfileScreen({
 
           {/* Barra de Nível / XP do Leitor (oculta quando gamificação desligada) */}
           {gamificationEnabled && (
-            <div className="mt-3.5 rounded-2xl border border-line bg-card p-3">
-              <div className="flex items-center justify-between text-xs">
+            <div className="mt-3.5 rounded-[4px] border border-line bg-card p-3 space-y-2.5">
+              <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
                 <span className="inline-flex items-center gap-1.5 font-semibold text-ink">
-                  <span className="inline-flex items-center gap-1 rounded-lg bg-accent px-2 py-0.5 text-[11px] font-bold text-accent-ink">
+                  <span className="inline-flex items-center gap-1 rounded-[4px] bg-accent px-2 py-0.5 text-[11px] font-bold text-accent-ink tabular-nums">
                     <Zap className="h-3 w-3" strokeWidth={1.5} />
                     {profileCfg.levelPrefix} {statsData.level}
                   </span>
@@ -596,16 +646,33 @@ export function ProfileScreen({
                     {profileCfg.xpTitle}
                   </span>
                 </span>
-                <span className="text-[11px] text-subtle">
+                <span className="text-[11px] text-subtle tabular-nums">
                   {statsData.currentLevelXp}/{statsData.xpPerLevel} XP
                 </span>
               </div>
 
-              <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-elevated">
+              <div className="h-1.5 w-full overflow-hidden rounded-[2px] bg-elevated">
                 <div
-                  className="h-full rounded-full bg-accent transition-all duration-500"
+                  className="h-full rounded-[2px] bg-accent transition-all duration-500"
                   style={{ width: `${Math.max(4, statsData.xpPct)}%` }}
                 />
+              </div>
+
+              <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-line">
+                <span className="text-[11px] text-muted tabular-nums">
+                  {titleEvaluation.unlockedCount}/{titleEvaluation.totalCount} insígnias desbloqueadas
+                  {titleEvaluation.livingTitle
+                    ? ` · Título Vivo: ${titleEvaluation.livingTitle.name}`
+                    : ''}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setTitlesModalOpen(true)}
+                  className="min-h-[44px] inline-flex items-center gap-1.5 rounded-[4px] border border-line bg-app px-3 py-1.5 text-[11px] font-medium text-ink transition-colors hover:border-accent hover:text-accent"
+                >
+                  <Award className="h-3.5 w-3.5" strokeWidth={1.5} />
+                  <span>Títulos & Insígnias</span>
+                </button>
               </div>
             </div>
           )}
@@ -744,10 +811,15 @@ export function ProfileScreen({
         </div>
       </section>
 
-      {/* 3 Abas internas estilo feed do Instagram */}
+      {/* Abas internas de Perfil (Diário, Estante, Radar, Mural) */}
       <section className="-mx-4 sm:-mx-6 pt-1">
-        <div className="grid grid-cols-3 border-y border-line">
-          {profileCfg.tabs.map((tab) => {
+        <div
+          className="grid border-y border-line"
+          style={{
+            gridTemplateColumns: `repeat(${profileTabs.length}, minmax(0, 1fr))`,
+          }}
+        >
+          {profileTabs.map((tab) => {
             const Icon = TAB_ICONS[tab.icon] || Grid3X3;
             const isActive = activeTab === tab.id;
             return (
@@ -756,11 +828,11 @@ export function ProfileScreen({
                 type="button"
                 onClick={() => setActiveTab(tab.id)}
                 aria-label={tab.label}
-                className={`relative flex items-center justify-center gap-1.5 py-3 text-xs font-medium transition-colors ${
+                className={`relative flex min-h-[44px] items-center justify-center gap-1.5 py-3 text-xs font-medium transition-colors ${
                   isActive ? 'text-ink' : 'text-subtle hover:text-muted'
                 }`}
               >
-                <Icon className="h-4 w-4" strokeWidth={isActive ? 2.1 : 1.75} />
+                <Icon className="h-4 w-4" strokeWidth={1.5} />
                 <span className="truncate">{tab.label}</span>
                 {isActive && (
                   <span className="absolute bottom-0 left-0 right-0 h-[2px] bg-accent" />
@@ -946,6 +1018,21 @@ export function ProfileScreen({
             </div>
           )
         )}
+
+        {/* Aba 4: Mural de Recados */}
+        {activeTab === 'wall' && (
+          <div className="px-4 sm:px-6 py-4">
+            <ProfileWall
+              profileId={profile?.id}
+              viewerId={viewerId || profile?.id}
+              isOwner
+              canPostWall={profile?.allowWallPosts !== false}
+              allowWallPosts={profile?.allowWallPosts !== false}
+              onSelectAuthor={(authorId) => onSelectPeerProfile?.(authorId)}
+              onWallMutated={onWallMutated}
+            />
+          </div>
+        )}
       </section>
 
       <ThemeModal
@@ -959,6 +1046,20 @@ export function ProfileScreen({
         onClose={() => setEditModalOpen(false)}
         profile={profile}
         onSave={onUpdateProfile}
+      />
+
+      <TitlesBadgesModal
+        isOpen={titlesModalOpen}
+        onClose={() => setTitlesModalOpen(false)}
+        evaluation={titleEvaluation}
+        onSelectAutoMode={() => {
+          onUpdateProfile?.({ activeTitleBadge: 'auto' });
+          setTitlesModalOpen(false);
+        }}
+        onPinTitleBadge={(badge) => {
+          onUpdateProfile?.({ activeTitleBadge: badge?.name || badge || 'auto' });
+          setTitlesModalOpen(false);
+        }}
       />
 
       <PostDetailModal

@@ -788,3 +788,16 @@ BEGIN
     END LOOP;
   END IF;
 END $$;
+
+-- ----------------------------------------------------------------------------
+-- 7. EXTENSÕES DE COMPATIBILIDADE SOCIAL (Bloco 3)
+-- ----------------------------------------------------------------------------
+ALTER TABLE public.follows
+  ADD COLUMN IF NOT EXISTS status text NOT NULL DEFAULT 'approved'
+  CHECK (status IN ('pending', 'approved'));
+
+ALTER TABLE public.wall_posts
+  ADD COLUMN IF NOT EXISTS pinned boolean NOT NULL DEFAULT false;
+
+ALTER TABLE public.direct_messages
+  ADD COLUMN IF NOT EXISTS attached_work_snapshot jsonb;

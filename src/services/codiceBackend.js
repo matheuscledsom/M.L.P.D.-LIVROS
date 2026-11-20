@@ -1,5 +1,6 @@
 import { buildPublicProfileLink, domainConfig } from '../config/domainConfig.js';
 import { createUuid } from './codiceDatabase.js';
+import { evaluateReaderTitles } from './readerTitlesEngine.js';
 
 const REQUEST_TIMEOUT_MS = 8000;
 const IDB_NAME = 'codice_multiuser_db_v1';
@@ -1577,4 +1578,1301 @@ export async function syncActiveWorkspaceToBackend(workspace = {}) {
   if (!targetUserId) return;
 
   await saveLocalWorkspace(targetUserId, workspace);
+}
+
+// ============================================================================
+// REDE SOCIAL LITERÁRIA (Seguir, Mural, Feed, Curtidas/Comentários e Chat 1:1)
+// ============================================================================
+const SOCIAL_META_KEYS = {
+  follows: 'social_follows_v1',
+  wallPosts: 'social_wall_posts_v1',
+  reactions: 'social_reactions_v1',
+  comments: 'social_comments_v1',
+  messages: 'social_messages_v1',
+  communitySeeded: 'social_community_seeded_v1',
+  communityDirectory: 'community_directory_peers_v1',
+};
+
+async function readSocialList(metaKey) {
+  const row = await storeGet('meta', metaKey);
+  return Array.isArray(row?.value) ? row.value : [];
+}
+
+async function writeSocialList(metaKey, list) {
+  await storePut('meta', {
+    key: metaKey,
+    value: Array.isArray(list) ? list : [],
+  });
+}
+
+function buildSeededCommunityDirectory() {
+  const nowIso = '2026-11-18T14:00:00.000Z';
+  const clariceId = 'peer-clarice-br';
+  const akiraId = 'peer-akira-manga';
+  const helenaId = 'peer-helena-tcc';
+
+  return {
+    peers: [
+      {
+        profile: normalizeFrontendProfile({
+          id: clariceId,
+          handle: '@clarice_leitora',
+          displayName: 'Clarice Nogueira',
+          bio: 'Literatura brasileira, edição independente e diários de leitura.',
+          privacyLevel: 'public',
+          allowWallPosts: true,
+          allowComments: true,
+          allowDms: true,
+          gamificationEnabled: true,
+          activeTitleBadge: 'Apreciador de Clássicos',
+          readerFocus: 'Leitura Literária',
+          favoriteGenres: ['Literatura Brasileira', 'Clássicos'],
+          createdAt: nowIso,
+          updatedAt: nowIso,
+        }),
+        workspace: {
+          items: [
+            {
+              id: 'peer-w1',
+              inBacklog: true,
+              status: 'playing',
+              workType: 'book',
+              title: 'A Hora da Estrela',
+              author: 'Clarice Lispector',
+              publisher: 'Rocco',
+              cdu_cdd: '869.3',
+              currentPage: 52,
+              totalPages: 88,
+              progress: 59,
+              updatedAt: '2026-11-19T10:30:00.000Z',
+            },
+            {
+              id: 'peer-w2',
+              inBacklog: true,
+              status: 'completed',
+              workType: 'book',
+              title: 'Memórias Póstumas de Brás Cubas',
+              originalTitle: 'Memórias Póstumas de Brás Cubas',
+              author: 'Machado de Assis',
+              publisher: 'Penguin-Companhia',
+              cdu_cdd: '869.3',
+              rating: 96,
+              verdict: 'Obra-Prima',
+              notes: 'Ironia precisa em capítulos curtíssimos.',
+              completedDate: '2026-11-12',
+              updatedAt: '2026-11-12T20:00:00.000Z',
+            },
+          ],
+          posts: [
+            {
+              id: 'peer-post-1',
+              workId: 'peer-w2',
+              itemId: 'peer-w2',
+              itemTitle: 'Memórias Póstumas de Brás Cubas',
+              title: 'Relendo Machado na edição da Penguin',
+              caption: 'As notas introdutórias ajudam muito a situar os folhetins originais.',
+              progressMarker: 'Concluído',
+              createdAt: '2026-11-15T18:20:00.000Z',
+            },
+          ],
+          streak: { count: 9, lastDate: '2026-11-19', history: [] },
+          readingSessions: [],
+        },
+      },
+      {
+        profile: normalizeFrontendProfile({
+          id: akiraId,
+          handle: '@akira_mangas',
+          displayName: 'Akira Tanaka',
+          bio: 'Colecionador de seinen, dark fantasy e light novels.',
+          privacyLevel: 'public',
+          allowWallPosts: true,
+          allowComments: true,
+          allowDms: true,
+          gamificationEnabled: true,
+          activeTitleBadge: 'Leitor de Seinen',
+          readerFocus: 'Mangás & HQs',
+          favoriteGenres: ['Seinen', 'Fantasia'],
+          createdAt: nowIso,
+          updatedAt: nowIso,
+        }),
+        workspace: {
+          items: [
+            {
+              id: 'peer-m1',
+              inBacklog: true,
+              status: 'playing',
+              workType: 'manga',
+              title: 'Monster',
+              originalTitle: 'モンスター',
+              author: 'Naoki Urasawa',
+              publisher: 'Panini',
+              demographicOrigin: 'Seinen',
+              currentVolume: 6,
+              totalVolumes: 9,
+              currentChapter: 84,
+              totalChapters: 162,
+              progress: 52,
+              updatedAt: '2026-11-19T12:00:00.000Z',
+            },
+            {
+              id: 'peer-m2',
+              inBacklog: true,
+              status: 'completed',
+              workType: 'manga',
+              title: 'Vinland Saga Vol. 1',
+              author: 'Makoto Yukimura',
+              publisher: 'Panini',
+              rating: 92,
+              verdict: 'Obra-Prima',
+              notes: 'Construção histórica impecável.',
+              completedDate: '2026-11-10',
+              updatedAt: '2026-11-10T18:00:00.000Z',
+            },
+          ],
+          posts: [
+            {
+              id: 'peer-post-2',
+              workId: 'peer-m1',
+              itemId: 'peer-m1',
+              itemTitle: 'Monster',
+              title: 'Vol. 6 de Monster continua tenso',
+              caption: 'Urasawa constrói cada personagem secundário com peso dramático.',
+              progressMarker: 'Vol. 6 · Cap. 84',
+              createdAt: '2026-11-18T21:10:00.000Z',
+            },
+          ],
+          streak: { count: 14, lastDate: '2026-11-19', history: [] },
+          readingSessions: [],
+        },
+      },
+      {
+        profile: normalizeFrontendProfile({
+          id: helenaId,
+          handle: '@helena_pesquisa',
+          displayName: 'Helena Vasconcelos',
+          bio: 'Mestranda em Ciência da Computação e Filosofia da Técnica.',
+          privacyLevel: 'followers',
+          allowWallPosts: true,
+          allowComments: true,
+          allowDms: true,
+          gamificationEnabled: true,
+          activeTitleBadge: 'Estudante de Computação & Algoritmos',
+          readerFocus: 'Pesquisa / TCC',
+          favoriteGenres: ['Computação', 'Filosofia'],
+          createdAt: nowIso,
+          updatedAt: nowIso,
+        }),
+        workspace: {
+          items: [
+            {
+              id: 'peer-a1',
+              inBacklog: true,
+              status: 'playing',
+              workType: 'academic',
+              title: 'Estrutura e Interpretação de Programas',
+              originalTitle: 'Structure and Interpretation of Computer Programs',
+              author: 'Harold Abelson, Gerald Jay Sussman',
+              publisher: 'Bookman',
+              cdu_cdd: '004.4',
+              currentPage: 190,
+              totalPages: 610,
+              progress: 31,
+              updatedAt: '2026-11-18T11:00:00.000Z',
+            },
+          ],
+          posts: [],
+          streak: { count: 5, lastDate: '2026-11-18', history: [] },
+          readingSessions: [],
+        },
+      },
+    ],
+    seedWallPosts: [
+      {
+        id: 'seed-wall-1',
+        profileId: clariceId,
+        authorId: akiraId,
+        authorHandle: '@akira_mangas',
+        authorDisplayName: 'Akira Tanaka',
+        authorAvatarInitials: 'AT',
+        authorAvatarUrl: '',
+        authorActiveTitleBadge: 'Leitor de Seinen',
+        content: 'Ótima resenha sobre Memórias Póstumas! Coloquei na minha lista de desejos.',
+        pinned: true,
+        createdAt: '2026-11-16T15:00:00.000Z',
+        updatedAt: '2026-11-16T15:00:00.000Z',
+      },
+    ],
+  };
+}
+
+export async function ensureLocalCommunitySeeded() {
+  const existingFlag = await storeGet('meta', SOCIAL_META_KEYS.communitySeeded);
+  if (existingFlag?.value === true) return;
+
+  const seed = buildSeededCommunityDirectory();
+  await storePut('meta', {
+    key: SOCIAL_META_KEYS.communityDirectory,
+    value: seed.peers,
+  });
+  const currentWall = await readSocialList(SOCIAL_META_KEYS.wallPosts);
+  if (currentWall.length === 0) {
+    await writeSocialList(SOCIAL_META_KEYS.wallPosts, seed.seedWallPosts);
+  }
+  await storePut('meta', { key: SOCIAL_META_KEYS.communitySeeded, value: true });
+}
+
+async function resolveCurrentViewerId(explicitViewerId = null) {
+  if (explicitViewerId) return explicitViewerId;
+  const session = await getCurrentBackendSession();
+  return session?.profile?.id || session?.user?.id || null;
+}
+
+async function getAllLocalProfilesWithWorkspaces() {
+  await ensureLocalCommunitySeeded();
+  const realProfiles = await storeGetAll('profiles');
+  const seededRow = await storeGet('meta', SOCIAL_META_KEYS.communityDirectory);
+  const seededPeers = Array.isArray(seededRow?.value) ? seededRow.value : [];
+
+  const resultMap = new Map();
+  for (const peer of seededPeers) {
+    if (!peer?.profile?.id) continue;
+    resultMap.set(peer.profile.id, {
+      profile: peer.profile,
+      workspace: peer.workspace || { items: [], posts: [], streak: {}, readingSessions: [] },
+      isDirectorySeed: true,
+    });
+  }
+  for (const p of realProfiles) {
+    if (!p?.id) continue;
+    const ws = await loadLocalWorkspace(p.id);
+    resultMap.set(p.id, {
+      profile: normalizeFrontendProfile(p),
+      workspace: ws,
+      isDirectorySeed: false,
+    });
+  }
+  return Array.from(resultMap.values());
+}
+
+function resolveBadgeForReader({ profile, workspace, wallPostsCount = 0 }) {
+  if (profile?.gamificationEnabled === false) return '';
+  const evalRes = evaluateReaderTitles({
+    items: workspace?.items || [],
+    profile,
+    readingSessions: workspace?.readingSessions || [],
+    streakCount: workspace?.streak?.count || 0,
+    posts: workspace?.posts || [],
+    wallPostsCount,
+  });
+  return evalRes.resolvedActiveBadge?.name || profile?.activeTitleBadge || '';
+}
+
+export async function listFollowRelationships(viewerId = null) {
+  const resolvedViewerId = await resolveCurrentViewerId(viewerId);
+  if (getBackendMode() === 'supabase') {
+    const session = await ensureFreshSupabaseSession();
+    if (session?.access_token && resolvedViewerId) {
+      try {
+        const rows = await supabaseFetchJson(
+          `/rest/v1/follows?or=(follower_id.eq.${encodeURIComponent(
+            resolvedViewerId
+          )},following_id.eq.${encodeURIComponent(resolvedViewerId)})&select=*`,
+          { token: session.access_token }
+        );
+        return (Array.isArray(rows) ? rows : []).map((r) => ({
+          id: r.id,
+          followerId: r.follower_id,
+          followingId: r.following_id,
+          status: r.status || 'approved',
+          createdAt: r.created_at,
+        }));
+      } catch {
+        // Fallback local se offline
+      }
+    }
+  }
+
+  return readSocialList(SOCIAL_META_KEYS.follows);
+}
+
+export async function searchReaderProfiles(query = '', { viewerId = null } = {}) {
+  const resolvedViewerId = await resolveCurrentViewerId(viewerId);
+  const q = String(query || '').trim().toLowerCase();
+
+  if (getBackendMode() === 'supabase') {
+    const session = await ensureFreshSupabaseSession();
+    if (session?.access_token) {
+      try {
+        const filterPart = q
+          ? `&or=(handle.ilike.*${encodeURIComponent(q)}*,display_name.ilike.*${encodeURIComponent(q)}*)`
+          : '';
+        const rows = await supabaseFetchJson(
+          `/rest/v1/profiles?select=*&limit=30${filterPart}`,
+          { token: session.access_token }
+        );
+        const follows = await listFollowRelationships(resolvedViewerId);
+        return (Array.isArray(rows) ? rows : [])
+          .map((row) => fromSqlProfileRow(row))
+          .filter(
+            (p) =>
+              p.id === resolvedViewerId ||
+              p.privacyLevel !== 'private'
+          )
+          .map((p) => {
+            const rel = follows.find(
+              (f) => f.followerId === resolvedViewerId && f.followingId === p.id
+            );
+            return {
+              ...p,
+              followStatus: rel ? rel.status : 'none',
+            };
+          });
+      } catch {
+        // Degrada para motor local abaixo
+      }
+    }
+  }
+
+  const allEntries = await getAllLocalProfilesWithWorkspaces();
+  const follows = await listFollowRelationships(resolvedViewerId);
+  const wallPosts = await readSocialList(SOCIAL_META_KEYS.wallPosts);
+
+  return allEntries
+    .filter(({ profile }) => {
+      if (profile.privacyLevel === 'private' && profile.id !== resolvedViewerId) {
+        return false;
+      }
+      if (!q) return true;
+      return (
+        String(profile.handle || '').toLowerCase().includes(q) ||
+        String(profile.displayName || '').toLowerCase().includes(q) ||
+        String(profile.bio || '').toLowerCase().includes(q)
+      );
+    })
+    .map(({ profile, workspace }) => {
+      const rel = follows.find(
+        (f) => f.followerId === resolvedViewerId && f.followingId === profile.id
+      );
+      const userWallCount = wallPosts.filter((w) => w.profileId === profile.id).length;
+      const badgeName = resolveBadgeForReader({
+        profile,
+        workspace,
+        wallPostsCount: userWallCount,
+      });
+      const readingCount = (workspace.items || []).filter(
+        (i) => i.status === 'playing' || i.status === 'reading'
+      ).length;
+
+      return {
+        ...profile,
+        resolvedBadgeName: badgeName,
+        worksCount: (workspace.items || []).filter((i) => i.inBacklog !== false).length,
+        readingCount,
+        followStatus: rel ? rel.status : 'none',
+        isSelf: Boolean(resolvedViewerId && profile.id === resolvedViewerId),
+      };
+    });
+}
+
+export async function followReader(targetProfileId, { viewerId = null } = {}) {
+  const resolvedViewerId = await resolveCurrentViewerId(viewerId);
+  if (!resolvedViewerId || !targetProfileId) {
+    throw new BackendError('Identificadores inválidos para seguir leitor.', {
+      code: 'INVALID_FOLLOW',
+      userMessage: 'Não foi possível identificar o leitor selecionado.',
+    });
+  }
+  if (resolvedViewerId === targetProfileId) {
+    throw new BackendError('Auto-seguimento inválido.', {
+      code: 'SELF_FOLLOW',
+      userMessage: 'Você não pode seguir o próprio perfil.',
+    });
+  }
+
+  const allEntries = await getAllLocalProfilesWithWorkspaces();
+  const targetEntry = allEntries.find((e) => e.profile.id === targetProfileId);
+  const targetProfile = targetEntry?.profile || null;
+  if (targetProfile?.privacyLevel === 'private') {
+    throw new BackendError('Perfil privado.', {
+      code: 'PRIVATE_PROFILE',
+      userMessage: 'Este perfil é privado e não aceita seguidores.',
+    });
+  }
+
+  const nextStatus =
+    targetProfile?.privacyLevel === 'followers' ? 'pending' : 'approved';
+
+  if (getBackendMode() === 'supabase') {
+    const session = await ensureFreshSupabaseSession();
+    if (session?.access_token) {
+      try {
+        await supabaseFetchJson('/rest/v1/follows', {
+          method: 'POST',
+          token: session.access_token,
+          extraHeaders: { Prefer: 'return=representation' },
+          body: {
+            follower_id: resolvedViewerId,
+            following_id: targetProfileId,
+            status: nextStatus,
+          },
+        });
+        return { followerId: resolvedViewerId, followingId: targetProfileId, status: nextStatus };
+      } catch (err) {
+        if (err instanceof BackendError && err.status >= 400 && err.status < 500 && err.status !== 409) {
+          throw err;
+        }
+      }
+    }
+  }
+
+  const follows = await readSocialList(SOCIAL_META_KEYS.follows);
+  const existingIdx = follows.findIndex(
+    (f) => f.followerId === resolvedViewerId && f.followingId === targetProfileId
+  );
+  const nowIso = new Date().toISOString();
+  const record = {
+    id: existingIdx >= 0 ? follows[existingIdx].id : createUuid(),
+    followerId: resolvedViewerId,
+    followingId: targetProfileId,
+    status: nextStatus,
+    createdAt: existingIdx >= 0 ? follows[existingIdx].createdAt : nowIso,
+    updatedAt: nowIso,
+  };
+  if (existingIdx >= 0) {
+    follows[existingIdx] = record;
+  } else {
+    follows.push(record);
+  }
+  await writeSocialList(SOCIAL_META_KEYS.follows, follows);
+  return record;
+}
+
+export async function unfollowReader(targetProfileId, { viewerId = null } = {}) {
+  const resolvedViewerId = await resolveCurrentViewerId(viewerId);
+  if (!resolvedViewerId || !targetProfileId) return false;
+
+  if (getBackendMode() === 'supabase') {
+    const session = await ensureFreshSupabaseSession();
+    if (session?.access_token) {
+      try {
+        await supabaseFetchJson(
+          `/rest/v1/follows?follower_id=eq.${encodeURIComponent(
+            resolvedViewerId
+          )}&following_id=eq.${encodeURIComponent(targetProfileId)}`,
+          { method: 'DELETE', token: session.access_token }
+        );
+      } catch {
+        // Fallback local
+      }
+    }
+  }
+
+  const follows = await readSocialList(SOCIAL_META_KEYS.follows);
+  const filtered = follows.filter(
+    (f) => !(f.followerId === resolvedViewerId && f.followingId === targetProfileId)
+  );
+  await writeSocialList(SOCIAL_META_KEYS.follows, filtered);
+  return true;
+}
+
+export async function respondFollowRequest(
+  followerId,
+  accept = true,
+  { profileId = null } = {}
+) {
+  const resolvedOwnerId = await resolveCurrentViewerId(profileId);
+  if (!resolvedOwnerId || !followerId) return null;
+
+  const follows = await readSocialList(SOCIAL_META_KEYS.follows);
+  if (!accept) {
+    const remaining = follows.filter(
+      (f) => !(f.followerId === followerId && f.followingId === resolvedOwnerId)
+    );
+    await writeSocialList(SOCIAL_META_KEYS.follows, remaining);
+    return { status: 'rejected' };
+  }
+
+  const nowIso = new Date().toISOString();
+  const updated = follows.map((f) =>
+    f.followerId === followerId && f.followingId === resolvedOwnerId
+      ? { ...f, status: 'approved', updatedAt: nowIso }
+      : f
+  );
+  await writeSocialList(SOCIAL_META_KEYS.follows, updated);
+
+  if (getBackendMode() === 'supabase') {
+    const session = await ensureFreshSupabaseSession();
+    if (session?.access_token) {
+      try {
+        await supabaseFetchJson(
+          `/rest/v1/follows?follower_id=eq.${encodeURIComponent(
+            followerId
+          )}&following_id=eq.${encodeURIComponent(resolvedOwnerId)}`,
+          {
+            method: 'PATCH',
+            token: session.access_token,
+            body: { status: 'approved' },
+          }
+        );
+      } catch {
+        // Ignora falha de rede após atualizar cache local
+      }
+    }
+  }
+
+  return { followerId, followingId: resolvedOwnerId, status: 'approved' };
+}
+
+export async function listPendingFollowRequests(profileId = null) {
+  const resolvedOwnerId = await resolveCurrentViewerId(profileId);
+  if (!resolvedOwnerId) return [];
+  const follows = await readSocialList(SOCIAL_META_KEYS.follows);
+  const pending = follows.filter(
+    (f) => f.followingId === resolvedOwnerId && f.status === 'pending'
+  );
+  if (pending.length === 0) return [];
+  const allEntries = await getAllLocalProfilesWithWorkspaces();
+  const profileMap = new Map(allEntries.map((e) => [e.profile.id, e.profile]));
+  return pending.map((rel) => ({
+    ...rel,
+    followerProfile: profileMap.get(rel.followerId) || null,
+  }));
+}
+
+export async function getReaderProfileBundle(targetProfileId, { viewerId = null } = {}) {
+  const resolvedViewerId = await resolveCurrentViewerId(viewerId);
+  const allEntries = await getAllLocalProfilesWithWorkspaces();
+  let targetEntry = allEntries.find((e) => e.profile.id === targetProfileId) || null;
+
+  if (!targetEntry && getBackendMode() === 'supabase') {
+    const session = await ensureFreshSupabaseSession();
+    if (session?.access_token) {
+      try {
+        const [profiles, works, reviews, entries] = await Promise.all([
+          supabaseFetchJson(
+            `/rest/v1/profiles?id=eq.${encodeURIComponent(targetProfileId)}&select=*`,
+            { token: session.access_token }
+          ),
+          supabaseFetchJson(
+            `/rest/v1/works?user_id=eq.${encodeURIComponent(targetProfileId)}&select=*`,
+            { token: session.access_token }
+          ).catch(() => []),
+          supabaseFetchJson(
+            `/rest/v1/reviews?user_id=eq.${encodeURIComponent(targetProfileId)}&select=*`,
+            { token: session.access_token }
+          ).catch(() => []),
+          supabaseFetchJson(
+            `/rest/v1/journal_entries?user_id=eq.${encodeURIComponent(targetProfileId)}&select=*`,
+            { token: session.access_token }
+          ).catch(() => []),
+        ]);
+        if (Array.isArray(profiles) && profiles[0]) {
+          const revMap = new Map((reviews || []).map((r) => [r.work_id, r]));
+          const mappedItems = (works || []).map((w) => {
+            const rev = revMap.get(w.id);
+            return {
+              ...w,
+              inBacklog: true,
+              currentPage: w.current_page ?? 0,
+              totalPages: w.total_pages ?? null,
+              originalTitle: w.original_title || '',
+              rating: rev?.rating ?? null,
+              verdict: rev?.verdict ?? null,
+              notes: rev?.notes || '',
+            };
+          });
+          targetEntry = {
+            profile: fromSqlProfileRow(profiles[0]),
+            workspace: {
+              items: mappedItems,
+              posts: Array.isArray(entries) ? entries : [],
+              streak: {},
+              readingSessions: [],
+            },
+          };
+        }
+      } catch {
+        // Segue fallback nulo abaixo
+      }
+    }
+  }
+
+  if (!targetEntry) {
+    throw new BackendError('Perfil não encontrado.', {
+      code: 'PROFILE_NOT_FOUND',
+      userMessage: 'Não foi possível localizar o perfil deste leitor.',
+    });
+  }
+
+  const targetProfile = targetEntry.profile;
+  const follows = await listFollowRelationships(resolvedViewerId);
+  const myRel = follows.find(
+    (f) => f.followerId === resolvedViewerId && f.followingId === targetProfile.id
+  );
+  const followStatus = myRel ? myRel.status : 'none';
+  const permissions = canInteractWithProfile(targetProfile, {
+    viewerId: resolvedViewerId,
+    isFollower: followStatus === 'approved',
+  });
+
+  const followerCount = follows.filter(
+    (f) => f.followingId === targetProfile.id && f.status === 'approved'
+  ).length;
+  const followingCount = follows.filter(
+    (f) => f.followerId === targetProfile.id && f.status === 'approved'
+  ).length;
+
+  const wallPostsAll = await readSocialList(SOCIAL_META_KEYS.wallPosts);
+  const wallCount = wallPostsAll.filter((w) => w.profileId === targetProfile.id).length;
+  const resolvedBadgeName = resolveBadgeForReader({
+    profile: targetProfile,
+    workspace: targetEntry.workspace,
+    wallPostsCount: wallCount,
+  });
+
+  if (!permissions.canView) {
+    return {
+      restricted: true,
+      reason:
+        targetProfile.privacyLevel === 'private'
+          ? 'Este acervo está em modo Privado.'
+          : 'Acervo visível apenas para seguidores aprovados.',
+      followStatus,
+      permissions,
+      followerCount,
+      followingCount,
+      resolvedBadgeName,
+      profile: {
+        id: targetProfile.id,
+        handle: targetProfile.handle,
+        displayName: targetProfile.displayName,
+        avatarInitials: targetProfile.avatarInitials,
+        avatarUrl: targetProfile.avatarUrl,
+        bio: targetProfile.bio,
+        privacyLevel: targetProfile.privacyLevel,
+        gamificationEnabled: targetProfile.gamificationEnabled,
+      },
+      readingNow: [],
+      latestReviews: [],
+      publicShelf: [],
+      posts: [],
+    };
+  }
+
+  const wsItems = (targetEntry.workspace?.items || []).filter(
+    (i) => i && i.inBacklog !== false
+  );
+  const readingNow = wsItems.filter(
+    (i) => i.status === 'playing' || i.status === 'reading'
+  );
+  const latestReviews = wsItems
+    .filter(
+      (i) =>
+        i.status === 'completed' &&
+        (typeof i.rating === 'number' || (i.notes && i.notes.trim()))
+    )
+    .sort((a, b) =>
+      String(b.completedDate || b.updatedAt || '').localeCompare(
+        String(a.completedDate || a.updatedAt || '')
+      )
+    )
+    .slice(0, 6);
+
+  return {
+    restricted: false,
+    followStatus,
+    permissions,
+    followerCount,
+    followingCount,
+    resolvedBadgeName,
+    profile: targetProfile,
+    readingNow,
+    latestReviews,
+    publicShelf: wsItems,
+    posts: (targetEntry.workspace?.posts || []).filter((p) => p.visibility !== 'private'),
+  };
+}
+
+export async function listWallPosts(profileId, { viewerId = null } = {}) {
+  const resolvedViewerId = await resolveCurrentViewerId(viewerId);
+  const allPosts = await readSocialList(SOCIAL_META_KEYS.wallPosts);
+  const allEntries = await getAllLocalProfilesWithWorkspaces();
+  const profileMap = new Map(allEntries.map((e) => [e.profile.id, e.profile]));
+
+  const targetProfile = profileMap.get(profileId);
+  if (targetProfile) {
+    const follows = await listFollowRelationships(resolvedViewerId);
+    const isFollower = follows.some(
+      (f) =>
+        f.followerId === resolvedViewerId &&
+        f.followingId === profileId &&
+        f.status === 'approved'
+    );
+    const perms = canInteractWithProfile(targetProfile, {
+      viewerId: resolvedViewerId,
+      isFollower,
+    });
+    if (!perms.canView) return [];
+  }
+
+  return allPosts
+    .filter((p) => p.profileId === profileId)
+    .map((p) => {
+      const authorProfile = profileMap.get(p.authorId);
+      return {
+        ...p,
+        authorHandle: authorProfile?.handle || p.authorHandle || '@leitor',
+        authorDisplayName:
+          authorProfile?.displayName || p.authorDisplayName || 'Leitor',
+        authorAvatarInitials:
+          authorProfile?.avatarInitials || p.authorAvatarInitials || 'LC',
+        authorAvatarUrl: authorProfile?.avatarUrl ?? p.authorAvatarUrl ?? '',
+        authorActiveTitleBadge:
+          authorProfile?.gamificationEnabled !== false
+            ? authorProfile?.activeTitleBadge || p.authorActiveTitleBadge || ''
+            : '',
+      };
+    })
+    .sort((a, b) => {
+      const pinDiff = Number(Boolean(b.pinned)) - Number(Boolean(a.pinned));
+      if (pinDiff !== 0) return pinDiff;
+      return String(b.createdAt || '').localeCompare(String(a.createdAt || ''));
+    });
+}
+
+export async function createWallPost(profileId, content, { viewerId = null } = {}) {
+  const cleanContent = String(content || '').trim();
+  if (!cleanContent) {
+    throw new BackendError('Mensagem vazia.', {
+      code: 'EMPTY_WALL_POST',
+      userMessage: 'Escreva uma mensagem antes de publicar no mural.',
+    });
+  }
+
+  const resolvedViewerId = await resolveCurrentViewerId(viewerId);
+  if (!resolvedViewerId || !profileId) {
+    throw new BackendError('Sessão necessária.', {
+      code: 'UNAUTHENTICATED',
+      userMessage: 'Entre ou ative um perfil local para escrever no mural.',
+    });
+  }
+
+  const allEntries = await getAllLocalProfilesWithWorkspaces();
+  const profileMap = new Map(allEntries.map((e) => [e.profile.id, e]));
+  const targetEntry = profileMap.get(profileId);
+  const authorEntry = profileMap.get(resolvedViewerId);
+
+  if (targetEntry) {
+    const follows = await listFollowRelationships(resolvedViewerId);
+    const isFollower = follows.some(
+      (f) =>
+        f.followerId === resolvedViewerId &&
+        f.followingId === profileId &&
+        f.status === 'approved'
+    );
+    const perms = canInteractWithProfile(targetEntry.profile, {
+      viewerId: resolvedViewerId,
+      isFollower,
+    });
+    if (!perms.canPostWall) {
+      throw new BackendError('Mural bloqueado.', {
+        code: 'WALL_DISABLED',
+        userMessage: 'Este leitor desativou ou restringiu recados no mural.',
+      });
+    }
+  }
+
+  const authorProfile = authorEntry?.profile || null;
+  const badgeName = authorEntry
+    ? resolveBadgeForReader({
+        profile: authorEntry.profile,
+        workspace: authorEntry.workspace,
+      })
+    : '';
+  const nowIso = new Date().toISOString();
+
+  const postRecord = {
+    id: createUuid(),
+    profileId,
+    authorId: resolvedViewerId,
+    authorHandle: authorProfile?.handle || '@leitor',
+    authorDisplayName: authorProfile?.displayName || 'Leitor',
+    authorAvatarInitials: authorProfile?.avatarInitials || 'LC',
+    authorAvatarUrl: authorProfile?.avatarUrl || '',
+    authorActiveTitleBadge: badgeName,
+    content: cleanContent,
+    pinned: false,
+    createdAt: nowIso,
+    updatedAt: nowIso,
+  };
+
+  if (getBackendMode() === 'supabase') {
+    const session = await ensureFreshSupabaseSession();
+    if (session?.access_token) {
+      try {
+        await supabaseFetchJson('/rest/v1/wall_posts', {
+          method: 'POST',
+          token: session.access_token,
+          body: {
+            id: postRecord.id,
+            profile_id: profileId,
+            author_id: resolvedViewerId,
+            content: cleanContent,
+            pinned: false,
+          },
+        });
+      } catch {
+        // Fallback em espelho local
+      }
+    }
+  }
+
+  const list = await readSocialList(SOCIAL_META_KEYS.wallPosts);
+  list.unshift(postRecord);
+  await writeSocialList(SOCIAL_META_KEYS.wallPosts, list);
+  return postRecord;
+}
+
+export async function togglePinWallPost(postId, { viewerId = null } = {}) {
+  const resolvedViewerId = await resolveCurrentViewerId(viewerId);
+  const list = await readSocialList(SOCIAL_META_KEYS.wallPosts);
+  let updatedPost = null;
+  const nextList = list.map((p) => {
+    if (p.id !== postId) return p;
+    if (resolvedViewerId && p.profileId !== resolvedViewerId) {
+      throw new BackendError('Sem permissão.', {
+        code: 'FORBIDDEN',
+        userMessage: 'Somente o dono do mural pode fixar recados.',
+      });
+    }
+    updatedPost = {
+      ...p,
+      pinned: !p.pinned,
+      updatedAt: new Date().toISOString(),
+    };
+    return updatedPost;
+  });
+  await writeSocialList(SOCIAL_META_KEYS.wallPosts, nextList);
+  return updatedPost;
+}
+
+export async function deleteWallPost(postId, { viewerId = null } = {}) {
+  const resolvedViewerId = await resolveCurrentViewerId(viewerId);
+  const list = await readSocialList(SOCIAL_META_KEYS.wallPosts);
+  const target = list.find((p) => p.id === postId);
+  if (!target) return false;
+  if (
+    resolvedViewerId &&
+    target.profileId !== resolvedViewerId &&
+    target.authorId !== resolvedViewerId
+  ) {
+    throw new BackendError('Sem permissão.', {
+      code: 'FORBIDDEN',
+      userMessage: 'Apenas o autor do recado ou dono do mural podem excluí-lo.',
+    });
+  }
+  await writeSocialList(
+    SOCIAL_META_KEYS.wallPosts,
+    list.filter((p) => p.id !== postId)
+  );
+  return true;
+}
+
+export async function listActivityFeed({ viewerId = null } = {}) {
+  const resolvedViewerId = await resolveCurrentViewerId(viewerId);
+  const allEntries = await getAllLocalProfilesWithWorkspaces();
+  const follows = await listFollowRelationships(resolvedViewerId);
+  const followingIds = new Set(
+    follows
+      .filter((f) => f.followerId === resolvedViewerId && f.status === 'approved')
+      .map((f) => f.followingId)
+  );
+
+  const reactions = await readSocialList(SOCIAL_META_KEYS.reactions);
+  const comments = await readSocialList(SOCIAL_META_KEYS.comments);
+  const profileMap = new Map(allEntries.map((e) => [e.profile.id, e.profile]));
+
+  const feedItems = [];
+
+  for (const { profile, workspace } of allEntries) {
+    const isSelf = Boolean(resolvedViewerId && profile.id === resolvedViewerId);
+    const isFollower = followingIds.has(profile.id);
+    const perms = canInteractWithProfile(profile, {
+      viewerId: resolvedViewerId,
+      isFollower,
+    });
+    if (!perms.canView) continue;
+    // Prioriza atividades próprias, de seguidos, ou descoberta pública no diretório local
+    if (!isSelf && !isFollower && profile.privacyLevel !== 'public') continue;
+
+    for (const post of workspace?.posts || []) {
+      if (!post || !post.id) continue;
+      if (post.visibility === 'private' && !isSelf) continue;
+
+      const postReactions = reactions.filter(
+        (r) => r.targetType === 'journal' && r.targetId === post.id
+      );
+      const postComments = comments
+        .filter((c) => c.targetType === 'journal' && c.targetId === post.id)
+        .map((c) => {
+          const cp = profileMap.get(c.authorId);
+          return {
+            ...c,
+            authorHandle: cp?.handle || c.authorHandle || '@leitor',
+            authorDisplayName: cp?.displayName || c.authorDisplayName || 'Leitor',
+            authorAvatarInitials: cp?.avatarInitials || c.authorAvatarInitials || 'LC',
+          };
+        })
+        .sort((a, b) => String(a.createdAt || '').localeCompare(String(b.createdAt || '')));
+
+      feedItems.push({
+        id: post.id,
+        ownerId: profile.id,
+        ownerProfile: {
+          ...profile,
+          resolvedBadgeName: resolveBadgeForReader({ profile, workspace }),
+        },
+        allowComments: perms.canComment,
+        isFollowing: isFollower,
+        isSelf,
+        title: post.title,
+        caption: post.caption || '',
+        itemTitle: post.itemTitle || '',
+        itemSnapshot: post.itemSnapshot || null,
+        progressMarker: post.progressMarker || '',
+        createdAt: post.createdAt || profile.updatedAt,
+        likesCount: postReactions.length,
+        viewerLiked: Boolean(
+          resolvedViewerId && postReactions.some((r) => r.userId === resolvedViewerId)
+        ),
+        comments: postComments,
+      });
+    }
+  }
+
+  return feedItems.sort((a, b) => {
+    const followBoost = Number(b.isFollowing || b.isSelf) - Number(a.isFollowing || a.isSelf);
+    if (followBoost !== 0) return followBoost;
+    return String(b.createdAt || '').localeCompare(String(a.createdAt || ''));
+  });
+}
+
+export async function togglePostReaction({
+  targetType = 'journal',
+  targetId,
+  reactionType = 'like',
+  viewerId = null,
+}) {
+  const resolvedViewerId = await resolveCurrentViewerId(viewerId);
+  if (!resolvedViewerId || !targetId) return { liked: false, count: 0 };
+
+  const list = await readSocialList(SOCIAL_META_KEYS.reactions);
+  const existingIdx = list.findIndex(
+    (r) =>
+      r.userId === resolvedViewerId &&
+      r.targetType === targetType &&
+      r.targetId === targetId &&
+      r.reactionType === reactionType
+  );
+
+  let liked = false;
+  if (existingIdx >= 0) {
+    list.splice(existingIdx, 1);
+    liked = false;
+  } else {
+    list.push({
+      id: createUuid(),
+      userId: resolvedViewerId,
+      targetType,
+      targetId,
+      reactionType,
+      createdAt: new Date().toISOString(),
+    });
+    liked = true;
+  }
+  await writeSocialList(SOCIAL_META_KEYS.reactions, list);
+
+  const count = list.filter(
+    (r) => r.targetType === targetType && r.targetId === targetId
+  ).length;
+  return { liked, count };
+}
+
+export async function addSocialComment({
+  targetType = 'journal',
+  targetId,
+  content,
+  ownerProfileId = null,
+  viewerId = null,
+}) {
+  const cleanContent = String(content || '').trim();
+  if (!cleanContent) {
+    throw new BackendError('Comentário vazio.', {
+      code: 'EMPTY_COMMENT',
+      userMessage: 'Digite um comentário antes de enviar.',
+    });
+  }
+
+  const resolvedViewerId = await resolveCurrentViewerId(viewerId);
+  if (!resolvedViewerId || !targetId) {
+    throw new BackendError('Sessão necessária.', {
+      code: 'UNAUTHENTICATED',
+      userMessage: 'Entre com seu perfil para comentar.',
+    });
+  }
+
+  const allEntries = await getAllLocalProfilesWithWorkspaces();
+  const profileMap = new Map(allEntries.map((e) => [e.profile.id, e.profile]));
+  const ownerProfile = ownerProfileId ? profileMap.get(ownerProfileId) : null;
+
+  if (ownerProfile) {
+    const follows = await listFollowRelationships(resolvedViewerId);
+    const isFollower = follows.some(
+      (f) =>
+        f.followerId === resolvedViewerId &&
+        f.followingId === ownerProfile.id &&
+        f.status === 'approved'
+    );
+    const perms = canInteractWithProfile(ownerProfile, {
+      viewerId: resolvedViewerId,
+      isFollower,
+    });
+    if (!perms.canComment) {
+      throw new BackendError('Comentários desativados.', {
+        code: 'COMMENTS_DISABLED',
+        userMessage: 'Este leitor desativou ou restringiu comentários.',
+      });
+    }
+  }
+
+  const authorProfile = profileMap.get(resolvedViewerId);
+  const record = {
+    id: createUuid(),
+    authorId: resolvedViewerId,
+    authorHandle: authorProfile?.handle || '@leitor',
+    authorDisplayName: authorProfile?.displayName || 'Leitor',
+    authorAvatarInitials: authorProfile?.avatarInitials || 'LC',
+    targetType,
+    targetId,
+    ownerProfileId: ownerProfileId || null,
+    content: cleanContent,
+    createdAt: new Date().toISOString(),
+  };
+
+  const list = await readSocialList(SOCIAL_META_KEYS.comments);
+  list.push(record);
+  await writeSocialList(SOCIAL_META_KEYS.comments, list);
+  return record;
+}
+
+export async function deleteSocialComment(commentId, { viewerId = null } = {}) {
+  const resolvedViewerId = await resolveCurrentViewerId(viewerId);
+  const list = await readSocialList(SOCIAL_META_KEYS.comments);
+  const target = list.find((c) => c.id === commentId);
+  if (!target) return false;
+  if (
+    resolvedViewerId &&
+    target.authorId !== resolvedViewerId &&
+    target.ownerProfileId !== resolvedViewerId
+  ) {
+    throw new BackendError('Sem permissão.', {
+      code: 'FORBIDDEN',
+      userMessage: 'Você não tem permissão para remover este comentário.',
+    });
+  }
+  await writeSocialList(
+    SOCIAL_META_KEYS.comments,
+    list.filter((c) => c.id !== commentId)
+  );
+  return true;
+}
+
+export async function listDirectConversations({ viewerId = null } = {}) {
+  const resolvedViewerId = await resolveCurrentViewerId(viewerId);
+  if (!resolvedViewerId) return [];
+
+  const messages = await readSocialList(SOCIAL_META_KEYS.messages);
+  const allEntries = await getAllLocalProfilesWithWorkspaces();
+  const profileMap = new Map(allEntries.map((e) => [e.profile.id, e.profile]));
+
+  const convMap = new Map();
+  for (const msg of messages) {
+    if (msg.senderId !== resolvedViewerId && msg.recipientId !== resolvedViewerId) {
+      continue;
+    }
+    const peerId = msg.senderId === resolvedViewerId ? msg.recipientId : msg.senderId;
+    const prev = convMap.get(peerId) || {
+      peerId,
+      peerProfile: profileMap.get(peerId) || null,
+      lastMessage: null,
+      unreadCount: 0,
+    };
+
+    if (msg.recipientId === resolvedViewerId && !msg.readAt) {
+      prev.unreadCount += 1;
+    }
+    if (
+      !prev.lastMessage ||
+      String(msg.createdAt || '') > String(prev.lastMessage.createdAt || '')
+    ) {
+      prev.lastMessage = msg;
+    }
+    convMap.set(peerId, prev);
+  }
+
+  return Array.from(convMap.values()).sort((a, b) =>
+    String(b.lastMessage?.createdAt || '').localeCompare(
+      String(a.lastMessage?.createdAt || '')
+    )
+  );
+}
+
+export async function listDirectMessages(peerId, { viewerId = null } = {}) {
+  const resolvedViewerId = await resolveCurrentViewerId(viewerId);
+  if (!resolvedViewerId || !peerId) return [];
+
+  const messages = await readSocialList(SOCIAL_META_KEYS.messages);
+  return messages
+    .filter(
+      (m) =>
+        (m.senderId === resolvedViewerId && m.recipientId === peerId) ||
+        (m.senderId === peerId && m.recipientId === resolvedViewerId)
+    )
+    .sort((a, b) => String(a.createdAt || '').localeCompare(String(b.createdAt || '')));
+}
+
+export async function markConversationRead(peerId, { viewerId = null } = {}) {
+  const resolvedViewerId = await resolveCurrentViewerId(viewerId);
+  if (!resolvedViewerId || !peerId) return 0;
+
+  const messages = await readSocialList(SOCIAL_META_KEYS.messages);
+  const nowIso = new Date().toISOString();
+  let changed = 0;
+
+  const next = messages.map((m) => {
+    if (m.senderId === peerId && m.recipientId === resolvedViewerId && !m.readAt) {
+      changed += 1;
+      return { ...m, readAt: nowIso };
+    }
+    return m;
+  });
+
+  if (changed > 0) {
+    await writeSocialList(SOCIAL_META_KEYS.messages, next);
+  }
+  return changed;
+}
+
+export async function getUnreadMessagesCount({ viewerId = null } = {}) {
+  const resolvedViewerId = await resolveCurrentViewerId(viewerId);
+  if (!resolvedViewerId) return 0;
+  const messages = await readSocialList(SOCIAL_META_KEYS.messages);
+  return messages.filter((m) => m.recipientId === resolvedViewerId && !m.readAt).length;
+}
+
+export async function sendDirectMessage({
+  recipientId,
+  content,
+  attachedWorkSnapshot = null,
+  viewerId = null,
+}) {
+  const cleanContent = String(content || '').trim();
+  if (!cleanContent && !attachedWorkSnapshot) {
+    throw new BackendError('Mensagem vazia.', {
+      code: 'EMPTY_DM',
+      userMessage: 'Digite uma mensagem ou anexe uma obra antes de enviar.',
+    });
+  }
+
+  const resolvedViewerId = await resolveCurrentViewerId(viewerId);
+  if (!resolvedViewerId || !recipientId) {
+    throw new BackendError('Destinatário inválido.', {
+      code: 'INVALID_RECIPIENT',
+      userMessage: 'Selecione um leitor para conversar.',
+    });
+  }
+  if (resolvedViewerId === recipientId) {
+    throw new BackendError('Chat consigo mesmo.', {
+      code: 'SELF_DM',
+      userMessage: 'Selecione outro leitor para iniciar uma conversa.',
+    });
+  }
+
+  const allEntries = await getAllLocalProfilesWithWorkspaces();
+  const profileMap = new Map(allEntries.map((e) => [e.profile.id, e.profile]));
+  const recipientProfile = profileMap.get(recipientId);
+
+  if (recipientProfile) {
+    const follows = await listFollowRelationships(resolvedViewerId);
+    const isFollower = follows.some(
+      (f) =>
+        f.followerId === resolvedViewerId &&
+        f.followingId === recipientId &&
+        f.status === 'approved'
+    );
+    const perms = canInteractWithProfile(recipientProfile, {
+      viewerId: resolvedViewerId,
+      isFollower,
+    });
+    if (!perms.canSendDm) {
+      throw new BackendError('Mensagens diretas desativadas.', {
+        code: 'DMS_DISABLED',
+        userMessage: 'Este leitor desativou ou restringiu o recebimento de mensagens.',
+      });
+    }
+  }
+
+  const sanitizedBook = attachedWorkSnapshot
+    ? {
+        id: attachedWorkSnapshot.id || createUuid(),
+        title: String(attachedWorkSnapshot.title || 'Obra recomendada'),
+        originalTitle: String(attachedWorkSnapshot.originalTitle || ''),
+        author: String(attachedWorkSnapshot.author || ''),
+        publisher: String(attachedWorkSnapshot.publisher || ''),
+        isbn: String(attachedWorkSnapshot.isbn || ''),
+        coverUrl: attachedWorkSnapshot.coverUrl || null,
+        coverSources: Array.isArray(attachedWorkSnapshot.coverSources)
+          ? attachedWorkSnapshot.coverSources
+          : [],
+        workType: attachedWorkSnapshot.workType || 'book',
+        rating: attachedWorkSnapshot.rating ?? null,
+      }
+    : null;
+
+  const messageRecord = {
+    id: createUuid(),
+    senderId: resolvedViewerId,
+    recipientId,
+    content: cleanContent || `Recomendo a leitura de "${sanitizedBook?.title}"`,
+    attachedWorkSnapshot: sanitizedBook,
+    readAt: null,
+    createdAt: new Date().toISOString(),
+  };
+
+  if (getBackendMode() === 'supabase') {
+    const session = await ensureFreshSupabaseSession();
+    if (session?.access_token) {
+      try {
+        await supabaseFetchJson('/rest/v1/direct_messages', {
+          method: 'POST',
+          token: session.access_token,
+          body: {
+            id: messageRecord.id,
+            sender_id: resolvedViewerId,
+            recipient_id: recipientId,
+            content: messageRecord.content,
+            attached_work_snapshot: sanitizedBook,
+          },
+        });
+      } catch {
+        // Fallback em espelho local
+      }
+    }
+  }
+
+  const list = await readSocialList(SOCIAL_META_KEYS.messages);
+  list.push(messageRecord);
+  await writeSocialList(SOCIAL_META_KEYS.messages, list);
+  return messageRecord;
 }

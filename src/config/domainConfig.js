@@ -166,6 +166,7 @@ export const domainConfig = {
     { id: 'stats', label: 'Métricas', icon: 'BarChart2' },
     { id: 'add', label: 'Catalogar', icon: 'PlusCircle', isCenterHighlight: true },
     { id: 'list', label: 'Acervo', icon: 'Library' },
+    { id: 'community', label: 'Rede', icon: 'Users' },
     { id: 'profile', label: 'Perfil', icon: 'User' },
   ],
 

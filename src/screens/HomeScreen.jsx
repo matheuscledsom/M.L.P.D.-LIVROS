@@ -60,6 +60,7 @@ export function HomeScreen({
   items,
   profile,
   streakProps,
+  resolvedBadgeName = '',
   geminiKey = '',
   storedReaderBooks = [],
   onSelectItem,
@@ -190,11 +191,19 @@ export function HomeScreen({
           <p className="text-xs font-medium text-subtle">
             {ui.home.greetingPrefix}{' '}
             {profile?.displayName || profile?.handle || ui.profile.displayName}
-            {profile?.gamificationEnabled !== false && profile?.activeTitleBadge && (
-              <span className="ml-1.5 inline-flex items-center rounded-full border border-accent/40 bg-accent/15 px-2 py-0.5 text-[10px] font-semibold text-accent">
-                {profile.activeTitleBadge}
-              </span>
-            )}
+            {profile?.gamificationEnabled !== false &&
+              (() => {
+                const badgeText =
+                  resolvedBadgeName ||
+                  (profile?.activeTitleBadge && profile.activeTitleBadge !== 'auto'
+                    ? profile.activeTitleBadge
+                    : '');
+                return badgeText ? (
+                  <span className="ml-1.5 inline-flex items-center rounded-[4px] border border-accent/40 bg-accent/10 px-2 py-0.5 text-[10px] font-semibold text-accent">
+                    {badgeText}
+                  </span>
+                ) : null;
+              })()}
           </p>
           <div className="mt-0.5 flex flex-wrap items-baseline gap-2">
             <h1 className="text-xl sm:text-2xl font-semibold tracking-tight text-ink">

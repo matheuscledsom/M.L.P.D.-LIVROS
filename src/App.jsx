@@ -7,6 +7,9 @@ import { ItemDetailSheet } from './components/ItemDetailSheet';
 import { JournalComposerModal } from './components/JournalComposerModal';
 import { OnboardingFlow } from './components/OnboardingFlow';
 import { DigitalShelfModal } from './components/reader/DigitalShelfModal';
+import { CommunityScreen } from './components/social/CommunityScreen';
+import { DirectChatDrawer } from './components/social/DirectChatDrawer';
+import { UserProfileModal } from './components/social/UserProfileModal';
 import { useToast } from './context/ToastContext';
 import { useBacklog } from './hooks/useBacklog';
 import { useGeminiKey } from './hooks/useGeminiKey';
@@ -19,7 +22,12 @@ import {
 } from './services/backupEngine';
 import {
   bootstrapBackend,
+  ensureLocalCommunitySeeded,
   getBackendMode,
+  getUnreadMessagesCount,
+  listDirectConversations,
+  listDirectMessages,
+  listWallPosts,
   syncActiveWorkspaceToBackend,
   updateActiveProfileInBackend,
 } from './services/codiceBackend';
@@ -28,6 +36,7 @@ import {
   createUuid,
   persistCodiceDatabase,
 } from './services/codiceDatabase';
+import { evaluateReaderTitles } from './services/readerTitlesEngine';
 import {
   deleteBookFile,
   listStoredBookIds,
@@ -71,6 +80,14 @@ export function App() {
   const [journalComposer, setJournalComposer] = useState({
     open: false,
     itemId: null,
+  });
+  const [viewingUserProfileId, setViewingUserProfileId] = useState(null);
+  const [chatOpen, setChatOpen] = useState(false);
+  const [chatPeerId, setChatPeerId] = useState(null);
+  const [unreadDmCount, setUnreadDmCount] = useState(0);
+  const [socialCounts, setSocialCounts] = useState({
+    wallPostsCount: 0,
+    chatMessagesCount: 0,
   });
 
   const { showToast } = useToast();
@@ -606,6 +623,117 @@ export function App() {
     showToast({ message: 'Constância de leitura registrada hoje', type: 'success' });
   };
 
+  const activeViewerId =
+    backendSession?.user?.id || backendSession?.profile?.id || profile?.id || null;
+
+  const refreshSocialSignals = useCallback(() => {
+    if (!backendReady) return;
+    ensureLocalCommunitySeeded()
+      .then(() =>
+        Promise.all([
+          getUnreadMessagesCount({ viewerId: activeViewerId }),
+          listWallPosts(activeViewerId || 'local-default', {
+            viewerId: activeViewerId,
+          }),
+          listDirectConversations({ viewerId: activeViewerId }),
+        ])
+      )
+      .then(async ([unread, wallList, convs]) => {
+        setUnreadDmCount(Number(unread) || 0);
+        let msgCount = 0;
+        if (Array.isArray(convs) && convs.length > 0) {
+          const threads = await Promise.all(
+            convs.map((c) =>
+              listDirectMessages(c.peerId, { viewerId: activeViewerId }).catch(() => [])
+            )
+          );
+          msgCount = threads.reduce(
+            (sum, list) =>
+              sum +
+              (Array.isArray(list)
+                ? list.filter((m) => m.senderId === (activeViewerId || 'local-default')).length
+                : 0),
+            0
+          );
+        }
+        setSocialCounts({
+          wallPostsCount: Array.isArray(wallList) ? wallList.length : 0,
+          chatMessagesCount: msgCount,
+        });
+      })
+      .catch(() => {});
+  }, [backendReady, activeViewerId]);
+
+  useEffect(() => {
+    refreshSocialSignals();
+  }, [refreshSocialSignals]);
+
+  const resolvedTitleBadge = useMemo(
+    () =>
+      evaluateReaderTitles({
+        items,
+        profile,
+        readingSessions,
+        streakCount,
+        posts,
+        wallPostsCount: socialCounts.wallPostsCount,
+        chatMessagesCount: socialCounts.chatMessagesCount,
+        storedReaderBooksCount: storedReaderWorkIds.length,
+      })?.resolvedActiveBadge?.name || '',
+    [
+      items,
+      profile,
+      readingSessions,
+      streakCount,
+      posts,
+      socialCounts,
+      storedReaderWorkIds.length,
+    ]
+  );
+
+  const handleOpenDirectChat = useCallback((peerId = null) => {
+    setChatPeerId(peerId || null);
+    setChatOpen(true);
+  }, []);
+
+  const handleCopyWorkToWishlist = useCallback(
+    (work) => {
+      if (!work?.title) return;
+      const alreadyExists = items.some(
+        (i) =>
+          String(i.title || '').trim().toLowerCase() ===
+          String(work.title || '').trim().toLowerCase()
+      );
+      if (alreadyExists) {
+        showToast({
+          message: `"${work.title}" já faz parte do seu acervo.`,
+          type: 'info',
+        });
+        return;
+      }
+      addItem({
+        ...work,
+        id: createUuid(),
+        status: 'queued',
+        isWishlist: true,
+        access: 'Wishlist',
+        inBacklog: true,
+        currentPage: 0,
+        currentChapter: 0,
+        progress: 0,
+        rating: null,
+        verdict: null,
+        notes: work.notes ? `Referência externa: ${work.notes}` : '',
+        addedAt: new Date().toISOString(),
+      });
+      showToast({
+        message: `"${work.title}" copiada para sua Lista de Desejos.`,
+        type: 'success',
+      });
+    },
+    [items, addItem, showToast]
+  );
+
   const streakProps = {
     streakCount,
     loggedToday,
@@ -665,6 +793,7 @@ export function App() {
               items={items}
               profile={profile}
               streakProps={streakProps}
+              resolvedBadgeName={resolvedTitleBadge}
               geminiKey={geminiKey}
               storedReaderWorkIds={storedReaderWorkIds}
               storedReaderBooks={storedReaderBooks}
@@ -702,11 +831,25 @@ export function App() {
               onOpenGeminiSettings={() => setGeminiModalOpen(true)}
             />
           )}
+          {activeTab === 'community' && (
+            <CommunityScreen
+              viewerId={activeViewerId}
+              unreadDmCount={unreadDmCount}
+              onOpenUserProfile={(id) => setViewingUserProfileId(id)}
+              onOpenDirectChat={handleOpenDirectChat}
+            />
+          )}
           {activeTab === 'profile' && (
             <ProfileScreen
               items={items}
               profile={profile}
               posts={posts}
+              readingSessions={readingSessions}
+              streakCount={streakCount}
+              viewerId={activeViewerId}
+              storedReaderBooksCount={storedReaderWorkIds.length}
+              wallPostsCount={socialCounts.wallPostsCount}
+              chatMessagesCount={socialCounts.chatMessagesCount}
               hasGeminiKey={hasGeminiKey}
               backendSession={backendSession}
               onOpenAuthModal={() => setAuthModalOpen(true)}
@@ -741,11 +884,17 @@ export function App() {
               onExportBibtex={handleExportBibtex}
               onImportBackup={handleImportBackup}
               onOpenBackupModal={() => setBackupModalOpen(true)}
+              onWallMutated={refreshSocialSignals}
+              onSelectPeerProfile={(id) => setViewingUserProfileId(id)}
             />
           )}
         </main>
 
-        <BottomNav activeTab={activeTab} onChangeTab={setActiveTab} />
+        <BottomNav
+          activeTab={activeTab}
+          onChangeTab={setActiveTab}
+          unreadDmCount={unreadDmCount}
+        />
 
         <ItemDetailSheet
           item={selectedItem}
@@ -875,6 +1024,30 @@ export function App() {
             readingSessions,
           }}
           onAuthSuccess={handleAuthSuccess}
+        />
+
+        <UserProfileModal
+          isOpen={Boolean(viewingUserProfileId)}
+          profileId={viewingUserProfileId}
+          viewerId={activeViewerId}
+          onClose={() => setViewingUserProfileId(null)}
+          onOpenDirectChat={(peerId) => {
+            setViewingUserProfileId(null);
+            handleOpenDirectChat(peerId);
+          }}
+          onCopyBookToWishlist={handleCopyWorkToWishlist}
+          onSelectPeerProfile={(id) => setViewingUserProfileId(id)}
+          onFollowChanged={refreshSocialSignals}
+        />
+
+        <DirectChatDrawer
+          isOpen={chatOpen}
+          onClose={() => setChatOpen(false)}
+          viewerId={activeViewerId}
+          initialPeerId={chatPeerId}
+          myShelfItems={items}
+          onCopyBookToWishlist={handleCopyWorkToWishlist}
+          onUnreadChanged={refreshSocialSignals}
         />
       </div>
     </div>
