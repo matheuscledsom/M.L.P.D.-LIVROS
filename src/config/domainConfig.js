@@ -226,7 +226,7 @@ export const domainConfig = {
     },
     add: {
       title: 'Catalogar',
-      subtitle: 'Busca multi-acervo (Google Books, Open Library, Jikan, CrossRef), ISBN ou DOI',
+      subtitle: 'Busca multi-acervo (Google Books, Apple Books, Open Library, Jikan, CrossRef), ISBN ou DOI',
       searchPlaceholder: 'Título, autor, ISBN ou DOI (10.xxxx/...)',
       isbnDetectedLabel: 'Busca direta por ISBN detectada',
       suggestionsLabel: 'Sugestões do Acervo',

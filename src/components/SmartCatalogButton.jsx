@@ -2,8 +2,15 @@ import { Check, KeyRound, Sparkles } from 'lucide-react';
 import { useState } from 'react';
 import { useToast } from '../context/ToastContext';
 import { normalizePublisherName } from '../data/brazilianPublishers';
-import { runSmartCataloging } from '../services/geminiApi';
+import {
+  AI_PROVIDER_META,
+  runMultiSmartCataloging,
+} from '../services/aiProvider';
 import { runLocalSmartCataloging } from '../services/localCatalogFallback';
+import {
+  AiPrivacyNoticeBanner,
+  useExternalAiNotice,
+} from './AiPrivacyNotice';
 
 export function SmartCatalogButton({
   item,
@@ -12,10 +19,14 @@ export function SmartCatalogButton({
   onOpenGeminiSettings,
 }) {
   const { showToast } = useToast();
+  const { activeProvider, shouldShowNotice, acknowledgeNotice } =
+    useExternalAiNotice(geminiKey);
   const [isLoading, setIsLoading] = useState(false);
   const [statusNotice, setStatusNotice] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
   const [doneMode, setDoneMode] = useState('');
+
+  const hasExternalAi = Boolean(activeProvider);
 
   const applyLocalFallback = async (reason = '') => {
     const localRes = await runLocalSmartCataloging(item);
@@ -23,11 +34,11 @@ export function SmartCatalogButton({
     setDoneMode('local');
     setStatusNotice(
       reason
-        ? `${reason} Preenchimento Inteligente Local aplicado (CDD, Cutter e metadados).`
-        : 'Preenchimento Inteligente Local aplicado com CDD, Cutter e editora normalizada.'
+        ? `${reason} CDD, Cutter e sinopse estruturada — gerado localmente.`
+        : 'CDD, Cutter e sinopse estruturada aplicados — gerado localmente.'
     );
     showToast({
-      message: 'Ficha completada com Preenchimento Inteligente Local',
+      message: 'Ficha completada — gerado localmente',
       type: 'success',
     });
     setTimeout(() => setDoneMode(''), 3500);
@@ -45,23 +56,44 @@ export function SmartCatalogButton({
 
     setIsLoading(true);
     try {
-      if (!geminiKey) {
+      if (!hasExternalAi) {
         await applyLocalFallback('');
         return;
       }
 
-      const enriched = await runSmartCataloging(geminiKey, item);
+      if (shouldShowNotice) {
+        acknowledgeNotice();
+      }
+
+      const enriched = await runMultiSmartCataloging({
+        item,
+        overrideKeys: geminiKey ? { gemini: geminiKey } : null,
+      });
       const updates = {};
 
       if (enriched.synopsis) {
         updates.synopsis = enriched.synopsis;
       }
 
+      if (enriched.cdu_cdd && !item.cdu_cdd) {
+        updates.cdu_cdd = enriched.cdu_cdd;
+      }
+      if (enriched.cutter && !item.cutter) {
+        updates.cutter = enriched.cutter;
+      }
+      if ((updates.cdu_cdd || updates.cutter) && !item.callNumber) {
+        updates.callNumber = [
+          updates.cdu_cdd || item.cdu_cdd,
+          updates.cutter || item.cutter,
+        ]
+          .filter(Boolean)
+          .join(' ');
+      }
+
       if (enriched.genres?.length) {
-        const mergedGenres = Array.from(
+        updates.genres = Array.from(
           new Set([...(item.genres || []), ...enriched.genres])
         ).slice(0, 4);
-        updates.genres = mergedGenres;
       }
 
       if (enriched.atmosphere?.length) {
@@ -92,13 +124,26 @@ export function SmartCatalogButton({
       }
 
       onApplyFields(updates);
-      setDoneMode('gemini');
-      showToast({ message: 'Ficha completada com Gemini', type: 'success' });
+      const providerLabel =
+        AI_PROVIDER_META[enriched.provider]?.label || activeProvider?.label || 'IA';
+      setDoneMode(providerLabel);
+      showToast({
+        message: enriched.fromCache
+          ? `Ficha carregada do cache local (${providerLabel})`
+          : `Ficha completada com ${providerLabel}`,
+        type: 'success',
+      });
       setTimeout(() => setDoneMode(''), 3000);
     } catch (error) {
+      if (error?.code === 'AUTH_ERROR') {
+        setErrorMsg(
+          error.userMessage || 'Chave inválida ou sem permissão. Verifique nas configurações.'
+        );
+        return;
+      }
       try {
         await applyLocalFallback(
-          error?.userMessage || 'Gemini indisponível no momento.'
+          error?.userMessage || 'Provedores de IA indisponíveis no momento.'
         );
       } catch (localErr) {
         setErrorMsg(
@@ -114,6 +159,13 @@ export function SmartCatalogButton({
 
   return (
     <div className="space-y-2">
+      {shouldShowNotice && (
+        <AiPrivacyNoticeBanner
+          provider={activeProvider}
+          onAcknowledge={acknowledgeNotice}
+        />
+      )}
+
       <button
         type="button"
         onClick={handleRun}
@@ -124,9 +176,9 @@ export function SmartCatalogButton({
           <>
             <Check className="h-4 w-4 text-accent" strokeWidth={1.5} />
             <span>
-              {doneMode === 'gemini'
-                ? 'Ficha completada com Gemini'
-                : 'Ficha completada localmente'}
+              {doneMode === 'local'
+                ? 'Ficha completada — gerado localmente'
+                : `Ficha completada com ${doneMode}`}
             </span>
           </>
         ) : (
@@ -134,11 +186,11 @@ export function SmartCatalogButton({
             <Sparkles className="h-4 w-4 text-accent" strokeWidth={1.5} />
             <span>
               {isLoading
-                ? geminiKey
-                  ? 'Catalogando com Gemini...'
+                ? hasExternalAi
+                  ? `Catalogando com ${activeProvider.label}...`
                   : 'Aplicando catalogação local...'
-                : geminiKey
-                  ? 'Catalogação Inteligente (Gemini)'
+                : hasExternalAi
+                  ? `Catalogação Inteligente (${activeProvider.label})`
                   : 'Preenchimento Inteligente Local'}
             </span>
           </>
@@ -146,34 +198,49 @@ export function SmartCatalogButton({
       </button>
 
       {statusNotice && (
-        <div className="flex flex-wrap items-center justify-between gap-2 rounded-[4px] border border-line bg-app px-3 py-2 text-[11px] text-muted">
+        <div
+          role="status"
+          className="flex flex-wrap items-center justify-between gap-2 rounded-[4px] border border-line bg-app px-3 py-2 text-[11px] text-muted"
+        >
           <span>{statusNotice}</span>
-          {!geminiKey && onOpenGeminiSettings && (
+          {!hasExternalAi && onOpenGeminiSettings && (
             <button
               type="button"
               onClick={onOpenGeminiSettings}
-              className="inline-flex min-h-[32px] items-center gap-1 rounded-[4px] border border-line px-2 py-1 text-[10px] font-medium text-accent hover:border-accent"
+              className="inline-flex min-h-[36px] items-center gap-1 rounded-[4px] border border-line px-2 py-1 text-[10px] font-medium text-accent hover:border-accent"
             >
               <KeyRound className="h-3 w-3" strokeWidth={1.5} />
-              Ativar Gemini
+              Configurar IA
             </button>
           )}
         </div>
       )}
 
       {errorMsg && (
-        <div className="flex flex-wrap items-center justify-between gap-2 rounded-[4px] border border-line bg-app px-3 py-2 text-[11px] text-ink">
+        <div
+          role="alert"
+          className="flex flex-wrap items-center justify-between gap-2 rounded-[4px] border border-line bg-app px-3 py-2 text-[11px] text-ink"
+        >
           <span>{errorMsg}</span>
-          {!geminiKey && onOpenGeminiSettings && (
+          <div className="flex flex-wrap items-center gap-1.5">
             <button
               type="button"
-              onClick={onOpenGeminiSettings}
-              className="inline-flex items-center gap-1 rounded-[4px] bg-accent px-2.5 py-1 text-[10px] font-semibold text-accent-ink"
+              onClick={() => applyLocalFallback('')}
+              className="inline-flex min-h-[36px] items-center rounded-[4px] border border-line bg-card px-2.5 py-1 text-[10px] font-medium text-ink hover:border-accent"
             >
-              <KeyRound className="h-3 w-3" strokeWidth={1.5} />
-              Configurar Chave
+              Gerar localmente
             </button>
-          )}
+            {onOpenGeminiSettings && (
+              <button
+                type="button"
+                onClick={onOpenGeminiSettings}
+                className="inline-flex min-h-[36px] items-center gap-1 rounded-[4px] bg-accent px-2.5 py-1 text-[10px] font-semibold text-accent-ink"
+              >
+                <KeyRound className="h-3 w-3" strokeWidth={1.5} />
+                Configurar Chave
+              </button>
+            )}
+          </div>
         </div>
       )}
     </div>

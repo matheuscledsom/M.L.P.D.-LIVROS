@@ -3,15 +3,14 @@ import { domainConfig } from '../config/domainConfig.js';
 const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta/';
 const MODEL_CACHE_KEY = 'codice_gemini_resolved_model_v1';
 const MODEL_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
-const REQUEST_TIMEOUT_MS = 8000;
+const REQUEST_TIMEOUT_MS = 15000;
 const MAX_MODEL_FALLBACK_ATTEMPTS = 3;
-const RATE_LIMIT_DELAYS_MS = [800];
+const RATE_LIMIT_DELAYS_MS = [650];
 
 export const PREFERRED_GEMINI_MODELS = [
+  'gemini-3.5-flash-lite',
+  'gemini-2.5-flash-lite',
   'gemini-2.5-flash',
-  'gemini-2.0-flash',
-  'gemini-2.0-flash-lite',
-  'gemini-1.5-flash-latest',
 ];
 
 const EXCLUDED_MODEL_PATTERNS = [
@@ -37,11 +36,12 @@ export function sanitizeGeminiKey(apiKey) {
 }
 
 export class GeminiError extends Error {
-  constructor(code, userMessage, cause) {
+  constructor(code, userMessage, cause, status = 0) {
     super(userMessage);
     this.name = 'GeminiError';
     this.code = code;
     this.userMessage = userMessage;
+    this.status = Number(status) || 0;
     if (cause) {
       this.cause = cause;
     }
@@ -263,41 +263,55 @@ function mapHttpStatusToGeminiError(status, detail = '', payload = null) {
     return new GeminiError(
       'AUTH_INVALID',
       'Chave da API inválida. Verifique se copiou a chave completa no Google AI Studio.',
-      detail
+      detail,
+      status
     );
   }
   if (status === 403) {
     return new GeminiError(
       'AUTH_INVALID',
       'Acesso bloqueado pela chave (verifique restrições de domínio/HTTP Referrer no Google AI Studio).',
-      detail
+      detail,
+      status
     );
   }
   if (status === 400) {
     return new GeminiError(
       'BAD_REQUEST',
       'Chave da API inválida ou parâmetro recusado pelo modelo Gemini. Verifique sua chave no Google AI Studio.',
-      detail
+      detail,
+      status
     );
   }
   if (status === 404) {
     return new GeminiError(
       'MODEL_NOT_FOUND',
       'Modelo Gemini indisponível no momento; já tentamos os modelos alternativos automaticamente.',
-      detail
+      detail,
+      status
     );
   }
   if (status === 429) {
     return new GeminiError(
       'RATE_LIMIT',
       'Limite gratuito temporário atingido. Aguarde alguns segundos e tente novamente.',
-      detail
+      detail,
+      status
+    );
+  }
+  if (status === 503) {
+    return new GeminiError(
+      'SERVICE_UNAVAILABLE',
+      'Serviço Gemini temporariamente sobrecarregado (503).',
+      detail,
+      status
     );
   }
   return new GeminiError(
     `HTTP_${status}`,
     `Não foi possível concluir a chamada ao Gemini (código ${status}).`,
-    detail
+    detail,
+    status
   );
 }
 
@@ -459,13 +473,15 @@ export function parseJsonResponse(rawText) {
   }
 }
 
-async function callGeminiDetailed({
+export async function callGeminiDetailed({
   apiKey,
   systemInstruction = '',
   prompt,
   temperature = 0.4,
   maxOutputTokens,
   signal,
+  preferredModel = '',
+  fallbackModel = '',
 }) {
   const cleanKey = sanitizeGeminiKey(apiKey);
   if (!cleanKey) {
@@ -498,7 +514,8 @@ async function callGeminiDetailed({
   };
 
   const triedModels = [];
-  let modelId = await resolveModel(cleanKey, { signal });
+  let modelId =
+    preferredModel || (await resolveModel(cleanKey, { signal }));
   let lastHttpError = null;
 
   for (let attempt = 0; attempt < MAX_MODEL_FALLBACK_ATTEMPTS; attempt += 1) {
@@ -522,12 +539,25 @@ async function callGeminiDetailed({
     }
 
     const isRecoverableModelHttp =
-      response.status === 404 || response.status === 400 || response.status === 429;
+      response.status === 404 ||
+      response.status === 400 ||
+      response.status === 429 ||
+      response.status === 503;
 
     if (!response.ok && isRecoverableModelHttp) {
       lastHttpError = mapHttpStatusToGeminiError(response.status, '', errPayload);
       triedModels.push(modelId);
       invalidateGeminiModelCache();
+
+      if (
+        (response.status === 503 || response.status === 429) &&
+        fallbackModel &&
+        !triedModels.includes(fallbackModel) &&
+        attempt + 1 < MAX_MODEL_FALLBACK_ATTEMPTS
+      ) {
+        modelId = fallbackModel;
+        continue;
+      }
 
       const nextDiscovery = await discoverCandidateModels(cleanKey, {
         signal,

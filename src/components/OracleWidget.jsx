@@ -1,8 +1,15 @@
 import { ArrowRight, BookOpen, Compass, KeyRound, Sparkles } from 'lucide-react';
 import { useState } from 'react';
-import { runCollectionOracle } from '../services/geminiApi';
+import {
+  AI_PROVIDER_META,
+  runMultiCollectionOracle,
+} from '../services/aiProvider';
 import { generateOfflineRecommendations } from '../services/recommendationEngine';
 import { getDisplayTitles } from '../utils/backlogHelpers';
+import {
+  AiPrivacyNoticeBanner,
+  useExternalAiNotice,
+} from './AiPrivacyNotice';
 import { VectorIcon } from './VectorIcon';
 
 const MOOD_PRESETS = [
@@ -20,6 +27,8 @@ export function OracleWidget({
   onSelectItem,
   onOpenGeminiSettings,
 }) {
+  const { activeProvider, shouldShowNotice, acknowledgeNotice } =
+    useExternalAiNotice(geminiKey);
   const [selectedMood, setSelectedMood] = useState(MOOD_PRESETS[0].id);
   const [customMood, setCustomMood] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -29,6 +38,7 @@ export function OracleWidget({
   const backlogItems = items.filter((item) => item.inBacklog);
   const queuedItems = backlogItems.filter((item) => item.status === 'queued');
   const completedItems = backlogItems.filter((item) => item.status === 'completed');
+  const hasExternalAi = Boolean(activeProvider);
 
   const handleConsult = async () => {
     setInfoNotice('');
@@ -43,37 +53,48 @@ export function OracleWidget({
 
     const moodQuery = customMood.trim() || selectedMood;
 
-    // Sem chave Gemini: responde 100% offline via motor híbrido de recomendações
-    if (!geminiKey) {
+    if (!hasExternalAi) {
       const offlineRec = generateOfflineRecommendations({
         items,
         profile,
         mood: moodQuery,
       });
       setResult(offlineRec);
-      setInfoNotice('Sugestão gerada offline cruzando notas >= 80, editoras e perfil.');
+      setInfoNotice('Sugestão — gerado localmente cruzando notas >= 80 e estante.');
       return;
+    }
+
+    if (shouldShowNotice) {
+      acknowledgeNotice();
     }
 
     setIsLoading(true);
     try {
-      const recommendation = await runCollectionOracle(geminiKey, {
+      const recommendation = await runMultiCollectionOracle({
         mood: moodQuery,
         queuedItems,
         completedItems,
         favoriteGenres: profile?.favoriteGenres || [],
         readerFocus: profile?.readerFocus || '',
         preferredCriterion: profile?.preferredCriterion || '',
+        overrideKeys: geminiKey ? { gemini: geminiKey } : null,
       });
-      setResult({ ...recommendation, mode: 'gemini' });
-    } catch {
+      const providerLabel =
+        AI_PROVIDER_META[recommendation.provider]?.label || activeProvider.label;
+      setResult({ ...recommendation, mode: recommendation.provider });
+      setInfoNotice(`Sugestão gerada via ${providerLabel}.`);
+    } catch (error) {
       const fallbackRec = generateOfflineRecommendations({
         items,
         profile,
         mood: moodQuery,
       });
       setResult(fallbackRec);
-      setInfoNotice('Gemini indisponível no momento. Exibindo recomendação do motor offline.');
+      if (error?.code === 'AUTH_ERROR') {
+        setInfoNotice(`${error.userMessage} Exibindo sugestão — gerado localmente.`);
+      } else {
+        setInfoNotice('Provedores indisponíveis no momento. Exibindo — gerado localmente.');
+      }
     } finally {
       setIsLoading(false);
     }
@@ -100,7 +121,7 @@ export function OracleWidget({
             <h2 className="text-xs font-semibold tracking-tight text-ink">
               Oráculo do Acervo
             </h2>
-            <p className="text-[10px] text-subtle tabular-nums">
+            <p className="text-[10px] tabular-nums text-subtle">
               Cruza humor, notas &gt;= 80 e estante ({queuedItems.length})
             </p>
           </div>
@@ -110,16 +131,25 @@ export function OracleWidget({
           type="button"
           onClick={handleConsult}
           disabled={isLoading}
-          className="inline-flex min-h-[38px] shrink-0 items-center gap-1.5 rounded-[4px] bg-accent px-3 py-1.5 text-[11px] font-semibold text-accent-ink transition-opacity hover:opacity-90 disabled:opacity-50"
+          className="inline-flex min-h-[44px] shrink-0 items-center gap-1.5 rounded-[4px] bg-accent px-3 py-1.5 text-[11px] font-semibold text-accent-ink transition-opacity hover:opacity-90 disabled:opacity-50"
         >
           <Sparkles className="h-3.5 w-3.5" strokeWidth={1.5} />
           {isLoading
             ? 'Analisando...'
-            : geminiKey
+            : hasExternalAi
               ? 'Consultar Oráculo'
               : 'Sugerir Leitura'}
         </button>
       </div>
+
+      {shouldShowNotice && (
+        <div className="mt-2.5">
+          <AiPrivacyNoticeBanner
+            provider={activeProvider}
+            onAcknowledge={acknowledgeNotice}
+          />
+        </div>
+      )}
 
       <div className="mt-3 flex gap-1.5 overflow-x-auto pb-0.5 no-scrollbar">
         {MOOD_PRESETS.map((preset) => {
@@ -132,7 +162,7 @@ export function OracleWidget({
                 setCustomMood('');
                 setSelectedMood(preset.id);
               }}
-              className={`inline-flex min-h-[36px] shrink-0 items-center gap-1.5 rounded-[4px] border px-2.5 py-1 text-[11px] font-medium transition-colors ${
+              className={`inline-flex min-h-[38px] shrink-0 items-center gap-1.5 rounded-[4px] border px-2.5 py-1 text-[11px] font-medium transition-colors ${
                 isSelected
                   ? 'border-accent bg-accent/15 text-accent'
                   : 'border-line bg-app text-muted hover:text-ink'
@@ -153,20 +183,23 @@ export function OracleWidget({
         value={customMood}
         onChange={(e) => setCustomMood(e.target.value)}
         placeholder="Ou descreva seu humor/objetivo (ex: fantasia curta para fim de semana)..."
-        className="mt-2.5 w-full rounded-[4px] border border-line bg-app px-3 py-2 text-[11px] text-ink placeholder:text-subtle focus:border-accent focus:outline-none"
+        className="mt-2.5 min-h-[44px] w-full rounded-[4px] border border-line bg-app px-3 py-2 text-[11px] text-ink placeholder:text-subtle focus:border-accent focus:outline-none"
       />
 
       {infoNotice && (
-        <div className="mt-2.5 flex flex-wrap items-center justify-between gap-2 rounded-[4px] border border-line bg-app px-3 py-2 text-[11px] text-muted">
+        <div
+          role="status"
+          className="mt-2.5 flex flex-wrap items-center justify-between gap-2 rounded-[4px] border border-line bg-app px-3 py-2 text-[11px] text-muted"
+        >
           <span>{infoNotice}</span>
-          {!geminiKey && onOpenGeminiSettings && (
+          {onOpenGeminiSettings && (
             <button
               type="button"
               onClick={onOpenGeminiSettings}
-              className="inline-flex items-center gap-1 rounded-[4px] border border-line px-2 py-1 text-[10px] font-medium text-accent hover:border-accent"
+              className="inline-flex min-h-[36px] items-center gap-1 rounded-[4px] border border-line px-2 py-1 text-[10px] font-medium text-accent hover:border-accent"
             >
               <KeyRound className="h-3 w-3" strokeWidth={1.5} />
-              Ativar Gemini (opcional)
+              {hasExternalAi ? 'Provedores IA' : 'Ativar IA (opcional)'}
             </button>
           )}
         </div>
@@ -221,9 +254,9 @@ export function OracleWidget({
                     key={alt.id}
                     type="button"
                     onClick={() => onSelectItem?.(altItem)}
-                    className="flex w-full items-baseline justify-between gap-2 rounded-[4px] px-2 py-1 text-left text-[11px] hover:bg-card"
+                    className="flex min-h-[38px] w-full items-baseline justify-between gap-2 rounded-[4px] px-2 py-1 text-left text-[11px] hover:bg-card"
                   >
-                    <span className="font-medium text-ink truncate">
+                    <span className="truncate font-medium text-ink">
                       {altItem.title}
                     </span>
                     <span className="truncate text-[10px] text-subtle">

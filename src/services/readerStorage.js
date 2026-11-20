@@ -2,10 +2,12 @@ import { detectBookFileFormat } from '../utils/fileFormatDetector.js';
 
 const DB_NAME = 'codice_reader_files_v1';
 const STORE_NAME = 'book_files';
-const DB_VERSION = 2;
+const AI_CACHE_STORE_NAME = 'ai_cache';
+const DB_VERSION = 3;
 
 // Fallback em memória para ambientes headless/Node de teste sem IndexedDB
 const memoryStore = new Map();
+const aiCacheMemoryStore = new Map();
 
 function hasIndexedDb() {
   return typeof indexedDB !== 'undefined';
@@ -13,6 +15,7 @@ function hasIndexedDb() {
 
 export function clearMemoryReaderStoreForTests() {
   memoryStore.clear();
+  aiCacheMemoryStore.clear();
 }
 
 export function buildQuickReaderBookId(fileName = 'arquivo', size = 0) {
@@ -58,6 +61,9 @@ function openReaderDb() {
       const db = request.result;
       if (!db.objectStoreNames.contains(STORE_NAME)) {
         db.createObjectStore(STORE_NAME, { keyPath: 'workId' });
+      }
+      if (!db.objectStoreNames.contains(AI_CACHE_STORE_NAME)) {
+        db.createObjectStore(AI_CACHE_STORE_NAME, { keyPath: 'cacheKey' });
       }
     };
     request.onsuccess = () => resolve(request.result);
@@ -322,6 +328,77 @@ export async function saveBookEpubLocations(workId, epubLocations) {
           epubLocations,
         });
       };
+      tx.oncomplete = () => {
+        db.close();
+        resolve(true);
+      };
+      tx.onerror = () => {
+        db.close();
+        resolve(false);
+      };
+    });
+  } catch {
+    return false;
+  }
+}
+
+export async function getAiCachedResult(cacheKey) {
+  const key = String(cacheKey || '').trim();
+  if (!key) return null;
+
+  if (!hasIndexedDb()) {
+    return aiCacheMemoryStore.get(key) || null;
+  }
+
+  try {
+    const db = await openReaderDb();
+    return await new Promise((resolve) => {
+      if (!db.objectStoreNames.contains(AI_CACHE_STORE_NAME)) {
+        db.close();
+        resolve(null);
+        return;
+      }
+      const tx = db.transaction(AI_CACHE_STORE_NAME, 'readonly');
+      const req = tx.objectStore(AI_CACHE_STORE_NAME).get(key);
+      req.onsuccess = () => {
+        db.close();
+        resolve(req.result || null);
+      };
+      req.onerror = () => {
+        db.close();
+        resolve(null);
+      };
+    });
+  } catch {
+    return null;
+  }
+}
+
+export async function saveAiCachedResult(cacheKey, payload) {
+  const key = String(cacheKey || '').trim();
+  if (!key || !payload || typeof payload !== 'object') return false;
+
+  const record = {
+    ...payload,
+    cacheKey: key,
+    updatedAt: new Date().toISOString(),
+  };
+
+  if (!hasIndexedDb()) {
+    aiCacheMemoryStore.set(key, record);
+    return true;
+  }
+
+  try {
+    const db = await openReaderDb();
+    return await new Promise((resolve) => {
+      if (!db.objectStoreNames.contains(AI_CACHE_STORE_NAME)) {
+        db.close();
+        resolve(false);
+        return;
+      }
+      const tx = db.transaction(AI_CACHE_STORE_NAME, 'readwrite');
+      tx.objectStore(AI_CACHE_STORE_NAME).put(record);
       tx.oncomplete = () => {
         db.close();
         resolve(true);

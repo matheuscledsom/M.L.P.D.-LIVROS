@@ -12,8 +12,8 @@ import { DirectChatDrawer } from './components/social/DirectChatDrawer';
 import { UserProfileModal } from './components/social/UserProfileModal';
 import { formatExactPercent } from './components/reader/useReaderProgress';
 import { useToast } from './context/ToastContext';
+import { useAiConfig } from './hooks/useAiConfig';
 import { useBacklog } from './hooks/useBacklog';
-import { useGeminiKey } from './hooks/useGeminiKey';
 import { useReadingStreak } from './hooks/useReadingStreak';
 import { useSocialProfile } from './hooks/useSocialProfile';
 import { useTheme } from './hooks/useTheme';
@@ -110,8 +110,17 @@ export function App() {
     resetCustomColors,
   } = useTheme();
 
-  const { apiKey: geminiKey, hasGeminiKey, saveApiKey, clearApiKey } =
-    useGeminiKey();
+  const aiConfig = useAiConfig();
+  const geminiKey = aiConfig.geminiKey;
+  const hasGeminiKey = aiConfig.hasGeminiKey;
+  const saveApiKey = useCallback(
+    (key) => aiConfig.saveProviderKey('gemini', key),
+    [aiConfig]
+  );
+  const clearApiKey = useCallback(
+    () => aiConfig.clearProviderKey('gemini'),
+    [aiConfig]
+  );
 
   const {
     items,
@@ -920,7 +929,8 @@ export function App() {
               wallPostsCount={socialCounts.wallPostsCount}
               chatMessagesCount={socialCounts.chatMessagesCount}
               geminiKey={geminiKey}
-              hasGeminiKey={hasGeminiKey}
+              hasGeminiKey={aiConfig.hasAnyAiKey || hasGeminiKey}
+              aiConfig={aiConfig}
               backendSession={backendSession}
               onOpenAuthModal={() => setAuthModalOpen(true)}
               onOpenGeminiSettings={() => setGeminiModalOpen(true)}
@@ -1033,6 +1043,7 @@ export function App() {
           isOpen={geminiModalOpen}
           onClose={() => setGeminiModalOpen(false)}
           apiKey={geminiKey}
+          aiConfig={aiConfig}
           onSaveKey={(key) => {
             saveApiKey(key);
             showToast({

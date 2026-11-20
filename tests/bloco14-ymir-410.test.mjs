@@ -112,12 +112,12 @@ test('mediaApi.js usa defaults rápidos por categoria, limita 10 resultados e pe
   globalThis.localStorage.clear();
   clearSearchMediaCache();
 
-  assert.deepEqual(DEFAULT_MEDIA_SOURCES, ['googleBooks']);
-  assert.deepEqual(getDefaultSourcesForFilter('all'), ['googleBooks']);
+  assert.deepEqual(DEFAULT_MEDIA_SOURCES, ['googleBooks', 'appleBooks', 'openLibrary']);
+  assert.deepEqual(getDefaultSourcesForFilter('all'), ['googleBooks', 'appleBooks', 'openLibrary']);
   assert.deepEqual(getDefaultSourcesForFilter('book'), ['googleBooks']);
   assert.deepEqual(getDefaultSourcesForFilter('manga'), ['jikan']);
   assert.deepEqual(getDefaultSourcesForFilter('academic'), ['academic']);
-  assert.deepEqual(loadActiveMediaSources(), ['googleBooks']);
+  assert.deepEqual(loadActiveMediaSources(), ['googleBooks', 'appleBooks', 'openLibrary']);
 
   const originalFetch = globalThis.fetch;
   let fetchCount = 0;
@@ -345,10 +345,11 @@ test('localCatalogFallback.js e recommendationEngine.js funcionam offline e Reco
   );
 
   // Confere integridade estrutural dos componentes de indicações e upload rápido
-  const [recCompSrc, homeSrc, profileSrc, detailSrc] = await Promise.all([
+  const [recCompSrc, homeSrc, profileSrc, aiPanelSrc, detailSrc] = await Promise.all([
     fs.readFile(path.resolve('src/components/RecommendationsSection.jsx'), 'utf8'),
     fs.readFile(path.resolve('src/screens/HomeScreen.jsx'), 'utf8'),
     fs.readFile(path.resolve('src/screens/ProfileScreen.jsx'), 'utf8'),
+    fs.readFile(path.resolve('src/components/AiProvidersPanel.jsx'), 'utf8'),
     fs.readFile(path.resolve('src/components/ItemDetailSheet.jsx'), 'utf8'),
   ]);
 
@@ -357,7 +358,8 @@ test('localCatalogFallback.js e recommendationEngine.js funcionam offline e Reco
   assert.ok(recCompSrc.includes('Atualizar Indicações'));
   assert.ok(homeSrc.includes('+ Adicionar Arquivo para Ler'));
   assert.ok(homeSrc.includes('CODICE_RELEASE.label'));
-  assert.ok(profileSrc.includes('Testar Conexão'));
+  assert.ok(profileSrc.includes('AiProvidersPanel'));
+  assert.ok(aiPanelSrc.includes('Testar'));
   assert.ok(profileSrc.includes('CODICE_RELEASE.label'));
   assert.ok(detailSrc.includes('Indicar Livro'));
 });

@@ -1,4 +1,4 @@
-import { AlertCircle, Barcode, Check, FileText, PenLine, Plus, RefreshCw, Search, Sparkles, X } from 'lucide-react';
+import { AlertCircle, Barcode, Check, FileText, PenLine, Plus, RefreshCw, Search, SlidersHorizontal, Sparkles, X } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CoverArt } from '../components/CoverArt';
 import { LibraryCatalogSection } from '../components/LibraryCatalogSection';
@@ -113,6 +113,20 @@ function ResultSkeleton() {
   );
 }
 
+const SEARCH_FILTER_STORAGE_KEY = 'codice_add_search_filter_v1';
+const MIN_SEARCH_QUERY_LENGTH = 3;
+const SEARCH_DEBOUNCE_MS = 300;
+
+function loadSavedSearchFilter() {
+  try {
+    if (typeof localStorage === 'undefined') return 'all';
+    const raw = localStorage.getItem(SEARCH_FILTER_STORAGE_KEY);
+    return raw === 'manga' || raw === 'academic' || raw === 'all' ? raw : 'all';
+  } catch {
+    return 'all';
+  }
+}
+
 export function AddScreen({
   items,
   geminiKey = '',
@@ -121,12 +135,18 @@ export function AddScreen({
   onOpenGeminiSettings,
 }) {
   const [query, setQuery] = useState('');
-  const [searchFilter, setSearchFilter] = useState('all');
-  const [activeSources, setActiveSources] = useState(loadActiveMediaSources);
-  const [results, setResults] = useState(() => searchMockMedia('', 'all'));
+  const [searchFilter, setSearchFilter] = useState(loadSavedSearchFilter);
+  const [activeSources, setActiveSources] = useState(() =>
+    loadActiveMediaSources(loadSavedSearchFilter())
+  );
+  const [sourcesPopoverOpen, setSourcesPopoverOpen] = useState(false);
+  const [results, setResults] = useState(() =>
+    searchMockMedia('', loadSavedSearchFilter())
+  );
   const [isLoading, setIsLoading] = useState(false);
   const [pendingSourcesCount, setPendingSourcesCount] = useState(0);
   const [partialFailure, setPartialFailure] = useState(false);
+  const [failedSourcesCount, setFailedSourcesCount] = useState(0);
   const [allFailed, setAllFailed] = useState(false);
 
   const [draftItem, setDraftItem] = useState(null);
@@ -142,6 +162,8 @@ export function AddScreen({
   const isEasterEgg67 = query.trim().toLowerCase() === '#ovodepascoa67';
   const debounceTimerRef = useRef(null);
   const searchAbortRef = useRef(null);
+  const sourcesPopoverRef = useRef(null);
+  const sourcesButtonRef = useRef(null);
 
   const backlogLookup = useMemo(() => {
     const byId = new Map();
@@ -180,24 +202,25 @@ export function AddScreen({
         sources: getDefaultSourcesForFilter('all'),
       }));
 
+    const defaultGeneral = getDefaultSourcesForFilter('all');
     const curated = [
       {
         label: 'Machado de Assis',
         query: 'Machado de Assis',
-        filter: 'book',
-        sources: ['googleBooks'],
+        filter: 'all',
+        sources: defaultGeneral,
       },
       {
         label: 'Clean Code',
         query: 'Clean Code',
-        filter: 'book',
-        sources: ['googleBooks'],
+        filter: 'all',
+        sources: defaultGeneral,
       },
       {
         label: 'Frank Herbert',
         query: 'Frank Herbert',
-        filter: 'book',
-        sources: ['googleBooks'],
+        filter: 'all',
+        sources: defaultGeneral,
       },
       {
         label: 'Berserk',
@@ -224,10 +247,46 @@ export function AddScreen({
       .slice(0, 6);
   }, [items]);
 
+  const updateSearchFilter = useCallback((nextFilter) => {
+    setSearchFilter(nextFilter);
+    try {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem(SEARCH_FILTER_STORAGE_KEY, nextFilter);
+      }
+    } catch {
+      // Ignora erro de storage
+    }
+  }, []);
+
   const updateSources = useCallback((nextList) => {
     setActiveSources(nextList);
     saveActiveMediaSources(nextList);
   }, []);
+
+  useEffect(() => {
+    if (!sourcesPopoverOpen) return undefined;
+    const handlePointerDown = (e) => {
+      if (
+        sourcesPopoverRef.current &&
+        !sourcesPopoverRef.current.contains(e.target)
+      ) {
+        setSourcesPopoverOpen(false);
+      }
+    };
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        e.stopPropagation();
+        setSourcesPopoverOpen(false);
+        sourcesButtonRef.current?.focus();
+      }
+    };
+    document.addEventListener('mousedown', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('mousedown', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [sourcesPopoverOpen]);
 
   const handleToggleSource = (sourceId) => {
     const exists = activeSources.includes(sourceId);
@@ -240,17 +299,17 @@ export function AddScreen({
 
   const handleSelectPreset = (preset) => {
     updateSources(preset.sources);
-    setSearchFilter(preset.filter);
+    updateSearchFilter(preset.filter);
   };
 
   const handleSelectFilterTab = (nextFilter) => {
-    setSearchFilter(nextFilter);
+    updateSearchFilter(nextFilter);
     updateSources(getDefaultSourcesForFilter(nextFilter));
   };
 
   const handleApplyQuickSuggestion = (sug) => {
     searchAbortRef.current?.abort();
-    setSearchFilter(sug.filter || 'all');
+    updateSearchFilter(sug.filter || 'all');
     if (Array.isArray(sug.sources) && sug.sources.length > 0) {
       updateSources(sug.sources);
     }
@@ -266,6 +325,17 @@ export function AddScreen({
         setIsLoading(false);
         setPendingSourcesCount(0);
         setPartialFailure(false);
+        setFailedSourcesCount(0);
+        setAllFailed(false);
+        return;
+      }
+
+      if (cleanQuery.length < MIN_SEARCH_QUERY_LENGTH) {
+        setResults(searchMockMedia(cleanQuery, filter));
+        setIsLoading(false);
+        setPendingSourcesCount(0);
+        setPartialFailure(false);
+        setFailedSourcesCount(0);
         setAllFailed(false);
         return;
       }
@@ -275,6 +345,7 @@ export function AddScreen({
         setIsLoading(false);
         setPendingSourcesCount(0);
         setPartialFailure(false);
+        setFailedSourcesCount(0);
         setAllFailed(false);
         return;
       }
@@ -284,6 +355,10 @@ export function AddScreen({
         if (cached) {
           setResults(cached.results);
           setPartialFailure(Boolean(cached.partialFailure));
+          setFailedSourcesCount(
+            Number(cached.failedCount) ||
+              (Array.isArray(cached.failedSources) ? cached.failedSources.length : 0)
+          );
           setAllFailed(false);
           setPendingSourcesCount(0);
           setIsLoading(false);
@@ -296,6 +371,7 @@ export function AddScreen({
       setIsLoading(true);
       setPendingSourcesCount(sources.length);
       setPartialFailure(false);
+      setFailedSourcesCount(0);
       setAllFailed(false);
 
       try {
@@ -318,6 +394,10 @@ export function AddScreen({
         if (!controller.signal.aborted) {
           setResults(response.results);
           setPartialFailure(Boolean(response.partialFailure));
+          setFailedSourcesCount(
+            Number(response.failedCount) ||
+              (Array.isArray(response.failedSources) ? response.failedSources.length : 0)
+          );
           setAllFailed(Boolean(response.allFailed));
           setPendingSourcesCount(0);
         }
@@ -325,6 +405,7 @@ export function AddScreen({
         if (error.name !== 'AbortError') {
           setResults([]);
           setPartialFailure(false);
+          setFailedSourcesCount(0);
           setAllFailed(true);
           setPendingSourcesCount(0);
         }
@@ -343,7 +424,11 @@ export function AddScreen({
     clearTimeout(debounceTimerRef.current);
     searchAbortRef.current?.abort();
 
-    if (!cleanQuery || cleanQuery.toLowerCase() === '#ovodepascoa67') {
+    if (
+      !cleanQuery ||
+      cleanQuery.length < MIN_SEARCH_QUERY_LENGTH ||
+      cleanQuery.toLowerCase() === '#ovodepascoa67'
+    ) {
       executeSearch(cleanQuery, searchFilter, activeSources);
       return undefined;
     }
@@ -352,6 +437,10 @@ export function AddScreen({
     if (cached) {
       setResults(cached.results);
       setPartialFailure(Boolean(cached.partialFailure));
+      setFailedSourcesCount(
+        Number(cached.failedCount) ||
+          (Array.isArray(cached.failedSources) ? cached.failedSources.length : 0)
+      );
       setAllFailed(false);
       setPendingSourcesCount(0);
       setIsLoading(false);
@@ -361,7 +450,7 @@ export function AddScreen({
     setIsLoading(true);
     debounceTimerRef.current = setTimeout(() => {
       executeSearch(cleanQuery, searchFilter, activeSources);
-    }, 220);
+    }, SEARCH_DEBOUNCE_MS);
 
     return () => {
       clearTimeout(debounceTimerRef.current);
@@ -645,78 +734,133 @@ export function AddScreen({
           </div>
         )}
 
-        {/* Seletor de Fontes Ativas + Predefinicoes de 1 clique */}
-        <div className="space-y-1.5 rounded-[6px] border border-line bg-card p-2.5">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <span className="text-[11px] font-medium text-muted">
-              Fontes Ativas
-            </span>
-            <div className="flex flex-wrap gap-1">
-              {MEDIA_SOURCE_PRESETS.map((preset) => {
-                const isPresetActive =
-                  activeSources.length === preset.sources.length &&
-                  preset.sources.every((s) => activeSources.includes(s)) &&
-                  searchFilter === preset.filter;
-                return (
-                  <button
-                    key={preset.id}
-                    type="button"
-                    onClick={() => handleSelectPreset(preset)}
-                    className={`min-h-[30px] rounded-[4px] border px-2 py-0.5 text-[11px] font-medium transition-colors ${
-                      isPresetActive
-                        ? 'border-accent bg-accent/15 text-accent'
-                        : 'border-line bg-app text-muted hover:text-ink'
-                    }`}
-                  >
-                    {preset.label}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          <div className="flex flex-wrap gap-1">
-            {MEDIA_API_SOURCES.map((source) => {
-              const active = activeSources.includes(source.id);
+        {/* Barra horizontal compacta: Controle segmentado + Popover Fontes */}
+        <div className="flex items-center justify-between gap-2">
+          <div
+            role="tablist"
+            aria-label="Categoria da busca"
+            className="grid flex-1 grid-cols-3 rounded-[4px] border border-line bg-card p-0.5"
+          >
+            {searchFilters.map((filterItem) => {
+              const isActive = searchFilter === filterItem.id;
+              const shortLabel =
+                filterItem.id === 'manga'
+                  ? 'Mangá / LN'
+                  : filterItem.label;
               return (
                 <button
-                  key={source.id}
+                  key={filterItem.id}
                   type="button"
-                  aria-pressed={active}
-                  onClick={() => handleToggleSource(source.id)}
-                  title={source.hint}
-                  className={`min-h-[28px] rounded-[4px] border px-2 py-0.5 text-[10px] font-medium transition-colors ${
-                    active
-                      ? 'border-accent text-accent'
-                      : 'border-line text-subtle hover:text-ink'
+                  role="tab"
+                  aria-selected={isActive}
+                  onClick={() => handleSelectFilterTab(filterItem.id)}
+                  className={`min-h-[40px] truncate rounded-[2px] px-2 py-1 text-[11px] font-medium transition-colors ${
+                    isActive
+                      ? 'bg-accent text-accent-ink'
+                      : 'hover:text-ink'
                   }`}
+                  style={!isActive ? { color: 'var(--text-secondary)' } : undefined}
                 >
-                  {source.label}
+                  {shortLabel}
                 </button>
               );
             })}
           </div>
+
+          <div className="relative" ref={sourcesPopoverRef}>
+            <button
+              ref={sourcesButtonRef}
+              type="button"
+              onClick={() => setSourcesPopoverOpen((prev) => !prev)}
+              aria-expanded={sourcesPopoverOpen}
+              aria-haspopup="dialog"
+              className={`inline-flex min-h-[44px] shrink-0 items-center gap-1.5 rounded-[4px] border px-3 py-1.5 text-[11px] font-medium transition-colors ${
+                sourcesPopoverOpen
+                  ? 'border-accent bg-accent/10 text-accent'
+                  : 'border-line bg-card hover:border-accent/50 hover:text-ink'
+              }`}
+              style={!sourcesPopoverOpen ? { color: 'var(--text-secondary)' } : undefined}
+            >
+              <SlidersHorizontal className="h-3.5 w-3.5" strokeWidth={1.5} />
+              <span>Fontes</span>
+              <span className="tabular-nums text-[10px]">
+                ({activeSources.length})
+              </span>
+            </button>
+
+            {sourcesPopoverOpen && (
+              <div
+                role="dialog"
+                aria-label="Selecionar fontes de busca"
+                className="absolute right-0 top-12 z-30 w-72 rounded-[6px] border border-line bg-card p-3 space-y-2.5"
+              >
+                <div className="space-y-1.5">
+                  <span className="block text-[10px] font-medium uppercase tracking-wider text-subtle">
+                    Predefinições rápidas
+                  </span>
+                  <div className="flex flex-wrap gap-1">
+                    {MEDIA_SOURCE_PRESETS.map((preset) => {
+                      const isPresetActive =
+                        activeSources.length === preset.sources.length &&
+                        preset.sources.every((s) => activeSources.includes(s)) &&
+                        searchFilter === preset.filter;
+                      return (
+                        <button
+                          key={preset.id}
+                          type="button"
+                          onClick={() => handleSelectPreset(preset)}
+                          className={`min-h-[34px] rounded-[4px] border px-2 py-1 text-[10px] font-medium transition-colors ${
+                            isPresetActive
+                              ? 'border-accent bg-accent/15 text-accent'
+                              : 'border-line bg-app text-muted hover:text-ink'
+                          }`}
+                        >
+                          {preset.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="border-t border-line pt-2 space-y-1">
+                  <span className="block text-[10px] font-medium uppercase tracking-wider text-subtle">
+                    APIs ativas
+                  </span>
+                  {MEDIA_API_SOURCES.map((source) => {
+                    const checked = activeSources.includes(source.id);
+                    return (
+                      <label
+                        key={source.id}
+                        className="flex min-h-[44px] cursor-pointer items-center justify-between gap-2 rounded-[4px] px-2 py-1 hover:bg-app"
+                      >
+                        <div className="min-w-0">
+                          <span className="block text-xs font-medium text-ink">
+                            {source.label}
+                          </span>
+                          <span className="block truncate text-[10px] text-subtle">
+                            {source.hint}
+                          </span>
+                        </div>
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => handleToggleSource(source.id)}
+                          className="h-4 w-4 shrink-0 rounded-[2px] accent-[var(--accent-color)]"
+                        />
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
         </div>
 
-        <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar">
-          {searchFilters.map((filterItem) => {
-            const isActive = searchFilter === filterItem.id;
-            return (
-              <button
-                key={filterItem.id}
-                type="button"
-                onClick={() => handleSelectFilterTab(filterItem.id)}
-                className={`shrink-0 rounded-[4px] border px-3 py-1 text-[11px] font-medium transition-colors ${
-                  isActive
-                    ? 'border-accent bg-accent text-accent-ink'
-                    : 'border-line bg-card text-muted hover:text-ink'
-                }`}
-              >
-                {filterItem.label}
-              </button>
-            );
-          })}
-        </div>
+        {query.trim().length > 0 && query.trim().length < MIN_SEARCH_QUERY_LENGTH && (
+          <p className="text-[11px] text-muted">
+            Digite ao menos 3 caracteres para buscar nas fontes externas (mostrando sugestões locais).
+          </p>
+        )}
 
         {isIsbnActive && (
           <div className="inline-flex items-center gap-1.5 rounded-[4px] border border-accent/40 bg-accent/10 px-2.5 py-1 text-[11px] font-medium text-accent">
@@ -732,17 +876,17 @@ export function AddScreen({
           </div>
         )}
 
-        {!isLoading && (partialFailure || allFailed) && query.trim() && (
+        {!isLoading && (partialFailure || allFailed) && query.trim().length >= MIN_SEARCH_QUERY_LENGTH && (
           <div
             role="status"
             className="flex items-center justify-between gap-2 rounded-[4px] border border-line bg-card px-3 py-2 text-xs text-muted"
           >
-            <span className="inline-flex items-center gap-2 min-w-0">
+            <span className="inline-flex min-w-0 items-center gap-2">
               <AlertCircle className="h-4 w-4 shrink-0 text-accent" strokeWidth={1.5} />
               <span className="truncate">
                 {allFailed
                   ? 'Fontes externas indisponíveis. Exibindo sugestões locais.'
-                  : 'Algumas fontes não responderam'}
+                  : `${failedSourcesCount || 1} ${(failedSourcesCount || 1) === 1 ? 'fonte indisponível' : 'fontes indisponíveis'}`}
               </span>
             </span>
             <button
@@ -752,7 +896,7 @@ export function AddScreen({
                   skipCache: true,
                 })
               }
-              className="inline-flex shrink-0 items-center gap-1 rounded-[4px] border border-line bg-app px-2.5 py-1 text-[11px] font-medium text-accent hover:border-accent"
+              className="inline-flex min-h-[36px] shrink-0 items-center gap-1 rounded-[4px] border border-line bg-app px-2.5 py-1 text-[11px] font-medium text-accent hover:border-accent"
             >
               <RefreshCw className="h-3.5 w-3.5" strokeWidth={1.5} />
               Tentar de novo

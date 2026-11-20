@@ -1,5 +1,4 @@
 import {
-  Activity,
   Award,
   Bookmark,
   BookMarked,
@@ -33,6 +32,7 @@ import {
   Zap,
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { AiProvidersPanel } from '../components/AiProvidersPanel';
 import { CoverArt } from '../components/CoverArt';
 import { PostDetailModal } from '../components/PostDetailModal';
 import { ProfileEditModal } from '../components/ProfileEditModal';
@@ -43,7 +43,7 @@ import { VectorIcon } from '../components/VectorIcon';
 import { ProfileWall } from '../components/social/ProfileWall';
 import { domainConfig } from '../config/domainConfig';
 import { CODICE_RELEASE } from '../config/versioning';
-import { sanitizeGeminiKey, testGeminiConnection } from '../services/geminiApi';
+import { useAiConfig } from '../hooks/useAiConfig';
 import { evaluateReaderTitles } from '../services/readerTitlesEngine';
 import { getHypeMeta, getPagesRead } from '../utils/backlogHelpers';
 import {
@@ -134,6 +134,7 @@ export function ProfileScreen({
   themeProps,
   geminiKey = '',
   hasGeminiKey = false,
+  aiConfig = null,
   backendSession = null,
   onOpenAuthModal,
   onOpenGeminiSettings,
@@ -161,31 +162,20 @@ export function ProfileScreen({
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [titlesModalOpen, setTitlesModalOpen] = useState(false);
   const [releaseModalOpen, setReleaseModalOpen] = useState(false);
-  const [inlineGeminiKey, setInlineGeminiKey] = useState(geminiKey || '');
-  const [geminiTesting, setGeminiTesting] = useState(false);
-  const [geminiTestResult, setGeminiTestResult] = useState(null);
   const [selectedPostId, setSelectedPostId] = useState(null);
   const [feedback, setFeedback] = useState(null);
   const [soundOn, setSoundOn] = useState(isSoundEnabled);
 
+  const localAiConfig = useAiConfig();
+  const resolvedAiConfig = aiConfig || localAiConfig;
+  const hasAnyAiConfigured = Boolean(
+    hasGeminiKey ||
+      resolvedAiConfig.hasAnyAiKey ||
+      geminiKey
+  );
+
   const menuRef = useRef(null);
   const fileInputRef = useRef(null);
-
-  useEffect(() => {
-    setInlineGeminiKey(geminiKey || '');
-  }, [geminiKey]);
-
-  const handleTestInlineGemini = async () => {
-    const clean = sanitizeGeminiKey(inlineGeminiKey || geminiKey);
-    if (clean && onSaveGeminiKey && clean !== geminiKey) {
-      onSaveGeminiKey(clean);
-    }
-    setGeminiTesting(true);
-    setGeminiTestResult(null);
-    const res = await testGeminiConnection(clean);
-    setGeminiTestResult(res);
-    setGeminiTesting(false);
-  };
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -399,10 +389,10 @@ export function ProfileScreen({
               setMenuOpen(false);
               onOpenGeminiSettings?.();
             }}
-            aria-label="Chave Google Gemini"
-            title="Chave Google Gemini"
+            aria-label="Inteligência Artificial e Chaves"
+            title="Inteligência Artificial e Chaves"
             className={`flex h-11 w-11 items-center justify-center rounded-full border transition-colors ${
-              hasGeminiKey
+              hasAnyAiConfigured
                 ? 'border-accent/50 bg-accent/15 text-accent'
                 : 'border-line bg-card text-muted hover:border-accent/50 hover:text-ink'
             }`}
@@ -487,11 +477,11 @@ export function ProfileScreen({
               >
                 <span className="inline-flex items-center gap-2.5">
                   <Sparkles className="h-4 w-4 text-accent" strokeWidth={1.5} />
-                  Chave Google Gemini
+                  Motores de IA &amp; Chaves
                 </span>
                 <span
                   className={`h-2 w-2 rounded-full ${
-                    hasGeminiKey ? 'bg-accent' : 'bg-line'
+                    hasAnyAiConfigured ? 'bg-accent' : 'bg-line'
                   }`}
                 />
               </button>
@@ -836,77 +826,36 @@ export function ProfileScreen({
           />
         </div>
 
-        {/* Inteligência Google Gemini: chave local + Testar Conexão */}
-        <div className="space-y-2.5 border-t border-line pt-3">
+        {/* Motor Multi-IA & Chaves locais */}
+        <div className="space-y-3 border-t border-line pt-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <span className="inline-flex items-center gap-1.5 text-xs font-medium text-ink">
               <Sparkles className="h-3.5 w-3.5 text-accent" strokeWidth={1.5} />
-              <span>Chave Google Gemini &amp; Diagnóstico</span>
+              <span>Multi-IA &amp; Chaves da API (Gemini, Groq, OpenRouter)</span>
             </span>
             <button
               type="button"
               onClick={() => onOpenGeminiSettings?.()}
-              className="text-[11px] font-medium text-accent hover:underline"
+              className="min-h-[36px] text-[11px] font-medium text-accent hover:underline"
             >
-              Configuração completa
+              Abrir em modal
             </button>
           </div>
 
-          <div className="flex flex-col sm:flex-row gap-2">
-            <input
-              type="password"
-              value={inlineGeminiKey}
-              onChange={(e) => {
-                setInlineGeminiKey(e.target.value);
-                setGeminiTestResult(null);
-              }}
-              placeholder="Cole sua chave AIza..."
-              aria-label="Chave da API Google Gemini"
-              className="min-h-[44px] flex-1 rounded-[4px] border border-line bg-app px-3 py-2 font-mono text-xs text-ink placeholder:text-subtle focus:border-accent focus:outline-none"
-            />
-            {onSaveGeminiKey && inlineGeminiKey !== geminiKey && (
-              <button
-                type="button"
-                onClick={() => onSaveGeminiKey(sanitizeGeminiKey(inlineGeminiKey))}
-                className="min-h-[44px] shrink-0 rounded-[4px] bg-accent px-3.5 py-2 text-xs font-semibold text-accent-ink transition-opacity hover:opacity-90"
-              >
-                Salvar Chave
-              </button>
-            )}
-            <button
-              type="button"
-              onClick={handleTestInlineGemini}
-              disabled={geminiTesting}
-              className="inline-flex min-h-[44px] shrink-0 items-center justify-center gap-1.5 rounded-[4px] border border-line bg-app px-3.5 py-2 text-xs font-medium text-ink transition-colors hover:border-accent hover:text-accent disabled:opacity-55"
-            >
-              <Activity className="h-4 w-4 text-accent" strokeWidth={1.5} />
-              <span>{geminiTesting ? 'Testando...' : 'Testar Conexão'}</span>
-            </button>
-          </div>
-
-          {geminiTestResult && (
-            <div
-              role="status"
-              className={`rounded-[4px] border px-3 py-2 text-xs ${
-                geminiTestResult.ok
-                  ? 'border-accent/40 bg-accent/10 text-ink'
-                  : 'border-line bg-app text-muted'
-              }`}
-            >
-              {geminiTestResult.ok ? (
-                <div className="flex flex-wrap items-center justify-between gap-2 tabular-nums">
-                  <span className="font-medium text-accent">
-                    Conectado ao modelo {geminiTestResult.model}
-                  </span>
-                  <span className="text-[11px] text-muted">
-                    {geminiTestResult.latencyMs} ms
-                  </span>
-                </div>
-              ) : (
-                <p>{geminiTestResult.errorMessage}</p>
-              )}
-            </div>
-          )}
+          <AiProvidersPanel
+            keys={resolvedAiConfig.keys}
+            preferences={resolvedAiConfig.preferences}
+            onSaveKey={(providerId, val) => {
+              const saved = resolvedAiConfig.saveProviderKey(providerId, val);
+              if (providerId === 'gemini') onSaveGeminiKey?.(saved);
+              return saved;
+            }}
+            onClearKey={(providerId) => {
+              resolvedAiConfig.clearProviderKey(providerId);
+              if (providerId === 'gemini') onSaveGeminiKey?.('');
+            }}
+            onUpdatePreferences={(next) => resolvedAiConfig.updatePreferences(next)}
+          />
         </div>
       </section>
 

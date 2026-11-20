@@ -10,13 +10,18 @@ import {
 import { useState } from 'react';
 import { useToast } from '../context/ToastContext';
 import {
-  runReviewOrAbstractSynthesis,
-  runSpoilerFreeRecap,
-} from '../services/geminiApi';
+  AI_PROVIDER_META,
+  runMultiReviewOrAbstractSynthesis,
+  runMultiSpoilerFreeRecap,
+} from '../services/aiProvider';
 import {
   buildLocalReviewOrAbstractSynthesis,
   buildLocalSpoilerFreeRecap,
 } from '../services/localCatalogFallback';
+import {
+  AiPrivacyNoticeBanner,
+  useExternalAiNotice,
+} from './AiPrivacyNotice';
 
 export function SpoilerFreeRecapAction({
   item,
@@ -24,27 +29,44 @@ export function SpoilerFreeRecapAction({
   geminiKey = '',
   onOpenGeminiSettings,
 }) {
+  const { activeProvider, shouldShowNotice, acknowledgeNotice } =
+    useExternalAiNotice(geminiKey);
   const [isLoading, setIsLoading] = useState(false);
   const [recapText, setRecapText] = useState('');
   const [modeNote, setModeNote] = useState('');
 
+  const hasExternalAi = Boolean(activeProvider);
+
   const handleGenerateRecap = async () => {
     setModeNote('');
-    if (!geminiKey) {
+    if (!hasExternalAi) {
       setRecapText(buildLocalSpoilerFreeRecap({ item, linkedPosts }));
       setModeNote('Gerado localmente com suas anotações, citações e marcador de leitura.');
       return;
     }
 
+    if (shouldShowNotice) {
+      acknowledgeNotice();
+    }
+
     setIsLoading(true);
     try {
-      const output = await runSpoilerFreeRecap(geminiKey, { item, linkedPosts });
-      setRecapText(output);
-      setModeNote('');
+      const output = await runMultiSpoilerFreeRecap({
+        item,
+        linkedPosts,
+        overrideKeys: geminiKey ? { gemini: geminiKey } : null,
+      });
+      setRecapText(output.text);
+      const label = AI_PROVIDER_META[output.provider]?.label || activeProvider.label;
+      setModeNote(
+        output.fromCache ? `Carregado do cache local (${label}).` : `Gerado via ${label}.`
+      );
     } catch (error) {
       setRecapText(buildLocalSpoilerFreeRecap({ item, linkedPosts }));
       setModeNote(
-        `${error?.userMessage || 'Gemini indisponível.'} Exibindo síntese local sem spoilers.`
+        error?.code === 'AUTH_ERROR'
+          ? `${error.userMessage} Exibindo síntese — gerado localmente.`
+          : 'Provedores indisponíveis. Exibindo síntese sem spoilers — gerado localmente.'
       );
     } finally {
       setIsLoading(false);
@@ -53,6 +75,13 @@ export function SpoilerFreeRecapAction({
 
   return (
     <div className="space-y-2.5">
+      {shouldShowNotice && (
+        <AiPrivacyNoticeBanner
+          provider={activeProvider}
+          onAcknowledge={acknowledgeNotice}
+        />
+      )}
+
       <button
         type="button"
         onClick={handleGenerateRecap}
@@ -63,23 +92,26 @@ export function SpoilerFreeRecapAction({
         <span>
           {isLoading
             ? 'Recapitulando sem spoilers...'
-            : geminiKey
-              ? 'Recapitulação Sem Spoilers (Gemini)'
+            : hasExternalAi
+              ? `Recapitulação Sem Spoilers (${activeProvider.label})`
               : 'Recapitulação Sem Spoilers (Local)'}
         </span>
       </button>
 
       {modeNote && (
-        <div className="flex flex-wrap items-center justify-between gap-2 rounded-[4px] border border-line bg-app px-3 py-2 text-[11px] text-muted">
+        <div
+          role="status"
+          className="flex flex-wrap items-center justify-between gap-2 rounded-[4px] border border-line bg-app px-3 py-2 text-[11px] text-muted"
+        >
           <span>{modeNote}</span>
-          {!geminiKey && onOpenGeminiSettings && (
+          {onOpenGeminiSettings && (
             <button
               type="button"
               onClick={onOpenGeminiSettings}
-              className="inline-flex min-h-[32px] items-center gap-1 rounded-[4px] border border-line px-2 py-1 text-[10px] font-medium text-accent hover:border-accent"
+              className="inline-flex min-h-[36px] items-center gap-1 rounded-[4px] border border-line px-2 py-1 text-[10px] font-medium text-accent hover:border-accent"
             >
               <KeyRound className="h-3 w-3" strokeWidth={1.5} />
-              Configurar Chave
+              Configurar Chaves
             </button>
           )}
         </div>
@@ -96,7 +128,7 @@ export function SpoilerFreeRecapAction({
               type="button"
               onClick={() => setRecapText('')}
               aria-label="Fechar recapitulação"
-              className="rounded-[4px] p-1 text-subtle hover:text-ink"
+              className="flex min-h-[36px] min-w-[36px] items-center justify-center rounded-[4px] text-subtle hover:text-ink"
             >
               <X className="h-3.5 w-3.5" strokeWidth={1.5} />
             </button>
@@ -118,6 +150,8 @@ export function SynthesisReviewAction({
   onOpenGeminiSettings,
 }) {
   const { showToast } = useToast();
+  const { activeProvider, shouldShowNotice, acknowledgeNotice } =
+    useExternalAiNotice(geminiKey);
   const defaultMode = item.workType === 'academic' ? 'academic' : 'literary';
   const [mode, setMode] = useState(defaultMode);
   const [isLoading, setIsLoading] = useState(false);
@@ -126,34 +160,47 @@ export function SynthesisReviewAction({
   const [copied, setCopied] = useState(false);
   const [applied, setApplied] = useState(false);
 
+  const hasExternalAi = Boolean(activeProvider);
+
   const handleSynthesize = async () => {
     setModeNote('');
     setApplied(false);
 
-    if (!geminiKey) {
+    if (!hasExternalAi) {
       setSynthesisText(
         buildLocalReviewOrAbstractSynthesis({ item, linkedPosts, mode })
       );
       setModeNote(
-        'Síntese montada localmente a partir do seu fichamento, citações e notas.'
+        'Síntese montada — gerado localmente a partir do seu fichamento, citações e notas.'
       );
       return;
     }
 
+    if (shouldShowNotice) {
+      acknowledgeNotice();
+    }
+
     setIsLoading(true);
     try {
-      const output = await runReviewOrAbstractSynthesis(geminiKey, {
+      const output = await runMultiReviewOrAbstractSynthesis({
         item,
         linkedPosts,
         mode,
+        overrideKeys: geminiKey ? { gemini: geminiKey } : null,
       });
-      setSynthesisText(output);
+      setSynthesisText(output.text);
+      const label = AI_PROVIDER_META[output.provider]?.label || activeProvider.label;
+      setModeNote(
+        output.fromCache ? `Carregado do cache local (${label}).` : `Gerado via ${label}.`
+      );
     } catch (error) {
       setSynthesisText(
         buildLocalReviewOrAbstractSynthesis({ item, linkedPosts, mode })
       );
       setModeNote(
-        `${error?.userMessage || 'Gemini indisponível.'} Exibindo rascunho local estruturado.`
+        error?.code === 'AUTH_ERROR'
+          ? `${error.userMessage} Exibindo rascunho — gerado localmente.`
+          : 'Provedores indisponíveis. Exibindo rascunho estruturado — gerado localmente.'
       );
     } finally {
       setIsLoading(false);
@@ -201,7 +248,7 @@ export function SynthesisReviewAction({
           <button
             type="button"
             onClick={() => setMode('literary')}
-            className={`rounded-[2px] px-2 py-0.5 text-[10px] font-medium transition-colors ${
+            className={`min-h-[32px] rounded-[2px] px-2 py-0.5 text-[10px] font-medium transition-colors ${
               mode === 'literary'
                 ? 'bg-accent text-accent-ink'
                 : 'text-muted hover:text-ink'
@@ -212,7 +259,7 @@ export function SynthesisReviewAction({
           <button
             type="button"
             onClick={() => setMode('academic')}
-            className={`rounded-[2px] px-2 py-0.5 text-[10px] font-medium transition-colors ${
+            className={`min-h-[32px] rounded-[2px] px-2 py-0.5 text-[10px] font-medium transition-colors ${
               mode === 'academic'
                 ? 'bg-accent text-accent-ink'
                 : 'text-muted hover:text-ink'
@@ -223,6 +270,13 @@ export function SynthesisReviewAction({
         </div>
       </div>
 
+      {shouldShowNotice && (
+        <AiPrivacyNoticeBanner
+          provider={activeProvider}
+          onAcknowledge={acknowledgeNotice}
+        />
+      )}
+
       <button
         type="button"
         onClick={handleSynthesize}
@@ -232,7 +286,7 @@ export function SynthesisReviewAction({
         <Sparkles className="h-4 w-4 text-accent" strokeWidth={1.5} />
         <span>
           {isLoading
-            ? 'Sintetizando com Gemini...'
+            ? `Sintetizando com ${activeProvider?.label || 'IA'}...`
             : mode === 'academic'
               ? 'Gerar Resumo Crítico para TCC'
               : 'Gerar Resenha Literária'}
@@ -240,16 +294,19 @@ export function SynthesisReviewAction({
       </button>
 
       {modeNote && (
-        <div className="flex flex-wrap items-center justify-between gap-2 rounded-[4px] border border-line bg-card px-3 py-2 text-[11px] text-muted">
+        <div
+          role="status"
+          className="flex flex-wrap items-center justify-between gap-2 rounded-[4px] border border-line bg-card px-3 py-2 text-[11px] text-muted"
+        >
           <span>{modeNote}</span>
-          {!geminiKey && onOpenGeminiSettings && (
+          {onOpenGeminiSettings && (
             <button
               type="button"
               onClick={onOpenGeminiSettings}
-              className="inline-flex min-h-[32px] items-center gap-1 rounded-[4px] border border-line px-2 py-1 text-[10px] font-medium text-accent hover:border-accent"
+              className="inline-flex min-h-[36px] items-center gap-1 rounded-[4px] border border-line px-2 py-1 text-[10px] font-medium text-accent hover:border-accent"
             >
               <KeyRound className="h-3 w-3" strokeWidth={1.5} />
-              Configurar Chave
+              Configurar Chaves
             </button>
           )}
         </div>
@@ -264,7 +321,7 @@ export function SynthesisReviewAction({
             <button
               type="button"
               onClick={handleCopy}
-              className="inline-flex min-h-[40px] flex-1 items-center justify-center gap-1.5 rounded-[4px] border border-line bg-app py-1.5 text-[11px] font-medium text-ink hover:border-accent"
+              className="inline-flex min-h-[44px] flex-1 items-center justify-center gap-1.5 rounded-[4px] border border-line bg-app py-1.5 text-[11px] font-medium text-ink hover:border-accent"
             >
               {copied ? (
                 <>
@@ -282,7 +339,7 @@ export function SynthesisReviewAction({
             <button
               type="button"
               onClick={handleApply}
-              className="inline-flex min-h-[40px] flex-1 items-center justify-center gap-1.5 rounded-[4px] bg-accent py-1.5 text-[11px] font-semibold text-accent-ink hover:opacity-90"
+              className="inline-flex min-h-[44px] flex-1 items-center justify-center gap-1.5 rounded-[4px] bg-accent py-1.5 text-[11px] font-semibold text-accent-ink hover:opacity-90"
             >
               {applied ? (
                 <>

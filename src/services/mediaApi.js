@@ -2,6 +2,7 @@ import { normalizePublisherName } from '../data/brazilianPublishers.js';
 import { catalogItems, initialItems } from '../data/mockData.js';
 
 const GOOGLE_BOOKS_BASE_URL = 'https://www.googleapis.com/books/v1/volumes';
+const APPLE_BOOKS_BASE_URL = 'https://itunes.apple.com/search';
 const OPEN_LIBRARY_BASE_URL = 'https://openlibrary.org/search.json';
 const JIKAN_MANGA_BASE_URL = 'https://api.jikan.moe/v4/manga';
 const CROSSREF_WORKS_URL = 'https://api.crossref.org/works';
@@ -11,15 +12,17 @@ const GUTENDEX_BOOKS_URL = 'https://gutendex.com/books';
 const CROSSREF_POLITE_MAILTO = 'codice@projeto-codice.app';
 
 const SEARCH_CACHE_KEY = 'codice_search_cache_v2';
-export const MEDIA_SOURCES_STORAGE_KEY = 'codice_active_media_sources_v2';
-const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+export const GOOGLE_BOOKS_KEY_STORAGE = 'codice_search_google_books_key';
+export const MEDIA_SOURCES_STORAGE_KEY = 'codice_active_media_sources_v3';
+const CACHE_TTL_MS = 10 * 60 * 1000;
 const CACHE_MAX_ENTRIES = 60;
-const API_TIMEOUT_MS = 4500;
+const API_TIMEOUT_MS = 4000;
 const MAX_RESULTS_PER_SOURCE = 10;
 
 export const MEDIA_API_SOURCES = [
-  { id: 'googleBooks', label: 'Google Books', hint: 'Livros em geral (~350ms)' },
-  { id: 'openLibrary', label: 'Open Library', hint: 'Edições e capas extras' },
+  { id: 'googleBooks', label: 'Google Books', hint: 'Livros em geral e metadados' },
+  { id: 'appleBooks', label: 'Apple Books', hint: 'Ebooks em português e capas HD' },
+  { id: 'openLibrary', label: 'Open Library', hint: 'Edições, ISBN e capas abertas' },
   { id: 'jikan', label: 'Jikan / MAL', hint: 'Mangás, Light Novels e Manhwas' },
   { id: 'gutendex', label: 'Gutendex', hint: 'Clássicos com EPUB grátis' },
   { id: 'academic', label: 'CrossRef + OpenAlex', hint: 'Artigos, DOI e Open Access' },
@@ -27,9 +30,9 @@ export const MEDIA_API_SOURCES = [
 ];
 
 const ALL_MEDIA_SOURCE_IDS = MEDIA_API_SOURCES.map((s) => s.id);
-export const DEFAULT_MEDIA_SOURCES = ['googleBooks'];
+export const DEFAULT_MEDIA_SOURCES = ['googleBooks', 'appleBooks', 'openLibrary'];
 export const DEFAULT_SOURCES_BY_FILTER = {
-  all: ['googleBooks'],
+  all: ['googleBooks', 'appleBooks', 'openLibrary'],
   book: ['googleBooks'],
   manga: ['jikan'],
   academic: ['academic'],
@@ -44,7 +47,7 @@ export const MEDIA_SOURCE_PRESETS = [
     id: 'all',
     label: 'Geral · Rápido',
     filter: 'all',
-    sources: ['googleBooks'],
+    sources: ['googleBooks', 'appleBooks', 'openLibrary'],
   },
   {
     id: 'books',
@@ -71,6 +74,38 @@ export const MEDIA_SOURCE_PRESETS = [
     sources: [...ALL_MEDIA_SOURCE_IDS],
   },
 ];
+
+export function sanitizeSearchApiKey(rawKey) {
+  return String(rawKey || '')
+    .trim()
+    .replace(/^["'`]+|["'`]+$/g, '')
+    .replace(/[\r\n\t]+/g, '')
+    .trim();
+}
+
+export function loadGoogleBooksApiKey() {
+  try {
+    if (typeof localStorage === 'undefined') return '';
+    return sanitizeSearchApiKey(localStorage.getItem(GOOGLE_BOOKS_KEY_STORAGE));
+  } catch {
+    return '';
+  }
+}
+
+export function saveGoogleBooksApiKey(rawKey) {
+  const clean = sanitizeSearchApiKey(rawKey);
+  try {
+    if (typeof localStorage === 'undefined') return clean;
+    if (clean) {
+      localStorage.setItem(GOOGLE_BOOKS_KEY_STORAGE, clean);
+    } else {
+      localStorage.removeItem(GOOGLE_BOOKS_KEY_STORAGE);
+    }
+  } catch {
+    // Ignora falha de storage
+  }
+  return clean;
+}
 
 const VALID_SOURCE_IDS = new Set(ALL_MEDIA_SOURCE_IDS);
 
@@ -250,11 +285,33 @@ function normalizeText(value) {
     .trim();
 }
 
-function stripXmlTags(value) {
+function decodeBasicEntities(value) {
   return String(value || '')
+    .replace(/&amp;/gi, '&')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;|&apos;/gi, "'")
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&nbsp;/gi, ' ');
+}
+
+function stripXmlTags(value) {
+  return decodeBasicEntities(
+    String(value || '').replace(/<br\s*\/?>/gi, ' ')
+  )
     .replace(/<[^>]+>/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+function toAuthorsList(rawAuthors) {
+  if (Array.isArray(rawAuthors)) {
+    return rawAuthors.map((a) => String(a || '').trim()).filter(Boolean);
+  }
+  return String(rawAuthors || '')
+    .split(/,|;/)
+    .map((a) => a.trim())
+    .filter(Boolean);
 }
 
 function getMonogram(title) {
@@ -388,6 +445,9 @@ function mapGoogleBook(volume, defaultWorkType = 'book', isbnFallback = '') {
   const publisher = normalizePublisherName(volumeInfo.publisher || '');
   const rawLang = String(volumeInfo.language || '').toLowerCase();
   const isPt = rawLang === 'pt' || rawLang === 'pt-br' || rawLang === 'por';
+  const releaseYear = extractReleaseYear(volumeInfo.publishedDate);
+  const authors = toAuthorsList(volumeInfo.authors);
+  const synopsis = stripXmlTags(volumeInfo.description || '');
 
   return {
     id: `gb-${googleVolumeId}`,
@@ -396,6 +456,7 @@ function mapGoogleBook(volume, defaultWorkType = 'book', isbnFallback = '') {
     originalTitle: !isPt && rawLang ? title : '',
     language: volumeInfo.language || '',
     author,
+    authors,
     coverUrl: coverCandidates[0] || null,
     coverCandidates,
     coverSources: coverCandidates,
@@ -403,16 +464,78 @@ function mapGoogleBook(volume, defaultWorkType = 'book', isbnFallback = '') {
     openLibIsbnCover: buildOpenLibraryIsbnCover(isbn),
     openLibIdCover: null,
     jikanCoverUrls: [],
-    releaseYear: extractReleaseYear(volumeInfo.publishedDate),
+    releaseYear,
+    year: releaseYear,
     totalPages,
     publisher,
     institution: defaultWorkType === 'academic' ? publisher : '',
     isbn,
     doi: '',
     issn: '',
+    synopsis,
     genres,
     workType: defaultWorkType,
+    source: 'googleBooks',
     sourceLabel: 'Google Books',
+    monogram: getMonogram(title),
+  };
+}
+
+export function mapAppleBook(entry, defaultWorkType = 'book') {
+  if (!entry || typeof entry !== 'object') return null;
+  const title = String(entry.trackName || entry.trackCensoredName || 'Sem título').trim();
+  const author = String(entry.artistName || '').trim();
+  const authors = toAuthorsList(author);
+  const originalArtwork = cleanCoverUrl(entry.artworkUrl100 || entry.artworkUrl60 || null);
+  const highResArtwork = originalArtwork
+    ? cleanCoverUrl(originalArtwork.replace(/100x100bb/i, '600x600bb'))
+    : null;
+  const isbn = String(entry.isbn || '').replace(/[-\s]/g, '').trim();
+  const coverCandidates = Array.from(
+    new Set(
+      [
+        highResArtwork,
+        originalArtwork,
+        ...buildCoverCascade({ isbn }),
+      ].filter(Boolean)
+    )
+  );
+  const releaseYear = extractReleaseYear(entry.releaseDate);
+  const rawGenres = Array.isArray(entry.genres) ? entry.genres.filter(Boolean) : [];
+  const filteredGenres = rawGenres
+    .filter((g) => !/^(livros|books|ebooks?)$/i.test(String(g).trim()))
+    .slice(0, 3);
+  const genres = filteredGenres.length ? filteredGenres : rawGenres.slice(0, 3);
+  const synopsis = stripXmlTags(entry.description || '');
+  const language = String(entry.language || '').trim();
+
+  return {
+    id: `ab-${entry.trackId || normalizeText(title)}`,
+    title,
+    originalTitle: '',
+    language,
+    author,
+    authors,
+    coverUrl: coverCandidates[0] || null,
+    coverCandidates,
+    coverSources: coverCandidates,
+    googleCoverUrl: null,
+    openLibIsbnCover: buildOpenLibraryIsbnCover(isbn),
+    openLibIdCover: null,
+    jikanCoverUrls: [],
+    releaseYear,
+    year: releaseYear,
+    totalPages: null,
+    publisher: '',
+    institution: '',
+    isbn,
+    doi: '',
+    issn: '',
+    synopsis,
+    genres,
+    workType: defaultWorkType === 'academic' ? 'academic' : 'book',
+    source: 'appleBooks',
+    sourceLabel: 'Apple Books',
     monogram: getMonogram(title),
   };
 }
@@ -448,6 +571,10 @@ function mapOpenLibraryDoc(doc, defaultWorkType = 'book', isbnFallback = '') {
     : [];
   const langs = Array.isArray(doc?.language) ? doc.language : [];
   const hasPor = langs.some((l) => /^por$/i.test(l) || /^pt/i.test(l));
+  const rawFirstSentence = Array.isArray(doc?.first_sentence)
+    ? doc.first_sentence[0]
+    : doc?.first_sentence;
+  const synopsis = stripXmlTags(rawFirstSentence || doc?.subtitle || '');
 
   return {
     id: `ol-${rawKey}`,
@@ -455,6 +582,7 @@ function mapOpenLibraryDoc(doc, defaultWorkType = 'book', isbnFallback = '') {
     originalTitle: !hasPor && langs.length > 0 ? title : '',
     language: langs[0] || '',
     author,
+    authors: toAuthorsList(doc?.author_name),
     coverUrl: coverCandidates[0] || null,
     coverCandidates,
     coverSources: coverCandidates,
@@ -463,14 +591,17 @@ function mapOpenLibraryDoc(doc, defaultWorkType = 'book', isbnFallback = '') {
     openLibIdCover,
     jikanCoverUrls: [],
     releaseYear,
+    year: releaseYear,
     totalPages,
     publisher,
     institution: defaultWorkType === 'academic' ? publisher : '',
     isbn,
     doi: '',
     issn: '',
+    synopsis,
     genres,
     workType: defaultWorkType,
+    source: 'openLibrary',
     sourceLabel: 'Open Library',
     monogram: getMonogram(title),
   };
@@ -532,13 +663,17 @@ export function mapJikanManga(entry) {
     )
   ).slice(0, 4);
 
+  const releaseYear = extractReleaseYear(entry?.published?.from);
+
   return {
     id: `jikan-${entry?.mal_id || normalizeText(title)}`,
     title,
     originalTitle,
     titleEnglish: entry?.title_english || '',
     titleJapanese: entry?.title_japanese || '',
+    language: '',
     author,
+    authors: toAuthorsList(author),
     coverUrl: coverCandidates[0] || null,
     coverCandidates,
     coverSources: coverCandidates,
@@ -546,7 +681,8 @@ export function mapJikanManga(entry) {
     openLibIsbnCover: null,
     openLibIdCover: null,
     jikanCoverUrls,
-    releaseYear: extractReleaseYear(entry?.published?.from),
+    releaseYear,
+    year: releaseYear,
     totalVolumes:
       typeof entry?.volumes === 'number' && entry.volumes > 0
         ? entry.volumes
@@ -563,8 +699,10 @@ export function mapJikanManga(entry) {
     isbn: '',
     doi: '',
     issn: '',
+    synopsis: stripXmlTags(entry?.synopsis || ''),
     genres,
     workType: 'manga',
+    source: 'jikan',
     sourceLabel: 'Jikan',
     monogram: getMonogram(title),
   };
@@ -620,7 +758,9 @@ function mapCrossRefWork(entry) {
     id: `cr-${doi || normalizeText(title)}`,
     title,
     originalTitle: entry?.language && entry.language !== 'pt' ? title : '',
+    language: entry?.language || '',
     author,
+    authors: toAuthorsList(author),
     coverUrl: coverCandidates[0] || null,
     coverCandidates,
     coverSources: coverCandidates,
@@ -629,14 +769,17 @@ function mapCrossRefWork(entry) {
     openLibIdCover: null,
     jikanCoverUrls: [],
     releaseYear,
+    year: releaseYear,
     totalPages: parseCrossRefPageCount(entry?.page),
     publisher,
     institution,
     isbn,
     doi,
     issn,
+    synopsis: stripXmlTags(entry?.abstract || ''),
     genres,
     workType: 'academic',
+    source: 'academic',
     sourceLabel: 'CrossRef',
     monogram: getMonogram(title),
   };
@@ -695,6 +838,7 @@ export function mapOpenAlexWork(entry) {
     originalTitle: rawLang && rawLang !== 'pt' ? title : '',
     language: entry.language || '',
     author,
+    authors: toAuthorsList(author),
     coverUrl: null,
     coverCandidates: [],
     coverSources: [],
@@ -703,6 +847,7 @@ export function mapOpenAlexWork(entry) {
     openLibIdCover: null,
     jikanCoverUrls: [],
     releaseYear,
+    year: releaseYear,
     totalPages: null,
     publisher,
     institution: sourceName || publisher,
@@ -714,8 +859,10 @@ export function mapOpenAlexWork(entry) {
     citedByCount,
     openAccessUrl,
     isOpenAccess,
+    synopsis: '',
     genres,
     workType: 'academic',
+    source: 'academic',
     sourceLabel: 'OpenAlex',
     monogram: getMonogram(title),
   };
@@ -764,6 +911,7 @@ export function mapGutendexBook(entry, defaultWorkType = 'book') {
     originalTitle: !hasPt && langs.length > 0 ? title : '',
     language: langs.join(', '),
     author,
+    authors: toAuthorsList(author),
     coverUrl: coverCandidates[0] || null,
     coverCandidates,
     coverSources: coverCandidates,
@@ -772,17 +920,20 @@ export function mapGutendexBook(entry, defaultWorkType = 'book') {
     openLibIdCover: null,
     jikanCoverUrls: [],
     releaseYear: null,
+    year: null,
     totalPages: null,
     publisher: 'Domínio Público (Project Gutenberg)',
     institution: '',
     isbn: '',
     doi: '',
     issn: '',
+    synopsis: '',
     freeEpubUrl,
     isPublicDomain: true,
     downloadCount: Number(entry.download_count) || 0,
     genres: genres.length ? genres : ['Clássico em Domínio Público'],
     workType: defaultWorkType,
+    source: 'gutendex',
     sourceLabel: 'Gutendex',
     monogram: getMonogram(title),
   };
@@ -858,8 +1009,10 @@ export function mapWikidataEntityToWork(entity, defaultWorkType = 'book') {
     originalTitle: originalCandidate,
     ptTitle: ptLabel,
     enTitle: enLabel,
+    language: ptLabel ? 'pt-br' : enLabel ? 'en' : '',
     originCountry,
     author: '',
+    authors: [],
     coverUrl: coverCandidates[0] || null,
     coverCandidates,
     coverSources: coverCandidates,
@@ -868,6 +1021,7 @@ export function mapWikidataEntityToWork(entity, defaultWorkType = 'book') {
     openLibIdCover: null,
     jikanCoverUrls: [],
     releaseYear,
+    year: releaseYear,
     totalPages: null,
     publisher: '',
     institution: '',
@@ -877,6 +1031,7 @@ export function mapWikidataEntityToWork(entity, defaultWorkType = 'book') {
     synopsis: description,
     genres: originCountry ? [originCountry] : [],
     workType: defaultWorkType,
+    source: 'wikidata',
     sourceLabel: 'Wikidata',
     monogram: getMonogram(title),
   };
@@ -964,9 +1119,14 @@ function hasValidCover(item) {
   );
 }
 
+function hasSynopsis(item) {
+  return Boolean(String(item?.synopsis || '').trim());
+}
+
 function scoreResultRichness(item) {
   return (
     (hasValidCover(item) ? 20 : 0) +
+    (hasSynopsis(item) ? 12 : 0) +
     (item.originalTitle ? 1 : 0) +
     (item.totalPages || item.totalChapters ? 2 : 0) +
     (item.isbn ? 2 : 0) +
@@ -1015,12 +1175,14 @@ function scoreQueryRelevance(item, query, filter, isbn, doi) {
 export function mergeTwoResults(primary, secondary) {
   const primaryCover = hasValidCover(primary);
   const secondaryCover = hasValidCover(secondary);
+  const primarySynopsis = hasSynopsis(primary);
+  const secondarySynopsis = hasSynopsis(secondary);
+  const primaryRank = (primaryCover ? 2 : 0) + (primarySynopsis ? 1 : 0);
+  const secondaryRank = (secondaryCover ? 2 : 0) + (secondarySynopsis ? 1 : 0);
 
   let winner;
-  if (primaryCover && !secondaryCover) {
-    winner = primary;
-  } else if (!primaryCover && secondaryCover) {
-    winner = secondary;
+  if (primaryRank !== secondaryRank) {
+    winner = primaryRank > secondaryRank ? primary : secondary;
   } else {
     winner =
       scoreResultRichness(primary) >= scoreResultRichness(secondary)
@@ -1047,20 +1209,44 @@ export function mergeTwoResults(primary, secondary) {
     jikanUrls: jikanCoverUrls,
   });
 
+  const winnerHasGenuineCover = Boolean(
+    winner.googleCoverUrl ||
+      winner.openLibIdCover ||
+      (Array.isArray(winner.jikanCoverUrls) && winner.jikanCoverUrls.length > 0) ||
+      winner.source === 'appleBooks' ||
+      winner.source === 'gutendex'
+  );
+  const loserHasGenuineCover = Boolean(
+    loser.googleCoverUrl ||
+      loser.openLibIdCover ||
+      (Array.isArray(loser.jikanCoverUrls) && loser.jikanCoverUrls.length > 0) ||
+      loser.source === 'appleBooks' ||
+      loser.source === 'gutendex'
+  );
+
+  const prioritizedUrls =
+    !winnerHasGenuineCover && loserHasGenuineCover
+      ? [
+          ...(loser.coverCandidates || []),
+          ...(loser.coverSources || []),
+          loser.coverUrl,
+          ...(winner.coverCandidates || []),
+          ...(winner.coverSources || []),
+          winner.coverUrl,
+          ...mergedCascade,
+        ]
+      : [
+          ...(winner.coverCandidates || []),
+          ...(winner.coverSources || []),
+          winner.coverUrl,
+          ...mergedCascade,
+          ...(loser.coverCandidates || []),
+          ...(loser.coverSources || []),
+          loser.coverUrl,
+        ];
+
   const coverCandidates = Array.from(
-    new Set(
-      [
-        ...(winner.coverCandidates || []),
-        ...(winner.coverSources || []),
-        winner.coverUrl,
-        ...mergedCascade,
-        ...(loser.coverCandidates || []),
-        ...(loser.coverSources || []),
-        loser.coverUrl,
-      ]
-        .map(cleanCoverUrl)
-        .filter(Boolean)
-    )
+    new Set(prioritizedUrls.map(cleanCoverUrl).filter(Boolean))
   );
 
   const candidateOriginal =
@@ -1069,6 +1255,13 @@ export function mergeTwoResults(primary, secondary) {
     (normalizeText(winner.title) !== normalizeText(loser.title)
       ? loser.title
       : '');
+
+  const mergedSynopsis = String(
+    (hasSynopsis(winner) ? winner.synopsis : '') ||
+      (hasSynopsis(loser) ? loser.synopsis : '') ||
+      ''
+  ).trim();
+  const mergedReleaseYear = winner.releaseYear || loser.releaseYear || null;
 
   return {
     ...winner,
@@ -1079,10 +1272,17 @@ export function mergeTwoResults(primary, secondary) {
         ? candidateOriginal
         : '',
     author: winner.author || loser.author || '',
+    authors:
+      Array.isArray(winner.authors) && winner.authors.length
+        ? winner.authors
+        : loser.authors || [],
+    language: winner.language || loser.language || '',
+    synopsis: mergedSynopsis,
     isbn,
     doi,
     issn: winner.issn || loser.issn || '',
-    releaseYear: winner.releaseYear || loser.releaseYear || null,
+    releaseYear: mergedReleaseYear,
+    year: mergedReleaseYear,
     totalPages: winner.totalPages || loser.totalPages || null,
     totalVolumes: winner.totalVolumes || loser.totalVolumes || null,
     totalChapters: winner.totalChapters || loser.totalChapters || null,
@@ -1108,34 +1308,59 @@ export function mergeTwoResults(primary, secondary) {
 }
 
 function deduplicateAndSortResults(items, query, filter, isbn, doi) {
-  const byKey = new Map();
+  const byDoi = new Map();
+  const byIsbn = new Map();
+  const byTitleAuthor = new Map();
+  const orderedRecords = [];
 
   items.forEach((item) => {
     const cleanIsbn = String(item.isbn || '').replace(/[-\s]/g, '').trim();
     const cleanDoi = String(item.doi || '').trim().toLowerCase();
-    const firstAuthor = normalizeText(String(item.author || '').split(',')[0]);
+    const firstAuthor = normalizeText(String(item.author || '').split(/,|;/)[0]);
     const titleKey = normalizeText(item.title);
+    const titleAuthorKey = titleKey
+      ? `${item.workType || 'book'}:${titleKey}:${firstAuthor}`
+      : '';
 
-    const dedupKey = cleanDoi
-      ? `doi:${cleanDoi}`
-      : cleanIsbn
-        ? `isbn:${cleanIsbn}`
-        : `${item.workType || 'book'}:${titleKey}:${firstAuthor}`;
+    const matchedRef =
+      (cleanDoi && byDoi.get(cleanDoi)) ||
+      (cleanIsbn && byIsbn.get(cleanIsbn)) ||
+      (titleAuthorKey && byTitleAuthor.get(titleAuthorKey)) ||
+      null;
 
-    const existing = byKey.get(dedupKey);
-    if (!existing) {
-      byKey.set(dedupKey, item);
+    if (!matchedRef) {
+      const box = { item };
+      orderedRecords.push(box);
+      if (cleanDoi) byDoi.set(cleanDoi, box);
+      if (cleanIsbn) byIsbn.set(cleanIsbn, box);
+      if (titleAuthorKey) byTitleAuthor.set(titleAuthorKey, box);
       return;
     }
 
-    byKey.set(dedupKey, mergeTwoResults(existing, item));
+    const merged = mergeTwoResults(matchedRef.item, item);
+    matchedRef.item = merged;
+
+    const mergedIsbn = String(merged.isbn || '').replace(/[-\s]/g, '').trim();
+    const mergedDoi = String(merged.doi || '').trim().toLowerCase();
+    const mergedAuthor = normalizeText(String(merged.author || '').split(/,|;/)[0]);
+    const mergedTitleKey = normalizeText(merged.title);
+    if (mergedDoi) byDoi.set(mergedDoi, matchedRef);
+    if (mergedIsbn) byIsbn.set(mergedIsbn, matchedRef);
+    if (mergedTitleKey) {
+      byTitleAuthor.set(
+        `${merged.workType || 'book'}:${mergedTitleKey}:${mergedAuthor}`,
+        matchedRef
+      );
+    }
   });
 
-  return Array.from(byKey.values()).sort(
-    (a, b) =>
-      scoreQueryRelevance(b, query, filter, isbn, doi) -
-      scoreQueryRelevance(a, query, filter, isbn, doi)
-  );
+  return orderedRecords
+    .map((box) => box.item)
+    .sort(
+      (a, b) =>
+        scoreQueryRelevance(b, query, filter, isbn, doi) -
+        scoreQueryRelevance(a, query, filter, isbn, doi)
+    );
 }
 
 function getMockPool() {
@@ -1195,7 +1420,9 @@ async function fetchJsonWithTimeout(url, { signal, timeoutMs = API_TIMEOUT_MS } 
   try {
     const response = await fetch(url, { signal: localController.signal });
     if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
+      const httpErr = new Error(`HTTP ${response.status}`);
+      httpErr.status = response.status;
+      throw httpErr;
     }
     return await response.json();
   } catch (err) {
@@ -1213,15 +1440,24 @@ async function fetchJsonWithTimeout(url, { signal, timeoutMs = API_TIMEOUT_MS } 
   }
 }
 
-function buildGoogleBooksUrl(cleanQuery, isbn) {
+function buildGoogleBooksUrl(cleanQuery, isbn, apiKey = '') {
   const url = new URL(GOOGLE_BOOKS_BASE_URL);
   const qValue = isbn ? `isbn:${isbn}` : cleanQuery;
-  url.search = new URLSearchParams({
+  const params = {
     q: qValue,
     maxResults: String(MAX_RESULTS_PER_SOURCE),
     printType: 'books',
-  }).toString();
+  };
+  const cleanKey = sanitizeSearchApiKey(apiKey);
+  if (cleanKey) {
+    params.key = cleanKey;
+  }
+  url.search = new URLSearchParams(params).toString();
   return url.toString();
+}
+
+function buildAppleBooksUrl(cleanQuery) {
+  return `${APPLE_BOOKS_BASE_URL}?term=${encodeURIComponent(cleanQuery)}&media=ebook&country=br&limit=${MAX_RESULTS_PER_SOURCE}`;
 }
 
 function buildOpenLibraryUrl(cleanQuery, isbn) {
@@ -1309,6 +1545,66 @@ function buildWikidataEntitiesUrl(ids) {
   return url.toString();
 }
 
+function getWorkTypeFromFilter(filter = 'all') {
+  return filter === 'manga' ? 'manga' : filter === 'academic' ? 'academic' : 'book';
+}
+
+async function fetchGoogleBooksRaw(cleanQuery, { signal, isbn = null, apiKey } = {}) {
+  const resolvedKey = sanitizeSearchApiKey(
+    apiKey !== undefined ? apiKey : loadGoogleBooksApiKey()
+  );
+
+  if (resolvedKey) {
+    try {
+      return await fetchJsonWithTimeout(
+        buildGoogleBooksUrl(cleanQuery, isbn, resolvedKey),
+        { signal }
+      );
+    } catch (err) {
+      if (err?.status === 400 || err?.status === 403) {
+        return fetchJsonWithTimeout(
+          buildGoogleBooksUrl(cleanQuery, isbn, ''),
+          { signal }
+        );
+      }
+      throw err;
+    }
+  }
+
+  return fetchJsonWithTimeout(buildGoogleBooksUrl(cleanQuery, isbn, ''), { signal });
+}
+
+export async function testGoogleBooksConnection(apiKey, { signal } = {}) {
+  const cleanKey = sanitizeSearchApiKey(apiKey);
+  if (!cleanKey) {
+    return {
+      ok: false,
+      latencyMs: 0,
+      errorMessage: 'Informe uma chave do Google Books para testar.',
+    };
+  }
+  const startedAt = Date.now();
+  try {
+    await fetchJsonWithTimeout(buildGoogleBooksUrl('dom casmurro', null, cleanKey), {
+      signal,
+    });
+    return {
+      ok: true,
+      latencyMs: Math.max(1, Date.now() - startedAt),
+      errorMessage: '',
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      latencyMs: Math.max(1, Date.now() - startedAt),
+      errorMessage:
+        err?.status === 400 || err?.status === 403
+          ? 'Chave inválida ou sem permissão no Google Books.'
+          : err?.message || 'Não foi possível validar a chave no Google Books.',
+    };
+  }
+}
+
 async function fetchWikidataSource(cleanQuery, defaultWorkType, { signal }) {
   const searchJson = await fetchJsonWithTimeout(buildWikidataSearchUrl(cleanQuery), {
     signal,
@@ -1327,9 +1623,139 @@ async function fetchWikidataSource(cleanQuery, defaultWorkType, { signal }) {
     .filter(Boolean);
 }
 
+export const MEDIA_CONNECTORS = {
+  googleBooks: {
+    id: 'googleBooks',
+    label: 'Google Books',
+    async search(query, { signal, filter = 'all', isbn = null, apiKey } = {}) {
+      const cleanQuery = String(query || '').trim();
+      const targetIsbn = isbn || detectIsbnQuery(cleanQuery);
+      const defaultWorkType = getWorkTypeFromFilter(filter);
+      const value = await fetchGoogleBooksRaw(cleanQuery, {
+        signal,
+        isbn: targetIsbn,
+        apiKey,
+      });
+      return Array.isArray(value?.items)
+        ? value.items
+            .slice(0, MAX_RESULTS_PER_SOURCE)
+            .map((v) => mapGoogleBook(v, defaultWorkType, targetIsbn || ''))
+        : [];
+    },
+  },
+  appleBooks: {
+    id: 'appleBooks',
+    label: 'Apple Books',
+    async search(query, { signal, filter = 'all' } = {}) {
+      const cleanQuery = String(query || '').trim();
+      const defaultWorkType = getWorkTypeFromFilter(filter);
+      const value = await fetchJsonWithTimeout(buildAppleBooksUrl(cleanQuery), {
+        signal,
+      });
+      return Array.isArray(value?.results)
+        ? value.results
+            .slice(0, MAX_RESULTS_PER_SOURCE)
+            .map((entry) => mapAppleBook(entry, defaultWorkType))
+            .filter(Boolean)
+        : [];
+    },
+  },
+  openLibrary: {
+    id: 'openLibrary',
+    label: 'Open Library',
+    async search(query, { signal, filter = 'all', isbn = null } = {}) {
+      const cleanQuery = String(query || '').trim();
+      const targetIsbn = isbn || detectIsbnQuery(cleanQuery);
+      const defaultWorkType = getWorkTypeFromFilter(filter);
+      const value = await fetchJsonWithTimeout(
+        buildOpenLibraryUrl(cleanQuery, targetIsbn),
+        { signal }
+      );
+      return Array.isArray(value?.docs)
+        ? value.docs
+            .slice(0, MAX_RESULTS_PER_SOURCE)
+            .map((d) => mapOpenLibraryDoc(d, defaultWorkType, targetIsbn || ''))
+        : [];
+    },
+  },
+  jikan: {
+    id: 'jikan',
+    label: 'Jikan / MAL',
+    async search(query, { signal } = {}) {
+      const cleanQuery = String(query || '').trim();
+      const value = await fetchJsonWithTimeout(buildJikanUrl(cleanQuery), { signal });
+      return Array.isArray(value?.data)
+        ? value.data.slice(0, MAX_RESULTS_PER_SOURCE).map(mapJikanManga)
+        : [];
+    },
+  },
+  gutendex: {
+    id: 'gutendex',
+    label: 'Gutendex',
+    async search(query, { signal, filter = 'all' } = {}) {
+      const cleanQuery = String(query || '').trim();
+      const defaultWorkType = getWorkTypeFromFilter(filter);
+      const value = await fetchJsonWithTimeout(buildGutendexUrl(cleanQuery), {
+        signal,
+      });
+      return Array.isArray(value?.results)
+        ? value.results
+            .slice(0, MAX_RESULTS_PER_SOURCE)
+            .map((g) => mapGutendexBook(g, defaultWorkType))
+            .filter(Boolean)
+        : [];
+    },
+  },
+  academic: {
+    id: 'academic',
+    label: 'CrossRef + OpenAlex',
+    async search(query, { signal, doi = null } = {}) {
+      const cleanQuery = String(query || '').trim();
+      const targetDoi = doi || detectDoiQuery(cleanQuery);
+      const [cr, oa] = await Promise.allSettled([
+        fetchJsonWithTimeout(buildCrossRefUrl(cleanQuery, targetDoi), { signal }),
+        fetchJsonWithTimeout(buildOpenAlexUrl(cleanQuery, targetDoi), { signal }),
+      ]);
+      const works = [];
+      if (cr.status === 'fulfilled') {
+        const v = cr.value;
+        if (Array.isArray(v?.message?.items)) {
+          works.push(...v.message.items.slice(0, MAX_RESULTS_PER_SOURCE).map(mapCrossRefWork));
+        } else if (v?.message?.DOI) {
+          works.push(mapCrossRefWork(v.message));
+        }
+      }
+      if (oa.status === 'fulfilled') {
+        const v = oa.value;
+        if (Array.isArray(v?.results)) {
+          works.push(
+            ...v.results.slice(0, MAX_RESULTS_PER_SOURCE).map(mapOpenAlexWork).filter(Boolean)
+          );
+        } else if (v?.id && (v.title || v.display_name)) {
+          const mapped = mapOpenAlexWork(v);
+          if (mapped) works.push(mapped);
+        }
+      }
+      if (cr.status !== 'fulfilled' && oa.status !== 'fulfilled') {
+        throw cr.reason || oa.reason || new Error('Fontes acadêmicas indisponíveis');
+      }
+      return works;
+    },
+  },
+  wikidata: {
+    id: 'wikidata',
+    label: 'Wikidata',
+    async search(query, { signal, filter = 'all' } = {}) {
+      const cleanQuery = String(query || '').trim();
+      return fetchWikidataSource(cleanQuery, getWorkTypeFromFilter(filter), { signal });
+    },
+  },
+};
+
 function assembleMergedItems(itemsBySource, cleanQuery, filter, isbn, doi) {
   const baseCombined = [
     ...itemsBySource.google,
+    ...itemsBySource.appleBooks,
     ...itemsBySource.openlib,
     ...itemsBySource.jikan,
     ...itemsBySource.crossref,
@@ -1370,6 +1796,7 @@ export async function searchMedia(
     sources = null,
     skipCache = false,
     onPartialResults = null,
+    googleBooksKey,
   } = {}
 ) {
   const cleanQuery = String(query || '').trim();
@@ -1381,6 +1808,8 @@ export async function searchMedia(
       isDoi: false,
       partialFailure: false,
       allFailed: false,
+      failedSources: [],
+      failedCount: 0,
     };
   }
 
@@ -1399,14 +1828,15 @@ export async function searchMedia(
         isDoi: Boolean(cached.isDoi),
         partialFailure: Boolean(cached.partialFailure),
         allFailed: false,
+        failedSources: cached.failedSources || [],
+        failedCount: Number(cached.failedCount) || 0,
       };
     }
   }
 
   const isbn = detectIsbnQuery(cleanQuery);
   const doi = isbn ? null : detectDoiQuery(cleanQuery);
-  const defaultWorkType =
-    filter === 'manga' ? 'manga' : filter === 'academic' ? 'academic' : 'book';
+  const defaultWorkType = getWorkTypeFromFilter(filter);
 
   const hasExplicit = Boolean(explicitSources && explicitSources.length > 0);
   const isSourceEnabled = (sourceId) =>
@@ -1428,30 +1858,54 @@ export async function searchMedia(
     sourcePlan.push(
       {
         key: 'google',
-        run: () => fetchJsonWithTimeout(buildGoogleBooksUrl(cleanQuery, isbn), { signal }),
+        run: () =>
+          MEDIA_CONNECTORS.googleBooks.search(cleanQuery, {
+            signal,
+            filter,
+            isbn,
+            apiKey: googleBooksKey,
+          }),
       },
       {
         key: 'openlib',
-        run: () => fetchJsonWithTimeout(buildOpenLibraryUrl(cleanQuery, isbn), { signal }),
+        run: () =>
+          MEDIA_CONNECTORS.openLibrary.search(cleanQuery, { signal, filter, isbn }),
       }
     );
+    if (isSourceEnabled('appleBooks')) {
+      sourcePlan.push({
+        key: 'appleBooks',
+        run: () => MEDIA_CONNECTORS.appleBooks.search(cleanQuery, { signal, filter }),
+      });
+    }
   } else {
     if (isSourceEnabled('googleBooks')) {
       sourcePlan.push({
         key: 'google',
-        run: () => fetchJsonWithTimeout(buildGoogleBooksUrl(cleanQuery, null), { signal }),
+        run: () =>
+          MEDIA_CONNECTORS.googleBooks.search(cleanQuery, {
+            signal,
+            filter,
+            apiKey: googleBooksKey,
+          }),
+      });
+    }
+    if (isSourceEnabled('appleBooks')) {
+      sourcePlan.push({
+        key: 'appleBooks',
+        run: () => MEDIA_CONNECTORS.appleBooks.search(cleanQuery, { signal, filter }),
       });
     }
     if (isSourceEnabled('openLibrary')) {
       sourcePlan.push({
         key: 'openlib',
-        run: () => fetchJsonWithTimeout(buildOpenLibraryUrl(cleanQuery, null), { signal }),
+        run: () => MEDIA_CONNECTORS.openLibrary.search(cleanQuery, { signal, filter }),
       });
     }
     if (isSourceEnabled('wikidata')) {
       sourcePlan.push({
         key: 'wikidata',
-        run: () => fetchWikidataSource(cleanQuery, defaultWorkType, { signal }),
+        run: () => MEDIA_CONNECTORS.wikidata.search(cleanQuery, { signal, filter }),
       });
     }
     if (
@@ -1460,7 +1914,7 @@ export async function searchMedia(
     ) {
       sourcePlan.push({
         key: 'jikan',
-        run: () => fetchJsonWithTimeout(buildJikanUrl(cleanQuery), { signal }),
+        run: () => MEDIA_CONNECTORS.jikan.search(cleanQuery, { signal, filter }),
       });
     }
     if (
@@ -1469,7 +1923,7 @@ export async function searchMedia(
     ) {
       sourcePlan.push({
         key: 'gutendex',
-        run: () => fetchJsonWithTimeout(buildGutendexUrl(cleanQuery), { signal }),
+        run: () => MEDIA_CONNECTORS.gutendex.search(cleanQuery, { signal, filter }),
       });
     }
     if (
@@ -1491,6 +1945,7 @@ export async function searchMedia(
 
   const itemsBySource = {
     google: [],
+    appleBooks: [],
     openlib: [],
     jikan: [],
     crossref: [],
@@ -1500,6 +1955,19 @@ export async function searchMedia(
   };
 
   const applySourcePayload = (sourceKey, value) => {
+    if (
+      (sourceKey === 'google' ||
+        sourceKey === 'appleBooks' ||
+        sourceKey === 'openlib' ||
+        sourceKey === 'jikan' ||
+        sourceKey === 'gutendex' ||
+        sourceKey === 'wikidata') &&
+      Array.isArray(value)
+    ) {
+      itemsBySource[sourceKey] = value.slice(0, MAX_RESULTS_PER_SOURCE);
+      return;
+    }
+
     if (sourceKey === 'google' && Array.isArray(value?.items)) {
       itemsBySource.google = value.items
         .slice(0, MAX_RESULTS_PER_SOURCE)
@@ -1588,6 +2056,7 @@ export async function searchMedia(
 
   const allFailed = sourcePlan.length > 0 && failedSources.length === sourcePlan.length;
   const partialFailure = failedSources.length > 0 && !allFailed;
+  const failedCount = failedSources.length;
 
   if (allFailed) {
     return {
@@ -1598,6 +2067,7 @@ export async function searchMedia(
       partialFailure: true,
       allFailed: true,
       failedSources,
+      failedCount,
     };
   }
 
@@ -1617,6 +2087,7 @@ export async function searchMedia(
     partialFailure,
     allFailed: false,
     failedSources,
+    failedCount,
   };
 
   if (merged.length > 0 && !partialFailure) {
