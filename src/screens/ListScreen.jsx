@@ -2,6 +2,7 @@ import {
   ArrowDown,
   ArrowUp,
   ArrowUpDown,
+  BookOpen,
   FolderTree,
   LayoutGrid,
   LayoutList,
@@ -93,7 +94,9 @@ export function ListScreen({
   profile = null,
   streakProps,
   geminiKey = '',
+  storedReaderWorkIds = [],
   onSelectItem,
+  onOpenReader,
   onOpenDigitalShelf,
   onNavigateAdd,
   onOpenGeminiSettings,
@@ -544,52 +547,70 @@ export function ListScreen({
                         }p`
                       : '';
 
+            const canDirectRead =
+              Boolean(onOpenReader) &&
+              (item.status === 'playing' ||
+                item.status === 'reading' ||
+                storedReaderWorkIds.includes(String(item.id)));
+
             return (
-              <button
-                key={item.id}
-                type="button"
-                onClick={() => onSelectItem(item)}
-                className="group text-left focus:outline-none"
-              >
-                <div className="relative">
-                  <CoverArt
-                    item={item}
-                    compact
-                    className="aspect-[2/3] w-full rounded-xl transition-transform duration-150 group-hover:scale-[1.02] group-hover:border-accent/50"
-                  />
-                  {item.isPlatinum && (
-                    <span className="absolute left-1.5 top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-app/85 text-accent ring-1 ring-accent/60">
-                      <Star className="h-3 w-3 fill-current" strokeWidth={1.5} />
-                    </span>
-                  )}
-                  <span
-                    title={status.label}
-                    className={`absolute bottom-1.5 right-1.5 h-2 w-2 rounded-full ring-2 ring-app ${status.dotClass}`}
-                  />
-                </div>
-                {(() => {
-                  const titles = getDisplayTitles(item, titleMode);
-                  return (
-                    <>
-                      <p className="mt-1.5 truncate text-[11px] font-medium text-ink">
-                        {titles.primary}
-                      </p>
-                      {titles.secondary && (
-                        <p
-                          className="truncate text-[10px] italic"
-                          style={{ color: 'var(--text-secondary)' }}
-                        >
-                          {titles.secondary}
+              <div key={item.id} className="group flex flex-col text-left">
+                <button
+                  type="button"
+                  onClick={() => onSelectItem(item)}
+                  className="text-left focus:outline-none"
+                >
+                  <div className="relative">
+                    <CoverArt
+                      item={item}
+                      compact
+                      className="aspect-[2/3] w-full rounded-[4px] transition-transform duration-150 group-hover:scale-[1.02] group-hover:border-accent/50"
+                    />
+                    {item.isPlatinum && (
+                      <span className="absolute left-1.5 top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-app/85 text-accent ring-1 ring-accent/60">
+                        <Star className="h-3 w-3 fill-current" strokeWidth={1.5} />
+                      </span>
+                    )}
+                    <span
+                      title={status.label}
+                      className={`absolute bottom-1.5 right-1.5 h-2 w-2 rounded-full ring-2 ring-app ${status.dotClass}`}
+                    />
+                  </div>
+                  {(() => {
+                    const titles = getDisplayTitles(item, titleMode);
+                    return (
+                      <>
+                        <p className="mt-1.5 truncate text-[11px] font-medium text-ink">
+                          {titles.primary}
                         </p>
-                      )}
-                    </>
-                  );
-                })()}
-                <p className="truncate text-[10px] text-subtle">
-                  {item[cardFields.creator] || workMeta.shortLabel}
-                  {gridMetric ? ` • ${gridMetric}` : ''}
-                </p>
-              </button>
+                        {titles.secondary && (
+                          <p
+                            className="truncate text-[10px] italic"
+                            style={{ color: 'var(--text-secondary)' }}
+                          >
+                            {titles.secondary}
+                          </p>
+                        )}
+                      </>
+                    );
+                  })()}
+                  <p className="truncate text-[10px] tabular-nums text-subtle">
+                    {item[cardFields.creator] || workMeta.shortLabel}
+                    {gridMetric ? ` • ${gridMetric}` : ''}
+                  </p>
+                </button>
+                {canDirectRead && (
+                  <button
+                    type="button"
+                    onClick={() => onOpenReader(item)}
+                    aria-label={`Ler ${item.title}`}
+                    className="mt-1.5 inline-flex min-h-[32px] w-full items-center justify-center gap-1 rounded-[4px] border border-line bg-card px-2 py-1 text-[11px] font-medium text-ink transition-colors hover:border-accent hover:text-accent"
+                  >
+                    <BookOpen className="h-3 w-3 text-accent" strokeWidth={1.5} />
+                    <span>Ler</span>
+                  </button>
+                )}
+              </div>
             );
           })}
         </div>
@@ -625,21 +646,36 @@ export function ListScreen({
                     ? flexibleLabel
                     : `${flexibleLabel} · ${progress}%`;
 
+            const canDirectRead =
+              Boolean(onOpenReader) &&
+              (item.status === 'playing' ||
+                item.status === 'reading' ||
+                storedReaderWorkIds.includes(String(item.id)));
+
             return (
-              <button
+              <div
                 key={item.id}
-                type="button"
-                onClick={() => onSelectItem(item)}
-                className="flex w-full gap-3 rounded-2xl border border-line bg-card p-3 text-left transition-colors hover:border-accent/50"
+                className="flex w-full gap-3 rounded-[6px] border border-line bg-card p-3 text-left transition-colors hover:border-accent/50"
               >
-                <CoverArt
-                  item={item}
-                  compact
-                  className="h-27 w-18 shrink-0 rounded-xl"
-                />
+                <button
+                  type="button"
+                  onClick={() => onSelectItem(item)}
+                  aria-label={`Abrir ficha de ${item.title}`}
+                  className="shrink-0 focus:outline-none"
+                >
+                  <CoverArt
+                    item={item}
+                    compact
+                    className="h-27 w-18 rounded-[4px]"
+                  />
+                </button>
 
                 <div className="flex min-w-0 flex-1 flex-col justify-between">
-                  <div>
+                  <button
+                    type="button"
+                    onClick={() => onSelectItem(item)}
+                    className="w-full text-left focus:outline-none"
+                  >
                     <div className="flex items-start justify-between gap-2">
                       {(() => {
                         const titles = getDisplayTitles(item, titleMode);
@@ -675,17 +711,17 @@ export function ListScreen({
 
                     <div className="mt-1 flex flex-wrap items-center gap-1.5">
                       <StatusBadge statusId={item.status} size="xs" />
-                      <span className="inline-flex items-center gap-1 rounded-md border border-line bg-app px-1.5 py-0.5 text-[10px] text-muted">
+                      <span className="inline-flex items-center gap-1 rounded-[4px] border border-line bg-app px-1.5 py-0.5 text-[10px] text-muted">
                         <VectorIcon name={workMeta.icon} className="h-3 w-3 text-accent" />
                         {workMeta.shortLabel}
                       </span>
                       {item.callNumber && (
-                        <span className="rounded-md border border-line bg-app px-1.5 py-0.5 font-mono text-[10px] text-subtle">
+                        <span className="rounded-[4px] border border-line bg-app px-1.5 py-0.5 font-mono text-[10px] text-subtle">
                           {item.callNumber}
                         </span>
                       )}
                     </div>
-                  </div>
+                  </button>
 
                   {item.status === 'playing' && (
                     <div className="mt-2 space-y-1">
@@ -693,13 +729,13 @@ export function ListScreen({
                         <span className="truncate">
                           {item.checkpoint || 'Em leitura'}
                         </span>
-                        <span className="shrink-0 font-semibold text-accent">
+                        <span className="shrink-0 font-semibold tabular-nums text-accent">
                           {playingMetric}
                         </span>
                       </div>
-                      <div className="h-1.5 w-full overflow-hidden rounded-full bg-line">
+                      <div className="h-[2px] w-full overflow-hidden rounded-[2px] bg-line">
                         <div
-                          className="h-full rounded-full bg-accent"
+                          className="h-full bg-accent"
                           style={{ width: `${progress}%` }}
                         />
                       </div>
@@ -709,19 +745,19 @@ export function ListScreen({
                   {item.status === 'completed' && (
                     <div className="mt-2 flex flex-wrap items-center gap-1.5">
                       {typeof item[cardFields.rating] === 'number' && (
-                        <span className="rounded-md border border-accent/40 bg-accent/15 px-1.5 py-0.5 text-[10px] font-semibold text-ink">
+                        <span className="rounded-[4px] border border-accent/40 bg-accent/15 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-ink">
                           {item[cardFields.rating]}/100
                         </span>
                       )}
                       {verdictMeta && (
                         <span
-                          className={`rounded-full border px-2 py-0.5 text-[10px] font-medium ${verdictMeta.badgeClass}`}
+                          className={`rounded-[4px] border px-2 py-0.5 text-[10px] font-medium ${verdictMeta.badgeClass}`}
                         >
                           {verdictMeta.id}
                         </span>
                       )}
                       {pace && (
-                        <span className="text-[10px] text-muted">
+                        <span className="text-[10px] tabular-nums text-muted">
                           • {pace.days} {list.daysSuffix}
                         </span>
                       )}
@@ -731,18 +767,18 @@ export function ListScreen({
                   {item.status === 'queued' && (
                     <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[10px]">
                       {hypeMeta && (
-                        <span className="inline-flex items-center gap-1 rounded-md border border-line bg-app px-1.5 py-0.5 text-muted">
+                        <span className="inline-flex items-center gap-1 rounded-[4px] border border-line bg-app px-1.5 py-0.5 text-muted">
                           <VectorIcon name={hypeMeta.icon} className="h-3 w-3 text-accent" />
                           {hypeMeta.label}
                         </span>
                       )}
                       {item.access && (
-                        <span className="rounded-md border border-line bg-app px-1.5 py-0.5 text-muted">
+                        <span className="rounded-[4px] border border-line bg-app px-1.5 py-0.5 text-muted">
                           {item.access}
                         </span>
                       )}
                       {item.totalPages > 0 && item.workType !== 'manga' && (
-                        <span className="text-subtle">
+                        <span className="tabular-nums text-subtle">
                           ~{item.totalPages} págs
                         </span>
                       )}
@@ -752,7 +788,7 @@ export function ListScreen({
                   {item.status === 'dropped' && (
                     <div className="mt-2 flex flex-wrap items-center gap-1.5">
                       {dropMeta && (
-                        <span className="inline-flex items-center gap-1 rounded-md border border-rose-500/30 bg-rose-500/10 px-1.5 py-0.5 text-[10px] text-rose-400">
+                        <span className="inline-flex items-center gap-1 rounded-[4px] border border-rose-500/30 bg-rose-500/10 px-1.5 py-0.5 text-[10px] text-rose-400">
                           <VectorIcon name={dropMeta.icon} className="h-3 w-3" />
                           {dropMeta.label}
                         </span>
@@ -772,8 +808,22 @@ export function ListScreen({
                       )}
                     </div>
                   )}
+
+                  {canDirectRead && (
+                    <div className="mt-2 flex justify-end border-t border-line pt-1.5">
+                      <button
+                        type="button"
+                        onClick={() => onOpenReader(item)}
+                        aria-label={`Ler ${item.title}`}
+                        className="inline-flex min-h-[34px] items-center gap-1.5 rounded-[4px] border border-line bg-app px-2.5 py-1 text-[11px] font-medium text-ink transition-colors hover:border-accent hover:text-accent"
+                      >
+                        <BookOpen className="h-3.5 w-3.5 text-accent" strokeWidth={1.5} />
+                        <span>Ler</span>
+                      </button>
+                    </div>
+                  )}
                 </div>
-              </button>
+              </div>
             );
           })}
         </div>

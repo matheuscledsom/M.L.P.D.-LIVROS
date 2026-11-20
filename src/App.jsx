@@ -28,7 +28,11 @@ import {
   createUuid,
   persistCodiceDatabase,
 } from './services/codiceDatabase';
-import { deleteBookFile, listStoredBookIds } from './services/readerStorage';
+import {
+  deleteBookFile,
+  listStoredBookIds,
+  listStoredReaderBooks,
+} from './services/readerStorage';
 import { AddScreen } from './screens/AddScreen';
 import { HomeScreen } from './screens/HomeScreen';
 import { ListScreen } from './screens/ListScreen';
@@ -50,6 +54,7 @@ export function App() {
   const [digitalShelfOpen, setDigitalShelfOpen] = useState(false);
   const [onboardingReopened, setOnboardingReopened] = useState(false);
   const [storedReaderWorkIds, setStoredReaderWorkIds] = useState([]);
+  const [storedReaderBooks, setStoredReaderBooks] = useState([]);
   const [backendReady, setBackendReady] = useState(false);
   const [backendSession, setBackendSession] = useState(() => ({
     mode: getBackendMode(),
@@ -237,7 +242,10 @@ export function App() {
     listStoredBookIds()
       .then((ids) => setStoredReaderWorkIds(ids))
       .catch(() => {});
-  }, []);
+    listStoredReaderBooks(items)
+      .then((books) => setStoredReaderBooks(books))
+      .catch(() => {});
+  }, [items]);
 
   useEffect(() => {
     refreshStoredBookIds();
@@ -659,8 +667,10 @@ export function App() {
               streakProps={streakProps}
               geminiKey={geminiKey}
               storedReaderWorkIds={storedReaderWorkIds}
+              storedReaderBooks={storedReaderBooks}
               onSelectItem={(item) => setSelectedItemId(item.id)}
               onOpenReader={handleOpenReaderForWork}
+              onOpenStoredBook={handleOpenStoredBook}
               onOpenQuickReader={handleOpenQuickReader}
               onOpenDigitalShelf={() => setDigitalShelfOpen(true)}
               onNavigateList={() => setActiveTab('list')}
@@ -684,7 +694,9 @@ export function App() {
               profile={profile}
               streakProps={streakProps}
               geminiKey={geminiKey}
+              storedReaderWorkIds={storedReaderWorkIds}
               onSelectItem={(item) => setSelectedItemId(item.id)}
+              onOpenReader={handleOpenReaderForWork}
               onOpenDigitalShelf={() => setDigitalShelfOpen(true)}
               onNavigateAdd={() => setActiveTab('add')}
               onOpenGeminiSettings={() => setGeminiModalOpen(true)}

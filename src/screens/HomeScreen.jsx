@@ -7,6 +7,7 @@ import { StatusBadge } from '../components/StatusBadge';
 import { VectorIcon } from '../components/VectorIcon';
 import { domainConfig, getWorkTypeConfig } from '../config/domainConfig';
 import {
+  buildContinueReadingHub,
   calculateWorkProgress,
   formatFlexibleProgressMetric,
   getDisplayTitles,
@@ -60,9 +61,10 @@ export function HomeScreen({
   profile,
   streakProps,
   geminiKey = '',
-  storedReaderWorkIds = [],
+  storedReaderBooks = [],
   onSelectItem,
   onOpenReader,
+  onOpenStoredBook,
   onOpenQuickReader,
   onOpenDigitalShelf,
   onNavigateList,
@@ -70,17 +72,21 @@ export function HomeScreen({
   onOpenGeminiSettings,
 }) {
   const { ui, cardFields, currentYear } = domainConfig;
-  const progressKey = cardFields.progress;
 
   const backlogItems = useMemo(
     () => items.filter((item) => item.inBacklog),
     [items]
   );
 
+  const continueHub = useMemo(
+    () => buildContinueReadingHub(items, storedReaderBooks),
+    [items, storedReaderBooks]
+  );
+
   const playingItems = useMemo(
     () =>
       backlogItems
-        .filter((item) => item.status === 'playing')
+        .filter((item) => item.status === 'playing' || item.status === 'reading')
         .sort((a, b) => {
           const tA = Date.parse(a.updatedAt || a.createdAt || '') || 0;
           const tB = Date.parse(b.updatedAt || b.createdAt || '') || 0;
@@ -88,6 +94,25 @@ export function HomeScreen({
         }),
     [backlogItems]
   );
+
+  const openHubEntry = (entry) => {
+    if (!entry) return;
+    if (entry.hasStoredFile) {
+      if (entry.storedBook && onOpenStoredBook) {
+        onOpenStoredBook(entry.storedBook);
+        return;
+      }
+      if (entry.work && onOpenReader) {
+        onOpenReader(entry.work);
+        return;
+      }
+    }
+    if (entry.work) {
+      onSelectItem?.(entry.work);
+    } else if (entry.storedBook && onOpenStoredBook) {
+      onOpenStoredBook(entry.storedBook);
+    }
+  };
 
   const completedYearCount = useMemo(
     () =>
@@ -116,8 +141,8 @@ export function HomeScreen({
     return () => window.cancelAnimationFrame(raf);
   }, [annualGoalPct]);
 
-  const featuredPlaying = playingItems[0] || null;
-  const otherPlaying = playingItems.slice(1);
+  const featuredHub = continueHub.featured;
+  const otherHubEntries = continueHub.others;
 
   const highlightsItems = useMemo(() => {
     return backlogItems
@@ -183,36 +208,267 @@ export function HomeScreen({
             {domainConfig.signature}
           </p>
         </div>
-        <div className="flex shrink-0 items-center gap-1.5">
-          <button
-            type="button"
-            onClick={() => onOpenDigitalShelf?.()}
-            className="inline-flex min-h-[44px] shrink-0 items-center gap-1.5 rounded-[6px] border border-line bg-card px-2.5 py-2 text-xs font-medium text-ink transition-colors hover:border-accent"
-          >
-            <Library className="h-4 w-4 text-accent" strokeWidth={1.5} />
-            <span className="hidden sm:inline">Meus EPUBs</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => onOpenQuickReader?.(null)}
-            className="inline-flex min-h-[44px] shrink-0 items-center gap-1.5 rounded-[6px] border border-accent/40 bg-accent/15 px-3 py-2 text-xs font-semibold text-accent transition-colors hover:bg-accent hover:text-accent-ink"
-          >
-            <FileUp className="h-4 w-4" strokeWidth={1.5} />
-            <span>Leitor Rápido</span>
-          </button>
-        </div>
       </header>
 
       {profile?.gamificationEnabled !== false && streakProps && (
         <ReadingStreakWidget {...streakProps} />
       )}
 
-      {backlogItems.length === 0 ? (
-        <section className="rounded-3xl border border-line bg-card px-6 py-12 text-center">
-          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl border border-accent/30 bg-accent/10 text-accent">
-            <BookOpen className="h-6 w-6" strokeWidth={1.5} />
+      {/* Hub Unificado "Continuar Lendo" no topo da Home (Acervo + IndexedDB Offline) */}
+      <section aria-label={ui.home.continueReadingTitle} className="space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-baseline gap-2">
+            <h2 className="text-sm font-semibold tracking-tight text-ink">
+              {ui.home.continueReadingTitle}
+            </h2>
+            {continueHub.all.length > 0 && (
+              <span className="text-[11px] tabular-nums text-subtle">
+                ({continueHub.all.length})
+              </span>
+            )}
           </div>
-          <h2 className="mt-5 text-base font-semibold tracking-tight text-ink">
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => onOpenDigitalShelf?.()}
+              className="inline-flex min-h-[36px] items-center gap-1.5 rounded-[4px] border border-line bg-card px-2.5 py-1 text-[11px] font-medium text-ink transition-colors hover:border-accent"
+            >
+              <Library className="h-3.5 w-3.5 text-accent" strokeWidth={1.5} />
+              <span>Biblioteca Digital (Meus EPUBs)</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => onOpenQuickReader?.(null)}
+              className="inline-flex min-h-[36px] items-center gap-1 rounded-[4px] border border-line bg-app px-2.5 py-1 text-[11px] text-muted transition-colors hover:border-accent hover:text-ink"
+            >
+              <FileUp className="h-3.5 w-3.5 text-subtle" strokeWidth={1.5} />
+              <span>Abrir arquivo</span>
+            </button>
+          </div>
+        </div>
+
+        {!featuredHub ? (
+          <div className="rounded-[6px] border border-dashed border-line bg-card px-5 py-7 text-center">
+            <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-[4px] border border-line bg-app text-accent">
+              <BookOpen className="h-5 w-5" strokeWidth={1.5} />
+            </div>
+            <p className="mt-3 text-xs font-medium text-ink">
+              {ui.home.emptyActiveMessage}
+            </p>
+            <p className="mt-1 text-[11px] text-muted">
+              Marque uma obra como Em Leitura ou importe um EPUB/PDF na Biblioteca Digital.
+            </p>
+            <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
+              <button
+                type="button"
+                onClick={backlogItems.length > 0 ? onNavigateList : onNavigateAdd}
+                className="inline-flex min-h-[44px] items-center gap-2 rounded-[4px] border border-accent bg-accent/15 px-4 py-2 text-xs font-semibold text-accent transition-colors hover:bg-accent hover:text-accent-ink"
+              >
+                {backlogItems.length > 0 ? ui.home.emptyActiveCta : ui.home.emptyBacklogCta}
+              </button>
+              <button
+                type="button"
+                onClick={() => onOpenDigitalShelf?.()}
+                className="inline-flex min-h-[44px] items-center gap-1.5 rounded-[4px] border border-line bg-app px-3.5 py-2 text-xs font-medium text-ink hover:border-accent"
+              >
+                <Library className="h-4 w-4 text-accent" strokeWidth={1.5} />
+                <span>Meus EPUBs</span>
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            <article className="flex gap-3.5 rounded-[6px] border border-line bg-card p-3.5 transition-colors hover:border-accent/50">
+              <button
+                type="button"
+                onClick={() =>
+                  featuredHub.work
+                    ? onSelectItem(featuredHub.work)
+                    : openHubEntry(featuredHub)
+                }
+                aria-label={`Abrir detalhes de ${featuredHub.title}`}
+                className="shrink-0 rounded-[4px] focus:outline-none"
+              >
+                <CoverArt
+                  item={
+                    featuredHub.work || {
+                      title: featuredHub.title,
+                      author: featuredHub.author,
+                      format: featuredHub.format,
+                      workType: featuredHub.workType,
+                    }
+                  }
+                  compact
+                  className="w-20 sm:w-24 rounded-[4px]"
+                />
+              </button>
+
+              <div className="flex min-w-0 flex-1 flex-col justify-between gap-2">
+                <div>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="inline-flex items-center gap-1 text-[11px] font-medium text-accent">
+                      <VectorIcon
+                        name={getWorkTypeConfig(featuredHub.workType).icon}
+                        className="h-3.5 w-3.5"
+                      />
+                      <span>
+                        {featuredHub.hasStoredFile
+                          ? `Leitor Offline · ${featuredHub.format || 'EPUB'}`
+                          : getWorkTypeConfig(featuredHub.workType).shortLabel}
+                      </span>
+                    </span>
+                    <span className="text-[11px] font-semibold tabular-nums text-ink">
+                      {Math.min(100, Math.round(featuredHub.progressPct))}%
+                    </span>
+                  </div>
+
+                  {(() => {
+                    const featuredTitles = getDisplayTitles(featuredHub, 'bilingual');
+                    return (
+                      <>
+                        <h3 className="mt-1 line-clamp-2 text-sm sm:text-base font-semibold leading-snug text-ink">
+                          {featuredTitles.primary}
+                        </h3>
+                        {featuredTitles.secondary && (
+                          <p
+                            className="mt-0.5 truncate text-[11px] italic"
+                            style={{ color: 'var(--text-secondary)' }}
+                          >
+                            {featuredTitles.secondary}
+                          </p>
+                        )}
+                      </>
+                    );
+                  })()}
+
+                  {featuredHub.author && (
+                    <p className="mt-0.5 truncate text-xs text-muted">
+                      {featuredHub.author}
+                    </p>
+                  )}
+                </div>
+
+                <div className="space-y-2">
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] tabular-nums text-muted">
+                    <span>{featuredHub.metricLabel}</span>
+                    {featuredHub.work ? (
+                      <span className="inline-flex items-center gap-1 text-subtle">
+                        <Clock className="h-3.5 w-3.5 text-subtle" strokeWidth={1.5} />
+                        {estimateRemainingTime(featuredHub.work)}
+                      </span>
+                    ) : (
+                      <span className="text-subtle">Salvo localmente em IndexedDB</span>
+                    )}
+                  </div>
+
+                  <div className="h-[2px] w-full overflow-hidden rounded-[2px] bg-line">
+                    <div
+                      className="codice-goal-fill h-full"
+                      style={{
+                        width: `${Math.min(100, featuredHub.progressPct)}%`,
+                        backgroundColor: 'var(--accent-color)',
+                      }}
+                    />
+                  </div>
+
+                  <div className="flex flex-wrap items-center justify-end gap-2 pt-1">
+                    {featuredHub.work && (
+                      <button
+                        type="button"
+                        onClick={() => onSelectItem(featuredHub.work)}
+                        className="inline-flex min-h-[40px] items-center rounded-[4px] border border-line bg-app px-3 py-1.5 text-xs font-medium text-muted transition-colors hover:border-accent hover:text-ink"
+                      >
+                        Ficha
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => openHubEntry(featuredHub)}
+                      className="inline-flex min-h-[44px] items-center gap-1.5 rounded-[4px] bg-accent px-4 py-2 text-xs font-semibold text-accent-ink transition-opacity hover:opacity-90"
+                    >
+                      <Play className="h-4 w-4" strokeWidth={1.5} />
+                      <span>Continuar Lendo</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </article>
+
+            {otherHubEntries.length > 0 && (
+              <div className="flex snap-x snap-mandatory gap-3 overflow-x-auto pb-1 no-scrollbar">
+                {otherHubEntries.map((entry) => {
+                  const workMeta = getWorkTypeConfig(entry.workType);
+                  const cardTitles = getDisplayTitles(entry, 'bilingual');
+                  return (
+                    <button
+                      key={entry.id}
+                      type="button"
+                      onClick={() => openHubEntry(entry)}
+                      className="group w-40 sm:w-44 shrink-0 snap-start rounded-[6px] border border-line bg-card p-2.5 text-left transition-colors hover:border-accent/50"
+                    >
+                      <div className="relative">
+                        <CoverArt
+                          item={
+                            entry.work || {
+                              title: entry.title,
+                              author: entry.author,
+                              format: entry.format,
+                              workType: entry.workType,
+                            }
+                          }
+                          compact
+                          className="w-full rounded-[4px]"
+                        />
+                        <span
+                          title={workMeta.label}
+                          className="absolute left-2 top-2 flex h-6 w-6 items-center justify-center rounded-[4px] border border-line bg-app/90 text-accent"
+                        >
+                          <VectorIcon name={workMeta.icon} className="h-3.5 w-3.5" />
+                        </span>
+                      </div>
+                      <div className="mt-2.5 space-y-1.5">
+                        <p className="truncate text-xs font-semibold text-ink transition-colors group-hover:text-accent">
+                          {cardTitles.primary}
+                        </p>
+                        {cardTitles.secondary && (
+                          <p
+                            className="truncate text-[10px] italic"
+                            style={{ color: 'var(--text-secondary)' }}
+                          >
+                            {cardTitles.secondary}
+                          </p>
+                        )}
+                        <div className="flex items-center justify-between gap-2 text-[11px] tabular-nums text-muted">
+                          <span className="truncate">
+                            {entry.author || workMeta.shortLabel}
+                          </span>
+                          <span className="shrink-0">{entry.metricLabel}</span>
+                        </div>
+                        <div className="h-[2px] w-full overflow-hidden rounded-[2px] bg-line">
+                          <div
+                            className="h-full transition-all duration-150"
+                            style={{
+                              width: `${Math.min(100, entry.progressPct)}%`,
+                              backgroundColor: 'var(--accent-color)',
+                            }}
+                          />
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+      </section>
+
+      {backlogItems.length === 0 ? (
+        <section className="rounded-[6px] border border-line bg-card px-6 py-10 text-center">
+          <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-[4px] border border-line bg-app text-accent">
+            <BookOpen className="h-5 w-5" strokeWidth={1.5} />
+          </div>
+          <h2 className="mt-4 text-base font-semibold tracking-tight text-ink">
             {ui.home.emptyBacklogTitle}
           </h2>
           <p className="mx-auto mt-1.5 max-w-xs text-xs leading-relaxed text-muted">
@@ -221,7 +477,7 @@ export function HomeScreen({
           <button
             type="button"
             onClick={onNavigateAdd}
-            className="mt-6 inline-flex min-h-[44px] items-center gap-2 rounded-2xl bg-accent px-5 py-3 text-sm font-semibold text-accent-ink shadow-md transition-opacity hover:opacity-90"
+            className="mt-5 inline-flex min-h-[44px] items-center gap-2 rounded-[4px] bg-accent px-5 py-2.5 text-sm font-semibold text-accent-ink transition-opacity hover:opacity-90"
           >
             <Plus className="h-4 w-4" strokeWidth={1.5} />
             {ui.home.emptyBacklogCta}
@@ -234,12 +490,12 @@ export function HomeScreen({
             {summaryCards.map((card) => (
               <div
                 key={card.id}
-                className={`rounded-2xl border bg-card p-3.5 sm:p-4 transition-colors ${
+                className={`rounded-[6px] border bg-card p-3.5 sm:p-4 transition-colors ${
                   card.highlight ? 'border-accent/40' : 'border-line'
                 }`}
               >
                 <span
-                  className={`block text-2xl font-semibold tracking-tight ${
+                  className={`block text-2xl font-semibold tabular-nums tracking-tight ${
                     card.highlight ? 'text-accent' : 'text-ink'
                   }`}
                 >
@@ -252,10 +508,10 @@ export function HomeScreen({
             ))}
           </section>
 
-          {/* Meta Anual com barra fina de 6px e animação de 600ms */}
+          {/* Meta Anual com barra fina de 4px */}
           <section
             aria-label={ui.home.annualGoalTitle}
-            className="rounded-2xl border border-line bg-card p-4"
+            className="rounded-[6px] border border-line bg-card p-4"
           >
             <div className="flex items-center justify-between gap-3">
               <div className="flex items-center gap-2">
@@ -264,7 +520,7 @@ export function HomeScreen({
                   {ui.home.annualGoalTitle}
                 </h2>
               </div>
-              <div className="flex items-baseline gap-2 text-xs">
+              <div className="flex items-baseline gap-2 text-xs tabular-nums">
                 <span className="font-medium text-muted">
                   <strong className="font-semibold text-ink">{completedYearCount}</strong> / {annualGoal}
                 </span>
@@ -278,220 +534,16 @@ export function HomeScreen({
               aria-valuemax={100}
               aria-valuenow={annualGoalPct}
               aria-label={`Progresso da Meta Anual: ${annualGoalPct}%`}
-              className="mt-3 h-[6px] w-full overflow-hidden rounded-full bg-line"
+              className="mt-3 h-[4px] w-full overflow-hidden rounded-[2px] bg-line"
             >
               <div
-                className="codice-goal-fill h-full rounded-full"
+                className="codice-goal-fill h-full"
                 style={{
                   width: `${animatedGoalPct}%`,
                   backgroundColor: 'var(--accent-color)',
                 }}
               />
             </div>
-          </section>
-
-          {/* Card "Continuar lendo" + outras leituras ativas */}
-          <section aria-label={ui.home.continueReadingTitle} className="space-y-3">
-            <div className="flex items-center justify-between">
-              <h2 className="text-sm font-semibold tracking-tight text-ink">
-                {ui.home.continueReadingTitle}
-              </h2>
-              <button
-                type="button"
-                onClick={onNavigateList}
-                className="inline-flex min-h-[44px] items-center gap-1 px-1 text-xs font-medium text-accent hover:opacity-80"
-              >
-                {ui.home.seeAllLabel}
-                <ArrowRight className="h-4 w-4" strokeWidth={1.5} />
-              </button>
-            </div>
-
-            {!featuredPlaying ? (
-              <div className="rounded-2xl border border-dashed border-line bg-card px-5 py-7 text-center">
-                <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-2xl border border-accent/30 bg-accent/10 text-accent">
-                  <BookOpen className="h-5 w-5" strokeWidth={1.5} />
-                </div>
-                <p className="mt-3 text-xs font-medium text-ink">
-                  {ui.home.emptyActiveMessage}
-                </p>
-                <p className="mt-1 text-[11px] text-muted">
-                  Marque uma obra da estante como Em Leitura para acompanhar aqui.
-                </p>
-                <button
-                  type="button"
-                  onClick={onNavigateList}
-                  className="mt-4 inline-flex min-h-[44px] items-center gap-2 rounded-xl border border-accent/40 bg-accent/15 px-4 py-2 text-xs font-semibold text-accent transition-colors hover:bg-accent hover:text-accent-ink"
-                >
-                  {ui.home.emptyActiveCta}
-                </button>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                <article className="flex gap-3.5 rounded-2xl border border-line bg-card p-3.5 transition-colors hover:border-accent/45">
-                  <button
-                    type="button"
-                    onClick={() => onSelectItem(featuredPlaying)}
-                    aria-label={`Abrir detalhes de ${featuredPlaying.title}`}
-                    className="shrink-0 rounded-xl focus:outline-none"
-                  >
-                    <CoverArt
-                      item={featuredPlaying}
-                      compact
-                      className="w-20 sm:w-24 rounded-xl"
-                    />
-                  </button>
-
-                  <div className="flex min-w-0 flex-1 flex-col justify-between gap-2">
-                    <div>
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="inline-flex items-center gap-1 text-[11px] font-medium text-accent">
-                          <VectorIcon
-                            name={getWorkTypeConfig(featuredPlaying.workType).icon}
-                            className="h-3.5 w-3.5"
-                          />
-                          {getWorkTypeConfig(featuredPlaying.workType).shortLabel}
-                        </span>
-                        <span className="text-[11px] font-semibold text-ink">
-                          {Math.min(100, featuredPlaying[progressKey] || 0)}%
-                        </span>
-                      </div>
-
-                      {(() => {
-                        const featuredTitles = getDisplayTitles(
-                          featuredPlaying,
-                          'bilingual'
-                        );
-                        return (
-                          <>
-                            <h3 className="mt-1 line-clamp-2 text-sm sm:text-base font-semibold leading-snug text-ink">
-                              {featuredTitles.primary}
-                            </h3>
-                            {featuredTitles.secondary && (
-                              <p
-                                className="mt-0.5 truncate text-[11px] italic"
-                                style={{ color: 'var(--text-secondary)' }}
-                              >
-                                {featuredTitles.secondary}
-                              </p>
-                            )}
-                          </>
-                        );
-                      })()}
-
-                      {featuredPlaying[cardFields.creator] && (
-                        <p className="mt-0.5 truncate text-xs text-muted">
-                          {featuredPlaying[cardFields.creator]}
-                        </p>
-                      )}
-                    </div>
-
-                    <div className="space-y-2">
-                      <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-muted">
-                        <span>{getProgressMetricLabel(featuredPlaying)}</span>
-                        <span className="inline-flex items-center gap-1 text-subtle">
-                          <Clock className="h-3.5 w-3.5 text-accent" strokeWidth={1.5} />
-                          {estimateRemainingTime(featuredPlaying)}
-                        </span>
-                      </div>
-
-                      <div className="h-1.5 w-full overflow-hidden rounded-full bg-line">
-                        <div
-                          className="codice-goal-fill h-full rounded-full"
-                          style={{
-                            width: `${Math.min(100, featuredPlaying[progressKey] || 0)}%`,
-                            backgroundColor: 'var(--accent-color)',
-                          }}
-                        />
-                      </div>
-
-                      <div className="flex items-center justify-end gap-2 pt-1">
-                        {storedReaderWorkIds.includes(featuredPlaying.id) ? (
-                          <button
-                            type="button"
-                            onClick={() => onOpenReader?.(featuredPlaying)}
-                            className="inline-flex min-h-[44px] items-center gap-1.5 rounded-xl bg-accent px-4 py-2 text-xs font-semibold text-accent-ink transition-opacity hover:opacity-90"
-                          >
-                            <Play className="h-4 w-4 fill-current" strokeWidth={1.5} />
-                            {ui.home.resumeLabel}
-                          </button>
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={() => onSelectItem(featuredPlaying)}
-                            className="inline-flex min-h-[44px] items-center gap-1.5 rounded-xl bg-accent px-4 py-2 text-xs font-semibold text-accent-ink transition-opacity hover:opacity-90"
-                          >
-                            <Play className="h-4 w-4 fill-current" strokeWidth={1.5} />
-                            {ui.home.resumeLabel}
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                </article>
-
-                {otherPlaying.length > 0 && (
-                  <div className="flex snap-x snap-mandatory gap-3 overflow-x-auto pb-1 no-scrollbar">
-                    {otherPlaying.map((item) => {
-                      const metricLabel = getProgressMetricLabel(item);
-                      const workMeta = getWorkTypeConfig(item.workType);
-                      return (
-                        <button
-                          key={item.id}
-                          type="button"
-                          onClick={() => onSelectItem(item)}
-                          className="group w-40 sm:w-44 shrink-0 snap-start rounded-2xl border border-line bg-card p-2.5 text-left transition-colors hover:border-accent/50"
-                        >
-                          <div className="relative">
-                            <CoverArt
-                              item={item}
-                              className="w-full rounded-xl"
-                            />
-                            <span
-                              title={workMeta.label}
-                              className="absolute left-2 top-2 flex h-6 w-6 items-center justify-center rounded-full border border-line bg-app/85 text-accent backdrop-blur-xs"
-                            >
-                              <VectorIcon name={workMeta.icon} className="h-3.5 w-3.5" />
-                            </span>
-                          </div>
-                          <div className="mt-2.5 space-y-1.5">
-                            {(() => {
-                              const cardTitles = getDisplayTitles(item, 'bilingual');
-                              return (
-                                <>
-                                  <p className="truncate text-xs font-semibold text-ink transition-colors group-hover:text-accent">
-                                    {cardTitles.primary}
-                                  </p>
-                                  {cardTitles.secondary && (
-                                    <p
-                                      className="truncate text-[10px] italic"
-                                      style={{ color: 'var(--text-secondary)' }}
-                                    >
-                                      {cardTitles.secondary}
-                                    </p>
-                                  )}
-                                </>
-                              );
-                            })()}
-                            <div className="flex items-center justify-between gap-2 text-[11px] text-muted">
-                              <span className="truncate">
-                                {item[cardFields.creator] || workMeta.shortLabel}
-                              </span>
-                              <span className="shrink-0">{metricLabel}</span>
-                            </div>
-                            <div className="h-1 w-full overflow-hidden rounded-full bg-line">
-                              <div
-                                className="h-full rounded-full bg-accent transition-all duration-300"
-                                style={{ width: `${Math.min(100, item[progressKey] || 0)}%` }}
-                              />
-                            </div>
-                          </div>
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            )}
           </section>
 
           <OracleWidget

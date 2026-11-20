@@ -1,5 +1,5 @@
-import { BookOpen, Bookmark, ExternalLink, FileText, Heart, Quote, Star, Trash2, X } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { BookOpen, Bookmark, ExternalLink, FileText, Heart, Quote, SlidersHorizontal, Star, Trash2, X } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
 import { domainConfig, getStatusList } from '../config/domainConfig';
 import { getDisplayTitles, getVerdictMeta } from '../utils/backlogHelpers';
 import { CoverArt } from './CoverArt';
@@ -24,6 +24,7 @@ export function ItemDetailSheet({
   onOpenGeminiSettings,
 }) {
   const [activeSheetTab, setActiveSheetTab] = useState('catalog');
+  const progressSectionRef = useRef(null);
 
   useEffect(() => {
     setActiveSheetTab('catalog');
@@ -137,21 +138,43 @@ export function ItemDetailSheet({
           </div>
         </div>
 
-        {/* Botão Abrir Arquivo / Ler Agora */}
-        {onOpenReader && (
+        {/* Acoes principais no topo: Leitor / Vincular Arquivo + Atualizar Progresso */}
+        <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-2">
+          {onOpenReader && (
+            <button
+              type="button"
+              onClick={() => onOpenReader(item)}
+              className="flex min-h-[44px] w-full items-center justify-center gap-2 rounded-[4px] bg-accent px-3.5 py-2.5 text-xs font-semibold text-accent-ink transition-opacity hover:opacity-90"
+            >
+              {hasStoredFile ? (
+                <BookOpen className="h-4 w-4 shrink-0" strokeWidth={1.5} />
+              ) : (
+                <FileText className="h-4 w-4 shrink-0" strokeWidth={1.5} />
+              )}
+              <span className="truncate">
+                {hasStoredFile
+                  ? 'Ler Agora'
+                  : 'Abrir / Vincular Arquivo (EPUB, PDF, CBZ)'}
+              </span>
+            </button>
+          )}
           <button
             type="button"
-            onClick={() => onOpenReader(item)}
-            className="mt-4 flex min-h-[44px] w-full items-center justify-center gap-2 rounded-2xl bg-accent px-4 py-3 text-xs font-semibold text-accent-ink shadow-md transition-opacity hover:opacity-90"
+            onClick={() => {
+              setActiveSheetTab('catalog');
+              requestAnimationFrame(() => {
+                progressSectionRef.current?.scrollIntoView?.({
+                  behavior: 'smooth',
+                  block: 'center',
+                });
+              });
+            }}
+            className="flex min-h-[44px] w-full items-center justify-center gap-2 rounded-[4px] border border-line bg-app px-3.5 py-2.5 text-xs font-medium text-ink transition-colors hover:border-accent"
           >
-            <FileText className="h-4 w-4" strokeWidth={1.5} />
-            <span>
-              {hasStoredFile
-                ? 'Ler Agora (Arquivo Offline Salvo)'
-                : 'Abrir Arquivo / Ler Agora'}
-            </span>
+            <SlidersHorizontal className="h-4 w-4 shrink-0 text-accent" strokeWidth={1.5} />
+            <span>Atualizar Progresso</span>
           </button>
-        )}
+        </div>
 
         {/* Seletor de Abas da Obra: Catalogação vs Citações & Fichamento */}
         <div className="mt-4 grid grid-cols-2 gap-1.5 rounded-2xl border border-line bg-app p-1">
@@ -266,7 +289,7 @@ export function ItemDetailSheet({
               </div>
             </div>
 
-            <div className="mt-4 border-t border-line pt-4">
+            <div ref={progressSectionRef} className="mt-4 border-t border-line pt-4">
               <TactileStatusFields
                 item={item}
                 showAiActions

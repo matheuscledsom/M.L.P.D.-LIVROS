@@ -473,6 +473,82 @@ export function getDisplayTitles(item, mode = 'bilingual') {
   };
 }
 
+export function buildContinueReadingHub(items = [], storedReaderBooks = []) {
+  const activeStatuses = new Set(['playing', 'reading']);
+  const storedByWorkId = new Map();
+
+  for (const sb of Array.isArray(storedReaderBooks) ? storedReaderBooks : []) {
+    if (!sb || !sb.workId) continue;
+    storedByWorkId.set(String(sb.workId), sb);
+  }
+
+  const unified = [];
+  const consumedWorkIds = new Set();
+
+  for (const item of Array.isArray(items) ? items : []) {
+    if (!item || item.inBacklog === false || !activeStatuses.has(item.status)) {
+      continue;
+    }
+    const workId = String(item.id);
+    consumedWorkIds.add(workId);
+    const storedBook = storedByWorkId.get(workId) || null;
+    const pct =
+      storedBook && Number(storedBook.progressPct) > 0 && Number(item.progress) === 0
+        ? storedBook.progressPct
+        : calculateWorkProgress(item);
+    const workMs = Date.parse(item.updatedAt || item.createdAt || '') || 0;
+    const storedMs = Date.parse(storedBook?.lastOpenedAt || storedBook?.savedAt || '') || 0;
+
+    unified.push({
+      id: workId,
+      kind: 'work',
+      work: item,
+      storedBook,
+      hasStoredFile: Boolean(storedBook),
+      title: item.title,
+      originalTitle: item.originalTitle || '',
+      author: item.author || '',
+      workType: item.workType || 'book',
+      format: storedBook?.format ? storedBook.format.toUpperCase() : item.format || '',
+      progressPct: Math.max(0, Math.min(100, Number(pct) || 0)),
+      metricLabel: formatFlexibleProgressMetric(item),
+      lastActivityMs: Math.max(workMs, storedMs),
+    });
+  }
+
+  for (const sb of Array.isArray(storedReaderBooks) ? storedReaderBooks : []) {
+    if (!sb) continue;
+    if (sb.workId && consumedWorkIds.has(String(sb.workId))) continue;
+    if (sb.linkedWork && sb.linkedWork.status === 'completed') continue;
+
+    const linkedWork = sb.linkedWork || null;
+    const lastMs = Date.parse(sb.lastOpenedAt || sb.savedAt || '') || 0;
+    unified.push({
+      id: String(sb.bookId || sb.workId),
+      kind: linkedWork ? 'work' : 'digital',
+      work: linkedWork,
+      storedBook: sb,
+      hasStoredFile: true,
+      title: linkedWork?.title || sb.title,
+      originalTitle: linkedWork?.originalTitle || '',
+      author: linkedWork?.author || sb.author || sb.fileName || '',
+      workType: linkedWork?.workType || (sb.format === 'cbz' ? 'manga' : 'book'),
+      format: String(sb.format || 'epub').toUpperCase(),
+      progressPct: Math.max(0, Math.min(100, Number(sb.progressPct) || 0)),
+      metricLabel: `${Math.round(Number(sb.progressPct) || 0)}% · ${sb.sizeLabel || 'Offline'}`,
+      lastActivityMs: lastMs,
+    });
+  }
+
+  unified.sort((a, b) => b.lastActivityMs - a.lastActivityMs);
+
+  return {
+    featured: unified[0] || null,
+    others: unified.slice(1),
+    all: unified,
+  };
+}
+
 export function getDropReasonMeta(reasonIdOrLabel) {
   if (!reasonIdOrLabel) return null;
   const clean = String(reasonIdOrLabel)
