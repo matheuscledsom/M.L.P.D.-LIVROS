@@ -9,6 +9,7 @@ import { domainConfig, getWorkTypeConfig } from '../config/domainConfig';
 import {
   calculateWorkProgress,
   formatFlexibleProgressMetric,
+  getDisplayTitles,
   normalizeProgressMode,
 } from '../utils/backlogHelpers';
 
@@ -355,9 +356,27 @@ export function HomeScreen({
                         </span>
                       </div>
 
-                      <h3 className="mt-1 line-clamp-2 text-sm sm:text-base font-semibold leading-snug text-ink">
-                        {featuredPlaying.title}
-                      </h3>
+                      {(() => {
+                        const featuredTitles = getDisplayTitles(
+                          featuredPlaying,
+                          'bilingual'
+                        );
+                        return (
+                          <>
+                            <h3 className="mt-1 line-clamp-2 text-sm sm:text-base font-semibold leading-snug text-ink">
+                              {featuredTitles.primary}
+                            </h3>
+                            {featuredTitles.secondary && (
+                              <p
+                                className="mt-0.5 truncate text-[11px] italic"
+                                style={{ color: 'var(--text-secondary)' }}
+                              >
+                                {featuredTitles.secondary}
+                              </p>
+                            )}
+                          </>
+                        );
+                      })()}
 
                       {featuredPlaying[cardFields.creator] && (
                         <p className="mt-0.5 truncate text-xs text-muted">
@@ -435,9 +454,24 @@ export function HomeScreen({
                             </span>
                           </div>
                           <div className="mt-2.5 space-y-1.5">
-                            <p className="truncate text-xs font-semibold text-ink transition-colors group-hover:text-accent">
-                              {item.title}
-                            </p>
+                            {(() => {
+                              const cardTitles = getDisplayTitles(item, 'bilingual');
+                              return (
+                                <>
+                                  <p className="truncate text-xs font-semibold text-ink transition-colors group-hover:text-accent">
+                                    {cardTitles.primary}
+                                  </p>
+                                  {cardTitles.secondary && (
+                                    <p
+                                      className="truncate text-[10px] italic"
+                                      style={{ color: 'var(--text-secondary)' }}
+                                    >
+                                      {cardTitles.secondary}
+                                    </p>
+                                  )}
+                                </>
+                              );
+                            })()}
                             <div className="flex items-center justify-between gap-2 text-[11px] text-muted">
                               <span className="truncate">
                                 {item[cardFields.creator] || workMeta.shortLabel}
@@ -538,9 +572,24 @@ export function HomeScreen({
                     </div>
 
                     <div className="mt-2.5 space-y-1">
-                      <p className="truncate text-xs font-semibold text-ink transition-colors group-hover:text-accent">
-                        {item.title}
-                      </p>
+                      {(() => {
+                        const hiTitles = getDisplayTitles(item, 'bilingual');
+                        return (
+                          <>
+                            <p className="truncate text-xs font-semibold text-ink transition-colors group-hover:text-accent">
+                              {hiTitles.primary}
+                            </p>
+                            {hiTitles.secondary && (
+                              <p
+                                className="truncate text-[10px] italic"
+                                style={{ color: 'var(--text-secondary)' }}
+                              >
+                                {hiTitles.secondary}
+                              </p>
+                            )}
+                          </>
+                        );
+                      })()}
                       <p className="truncate text-[11px] text-muted">
                         {item[cardFields.creator] || getWorkTypeConfig(item.workType).shortLabel}
                       </p>

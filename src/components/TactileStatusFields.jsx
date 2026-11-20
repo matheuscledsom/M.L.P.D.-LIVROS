@@ -37,6 +37,7 @@ import {
   SpoilerFreeRecapAction,
   SynthesisReviewAction,
 } from './GeminiItemActions';
+import { PublisherAutocomplete } from './PublisherAutocomplete';
 import { VectorIcon } from './VectorIcon';
 
 function QuickPageButtons({ item, onChange }) {
@@ -226,18 +227,14 @@ function BookMetadataBlock({ item, onChange }) {
       )}
 
       <div className="grid grid-cols-2 gap-2">
-        <label className="block">
-          <span className="mb-1 block text-[10px] font-medium text-subtle">
-            {detail.publisherLabel}
-          </span>
-          <input
-            type="text"
-            value={item.publisher || ''}
-            onChange={(e) => onChange({ publisher: e.target.value })}
-            placeholder="Ex: Aleph"
-            className="w-full rounded-xl border border-line bg-card px-2.5 py-1.5 text-xs text-ink placeholder:text-subtle focus:border-accent focus:outline-none"
-          />
-        </label>
+        <PublisherAutocomplete
+          value={item.publisher || ''}
+          onChange={(nextPub) => onChange({ publisher: nextPub })}
+          label={detail.publisherLabel}
+          placeholder="Ex: Companhia das Letras"
+          category={item.workType === 'academic' ? 'academico' : 'all'}
+          inputClassName="w-full rounded-xl border border-line bg-card px-2.5 py-1.5 text-xs text-ink placeholder:text-subtle focus:border-accent focus:outline-none"
+        />
 
         <label className="block">
           <span className="mb-1 block text-[10px] font-medium text-subtle">
@@ -337,6 +334,15 @@ function MangaMetadataBlock({ item, onChange }) {
           })}
         </div>
       </div>
+
+      <PublisherAutocomplete
+        value={item.publisher || ''}
+        onChange={(nextPub) => onChange({ publisher: nextPub })}
+        label={detail.publisherLabel}
+        placeholder="Ex: Panini, JBC, Pipoca & Nanquim"
+        category="hq"
+        inputClassName="w-full rounded-xl border border-line bg-card px-2.5 py-1.5 text-xs text-ink placeholder:text-subtle focus:border-accent focus:outline-none"
+      />
     </div>
   );
 }

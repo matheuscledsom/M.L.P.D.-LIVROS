@@ -1,6 +1,7 @@
 import { Check, KeyRound, Sparkles } from 'lucide-react';
 import { useState } from 'react';
 import { useToast } from '../context/ToastContext';
+import { normalizePublisherName } from '../data/brazilianPublishers';
 import { runSmartCataloging } from '../services/geminiApi';
 
 export function SmartCatalogButton({
@@ -54,7 +55,7 @@ export function SmartCatalogButton({
         updates.seriesVolume = enriched.seriesVolume;
       }
       if (enriched.publisher && !item.publisher) {
-        updates.publisher = enriched.publisher;
+        updates.publisher = normalizePublisherName(enriched.publisher);
       }
       if (enriched.translator && !item.translator) {
         updates.translator = enriched.translator;

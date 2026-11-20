@@ -1,7 +1,7 @@
-import { BookOpen, Bookmark, FileText, Heart, Quote, Star, Trash2, X } from 'lucide-react';
+import { BookOpen, Bookmark, ExternalLink, FileText, Heart, Quote, Star, Trash2, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { domainConfig, getStatusList } from '../config/domainConfig';
-import { getVerdictMeta } from '../utils/backlogHelpers';
+import { getDisplayTitles, getVerdictMeta } from '../utils/backlogHelpers';
 import { CoverArt } from './CoverArt';
 import { LibraryCatalogSection } from './LibraryCatalogSection';
 import { QuotesVaultTab } from './QuotesVaultTab';
@@ -38,6 +38,7 @@ export function ItemDetailSheet({
   const verdictMeta = item.verdict ? getVerdictMeta(item.verdict) : null;
   const quotesCount = Array.isArray(item.quotes) ? item.quotes.length : 0;
   const linkedPosts = posts.filter((post) => post.itemId === item.id);
+  const displayTitles = getDisplayTitles(item, 'bilingual');
 
   return (
     <div
@@ -54,9 +55,19 @@ export function ItemDetailSheet({
           <CoverArt item={item} compact className="h-30 w-20 shrink-0 rounded-xl" />
           <div className="min-w-0 flex-1">
             <div className="flex items-start justify-between gap-2">
-              <h3 className="text-base font-semibold leading-snug text-ink">
-                {item.title}
-              </h3>
+              <div className="min-w-0">
+                <h3 className="text-base font-semibold leading-snug text-ink">
+                  {displayTitles.primary}
+                </h3>
+                {displayTitles.secondary && (
+                  <p
+                    className="mt-0.5 truncate text-xs italic"
+                    style={{ color: 'var(--text-secondary)' }}
+                  >
+                    {displayTitles.secondary}
+                  </p>
+                )}
+              </div>
               <button
                 type="button"
                 onClick={onClose}
@@ -91,7 +102,38 @@ export function ItemDetailSheet({
                   {verdictMeta.id}
                 </span>
               )}
+              {item.citedByCount > 0 && (
+                <span className="rounded-[4px] border border-line bg-app px-2 py-0.5 text-[10px] tabular-nums text-muted">
+                  {item.citedByCount} citações
+                </span>
+              )}
             </div>
+            {(item.openAccessUrl || item.freeEpubUrl) && (
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {item.openAccessUrl && (
+                  <a
+                    href={item.openAccessUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex min-h-[32px] items-center gap-1 rounded-[4px] border border-accent/40 px-2 py-1 text-[11px] font-medium text-accent transition-opacity hover:opacity-80"
+                  >
+                    <ExternalLink className="h-3 w-3" strokeWidth={1.5} />
+                    <span>PDF Open Access</span>
+                  </a>
+                )}
+                {item.freeEpubUrl && (
+                  <a
+                    href={item.freeEpubUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex min-h-[32px] items-center gap-1 rounded-[4px] border border-accent/40 px-2 py-1 text-[11px] font-medium text-accent transition-opacity hover:opacity-80"
+                  >
+                    <ExternalLink className="h-3 w-3" strokeWidth={1.5} />
+                    <span>EPUB Domínio Público</span>
+                  </a>
+                )}
+              </div>
+            )}
           </div>
         </div>
 

@@ -449,6 +449,30 @@ export function getHypeMeta(hypeId) {
   );
 }
 
+export function getDisplayTitles(item, mode = 'bilingual') {
+  const ptTitle = String(item?.title || '').trim();
+  const origTitle = String(item?.originalTitle || '').trim();
+  const hasDistinctOriginal =
+    Boolean(origTitle) && origTitle.toLowerCase() !== ptTitle.toLowerCase();
+
+  if (mode === 'original') {
+    return {
+      primary: origTitle || ptTitle,
+      secondary: '',
+    };
+  }
+  if (mode === 'pt') {
+    return {
+      primary: ptTitle || origTitle,
+      secondary: '',
+    };
+  }
+  return {
+    primary: ptTitle || origTitle,
+    secondary: hasDistinctOriginal ? origTitle : '',
+  };
+}
+
 export function getDropReasonMeta(reasonIdOrLabel) {
   if (!reasonIdOrLabel) return null;
   const clean = String(reasonIdOrLabel)

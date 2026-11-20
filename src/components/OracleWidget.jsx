@@ -1,6 +1,8 @@
 import { ArrowRight, BookOpen, Compass, KeyRound, Sparkles } from 'lucide-react';
 import { useState } from 'react';
 import { runCollectionOracle } from '../services/geminiApi';
+import { generateOfflineRecommendations } from '../services/recommendationEngine';
+import { getDisplayTitles } from '../utils/backlogHelpers';
 import { VectorIcon } from './VectorIcon';
 
 const MOOD_PRESETS = [
@@ -21,7 +23,7 @@ export function OracleWidget({
   const [selectedMood, setSelectedMood] = useState(MOOD_PRESETS[0].id);
   const [customMood, setCustomMood] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [errorMsg, setErrorMsg] = useState('');
+  const [infoNotice, setInfoNotice] = useState('');
   const [result, setResult] = useState(null);
 
   const backlogItems = items.filter((item) => item.inBacklog);
@@ -29,25 +31,32 @@ export function OracleWidget({
   const completedItems = backlogItems.filter((item) => item.status === 'completed');
 
   const handleConsult = async () => {
-    setErrorMsg('');
-
-    if (!geminiKey) {
-      setErrorMsg(
-        'Configure sua chave gratuita do Google Gemini no Perfil para consultar o Oráculo.'
-      );
-      return;
-    }
+    setInfoNotice('');
 
     if (queuedItems.length === 0) {
-      setErrorMsg(
+      setResult(null);
+      setInfoNotice(
         'Adicione pelo menos uma obra em "Na Estante" para o Oráculo recomendar.'
       );
       return;
     }
 
+    const moodQuery = customMood.trim() || selectedMood;
+
+    // Sem chave Gemini: responde 100% offline via motor híbrido de recomendações
+    if (!geminiKey) {
+      const offlineRec = generateOfflineRecommendations({
+        items,
+        profile,
+        mood: moodQuery,
+      });
+      setResult(offlineRec);
+      setInfoNotice('Sugestão gerada offline cruzando notas >= 80, editoras e perfil.');
+      return;
+    }
+
     setIsLoading(true);
     try {
-      const moodQuery = customMood.trim() || selectedMood;
       const recommendation = await runCollectionOracle(geminiKey, {
         mood: moodQuery,
         queuedItems,
@@ -56,9 +65,15 @@ export function OracleWidget({
         readerFocus: profile?.readerFocus || '',
         preferredCriterion: profile?.preferredCriterion || '',
       });
-      setResult(recommendation);
-    } catch (error) {
-      setErrorMsg(error?.userMessage || error?.message || 'Erro ao consultar o Oráculo.');
+      setResult({ ...recommendation, mode: 'gemini' });
+    } catch {
+      const fallbackRec = generateOfflineRecommendations({
+        items,
+        profile,
+        mood: moodQuery,
+      });
+      setResult(fallbackRec);
+      setInfoNotice('Gemini indisponível no momento. Exibindo recomendação do motor offline.');
     } finally {
       setIsLoading(false);
     }
@@ -67,23 +82,26 @@ export function OracleWidget({
   const primaryItem = result?.primaryId
     ? queuedItems.find((item) => item.id === result.primaryId) ?? null
     : null;
+  const primaryTitles = primaryItem
+    ? getDisplayTitles(primaryItem, 'bilingual')
+    : null;
 
   return (
     <section
       aria-label="Oráculo do Acervo"
-      className="rounded-2xl border border-line bg-card p-3.5"
+      className="rounded-[6px] border border-line bg-card p-3.5"
     >
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
-          <div className="flex h-8 w-8 items-center justify-center rounded-xl border border-accent/30 bg-accent/15 text-accent">
-            <Compass className="h-4 w-4" />
+          <div className="flex h-8 w-8 items-center justify-center rounded-[4px] border border-line bg-app text-accent">
+            <Compass className="h-4 w-4" strokeWidth={1.5} />
           </div>
           <div>
             <h2 className="text-xs font-semibold tracking-tight text-ink">
               Oráculo do Acervo
             </h2>
-            <p className="text-[10px] text-subtle">
-              Cruza seu humor com Na Estante ({queuedItems.length}) e notas
+            <p className="text-[10px] text-subtle tabular-nums">
+              Cruza humor, notas &gt;= 80 e estante ({queuedItems.length})
             </p>
           </div>
         </div>
@@ -92,10 +110,14 @@ export function OracleWidget({
           type="button"
           onClick={handleConsult}
           disabled={isLoading}
-          className="inline-flex shrink-0 items-center gap-1.5 rounded-xl bg-accent px-3 py-2 text-[11px] font-semibold text-accent-ink transition-opacity hover:opacity-90 disabled:opacity-50"
+          className="inline-flex min-h-[38px] shrink-0 items-center gap-1.5 rounded-[4px] bg-accent px-3 py-1.5 text-[11px] font-semibold text-accent-ink transition-opacity hover:opacity-90 disabled:opacity-50"
         >
-          <Sparkles className="h-3.5 w-3.5" />
-          {isLoading ? 'Analisando...' : 'Consultar Oráculo'}
+          <Sparkles className="h-3.5 w-3.5" strokeWidth={1.5} />
+          {isLoading
+            ? 'Analisando...'
+            : geminiKey
+              ? 'Consultar Oráculo'
+              : 'Sugerir Leitura'}
         </button>
       </div>
 
@@ -110,9 +132,9 @@ export function OracleWidget({
                 setCustomMood('');
                 setSelectedMood(preset.id);
               }}
-              className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors ${
+              className={`inline-flex min-h-[36px] shrink-0 items-center gap-1.5 rounded-[4px] border px-2.5 py-1 text-[11px] font-medium transition-colors ${
                 isSelected
-                  ? 'border-accent bg-accent/15 text-ink'
+                  ? 'border-accent bg-accent/15 text-accent'
                   : 'border-line bg-app text-muted hover:text-ink'
               }`}
             >
@@ -131,29 +153,29 @@ export function OracleWidget({
         value={customMood}
         onChange={(e) => setCustomMood(e.target.value)}
         placeholder="Ou descreva seu humor/objetivo (ex: fantasia curta para fim de semana)..."
-        className="mt-2.5 w-full rounded-xl border border-line bg-app px-3 py-2 text-[11px] text-ink placeholder:text-subtle focus:border-accent focus:outline-none"
+        className="mt-2.5 w-full rounded-[4px] border border-line bg-app px-3 py-2 text-[11px] text-ink placeholder:text-subtle focus:border-accent focus:outline-none"
       />
 
-      {errorMsg && (
-        <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-[11px] text-rose-400">
-          <span>{errorMsg}</span>
+      {infoNotice && (
+        <div className="mt-2.5 flex flex-wrap items-center justify-between gap-2 rounded-[4px] border border-line bg-app px-3 py-2 text-[11px] text-muted">
+          <span>{infoNotice}</span>
           {!geminiKey && onOpenGeminiSettings && (
             <button
               type="button"
               onClick={onOpenGeminiSettings}
-              className="inline-flex items-center gap-1 rounded-lg bg-accent px-2.5 py-1 text-[10px] font-semibold text-accent-ink"
+              className="inline-flex items-center gap-1 rounded-[4px] border border-line px-2 py-1 text-[10px] font-medium text-accent hover:border-accent"
             >
-              <KeyRound className="h-3 w-3" />
-              Configurar Chave
+              <KeyRound className="h-3 w-3" strokeWidth={1.5} />
+              Ativar Gemini (opcional)
             </button>
           )}
         </div>
       )}
 
       {result && primaryItem && (
-        <div className="mt-3 space-y-2.5 rounded-xl border border-accent/35 bg-app p-3">
+        <div className="mt-3 space-y-2.5 rounded-[4px] border border-accent/40 bg-app p-3">
           <div className="flex items-start justify-between gap-2">
-            <div>
+            <div className="min-w-0">
               <p className="text-[10px] font-semibold uppercase tracking-wider text-accent">
                 {result.headline}
               </p>
@@ -162,10 +184,18 @@ export function OracleWidget({
                 onClick={() => onSelectItem?.(primaryItem)}
                 className="mt-0.5 inline-flex items-center gap-1.5 text-left text-sm font-semibold text-ink hover:text-accent"
               >
-                <BookOpen className="h-3.5 w-3.5 shrink-0 text-accent" />
-                <span>{primaryItem.title}</span>
-                <ArrowRight className="h-3 w-3 shrink-0" />
+                <BookOpen className="h-3.5 w-3.5 shrink-0 text-accent" strokeWidth={1.5} />
+                <span className="truncate">{primaryTitles?.primary}</span>
+                <ArrowRight className="h-3 w-3 shrink-0" strokeWidth={1.5} />
               </button>
+              {primaryTitles?.secondary && (
+                <p
+                  className="truncate text-[11px] italic"
+                  style={{ color: 'var(--text-secondary)' }}
+                >
+                  {primaryTitles.secondary}
+                </p>
+              )}
               {primaryItem.author && (
                 <p className="text-[11px] text-muted">{primaryItem.author}</p>
               )}
@@ -191,7 +221,7 @@ export function OracleWidget({
                     key={alt.id}
                     type="button"
                     onClick={() => onSelectItem?.(altItem)}
-                    className="flex w-full items-baseline justify-between gap-2 rounded-lg px-2 py-1 text-left text-[11px] hover:bg-card"
+                    className="flex w-full items-baseline justify-between gap-2 rounded-[4px] px-2 py-1 text-left text-[11px] hover:bg-card"
                   >
                     <span className="font-medium text-ink truncate">
                       {altItem.title}

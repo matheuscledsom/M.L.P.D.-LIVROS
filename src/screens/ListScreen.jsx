@@ -8,8 +8,10 @@ import {
   Library,
   MapPin,
   Plus,
+  Search,
   Star,
   Table2,
+  X,
 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { CoverArt } from '../components/CoverArt';
@@ -27,6 +29,7 @@ import {
   calculateWorkProgress,
   formatFlexibleProgressMetric,
   getCompletionPace,
+  getDisplayTitles,
   getDropReasonMeta,
   getHypeMeta,
   getPagesRead,
@@ -36,6 +39,13 @@ import {
 
 const VIEW_MODE_STORAGE_KEY = 'codice_list_view_mode';
 const GROUP_BY_STORAGE_KEY = 'codice_list_group_by';
+const TITLE_MODE_STORAGE_KEY = 'codice_list_title_mode';
+
+const TITLE_MODES = [
+  { id: 'bilingual', label: 'Bilíngue' },
+  { id: 'pt', label: 'PT-BR' },
+  { id: 'original', label: 'Original' },
+];
 
 const VIEW_MODES = [
   { id: 'grid', label: 'Estante Visual', icon: LayoutGrid },
@@ -43,6 +53,15 @@ const VIEW_MODES = [
   { id: 'catalog', label: 'Fichário Bibliotecário', icon: Table2 },
   { id: 'grouped', label: 'Agrupado', icon: FolderTree },
 ];
+
+function loadSavedTitleMode() {
+  try {
+    const val = localStorage.getItem(TITLE_MODE_STORAGE_KEY);
+    return TITLE_MODES.some((m) => m.id === val) ? val : 'bilingual';
+  } catch {
+    return 'bilingual';
+  }
+}
 
 function loadSavedViewMode() {
   try {
@@ -81,10 +100,20 @@ export function ListScreen({
 }) {
   const [selectedStatus, setSelectedStatus] = useState('all');
   const [selectedWorkType, setSelectedWorkType] = useState('all');
+  const [localQuery, setLocalQuery] = useState('');
+  const [titleMode, setTitleMode] = useState(loadSavedTitleMode);
   const [sortBy, setSortBy] = useState('recent');
   const [layoutMode, setLayoutMode] = useState(loadSavedViewMode);
   const [groupBy, setGroupBy] = useState(loadSavedGroupBy);
   const [tableSort, setTableSort] = useState({ key: 'call', dir: 'asc' });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(TITLE_MODE_STORAGE_KEY, titleMode);
+    } catch {
+      // Ignora erro de storage
+    }
+  }, [titleMode]);
 
   useEffect(() => {
     try {
@@ -117,10 +146,26 @@ export function ListScreen({
         ? backlogItems
         : backlogItems.filter((item) => item.status === selectedStatus);
 
-    const filtered =
+    const byType =
       selectedWorkType === 'all'
         ? byStatus
         : byStatus.filter((item) => (item.workType || 'book') === selectedWorkType);
+
+    const q = localQuery.trim().toLowerCase();
+    const filtered = !q
+      ? byType
+      : byType.filter((item) => {
+          const inTitle = String(item.title || '').toLowerCase().includes(q);
+          const inOrig = String(item.originalTitle || '').toLowerCase().includes(q);
+          const inAuthor = String(item[cardFields.creator] || '').toLowerCase().includes(q);
+          const inPub = String(item.publisher || '').toLowerCase().includes(q);
+          const inIsbn = String(item.isbn || '').toLowerCase().includes(q);
+          const inCall = String(item.callNumber || '').toLowerCase().includes(q);
+          const inGenres = Array.isArray(item.genres)
+            ? item.genres.some((g) => String(g).toLowerCase().includes(q))
+            : false;
+          return inTitle || inOrig || inAuthor || inPub || inIsbn || inCall || inGenres;
+        });
 
     return [...filtered].sort((a, b) => {
       if (sortBy === 'rating') {
@@ -145,7 +190,7 @@ export function ListScreen({
       const timeB = Date.parse(b.updatedAt || b.createdAt || '') || 0;
       return timeB - timeA;
     });
-  }, [backlogItems, selectedStatus, selectedWorkType, sortBy, cardFields.rating]);
+  }, [backlogItems, selectedStatus, selectedWorkType, localQuery, sortBy, cardFields.creator, cardFields.rating]);
 
   const tableSortedItems = useMemo(() => {
     const dirMul = tableSort.dir === 'asc' ? 1 : -1;
@@ -264,6 +309,63 @@ export function ListScreen({
           </button>
         )}
       </header>
+
+      {backlogItems.length > 0 && (
+        <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+          <div className="relative flex-1">
+            <Search
+              className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-subtle"
+              strokeWidth={1.5}
+            />
+            <input
+              type="search"
+              value={localQuery}
+              onChange={(e) => setLocalQuery(e.target.value)}
+              placeholder="Buscar no acervo (título PT-BR, título original, autor, editora...)"
+              aria-label="Buscar obras no acervo"
+              className="min-h-[40px] w-full rounded-[4px] border border-line bg-card py-1.5 pl-8 pr-8 text-xs text-ink placeholder:text-subtle focus:border-accent focus:outline-none"
+            />
+            {localQuery && (
+              <button
+                type="button"
+                onClick={() => setLocalQuery('')}
+                aria-label="Limpar filtro"
+                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-subtle hover:text-ink"
+              >
+                <X className="h-3.5 w-3.5" strokeWidth={1.5} />
+              </button>
+            )}
+          </div>
+
+          <div
+            role="tablist"
+            aria-label="Idioma de exibição dos títulos"
+            className="inline-flex shrink-0 overflow-hidden rounded-[4px] border border-line bg-card"
+          >
+            {TITLE_MODES.map((m, idx) => {
+              const active = titleMode === m.id;
+              return (
+                <button
+                  key={m.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={active}
+                  onClick={() => setTitleMode(m.id)}
+                  className={`min-h-[40px] px-2.5 text-[11px] font-medium transition-colors ${
+                    idx > 0 ? 'border-l border-line' : ''
+                  } ${
+                    active
+                      ? 'bg-accent/15 text-accent'
+                      : 'text-muted hover:text-ink'
+                  }`}
+                >
+                  {m.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {profile?.gamificationEnabled !== false && streakProps && (
         <ReadingStreakWidget {...streakProps} />
@@ -465,9 +567,24 @@ export function ListScreen({
                     className={`absolute bottom-1.5 right-1.5 h-2 w-2 rounded-full ring-2 ring-app ${status.dotClass}`}
                   />
                 </div>
-                <p className="mt-1.5 truncate text-[11px] font-medium text-ink">
-                  {item.title}
-                </p>
+                {(() => {
+                  const titles = getDisplayTitles(item, titleMode);
+                  return (
+                    <>
+                      <p className="mt-1.5 truncate text-[11px] font-medium text-ink">
+                        {titles.primary}
+                      </p>
+                      {titles.secondary && (
+                        <p
+                          className="truncate text-[10px] italic"
+                          style={{ color: 'var(--text-secondary)' }}
+                        >
+                          {titles.secondary}
+                        </p>
+                      )}
+                    </>
+                  );
+                })()}
                 <p className="truncate text-[10px] text-subtle">
                   {item[cardFields.creator] || workMeta.shortLabel}
                   {gridMetric ? ` • ${gridMetric}` : ''}
@@ -524,9 +641,24 @@ export function ListScreen({
                 <div className="flex min-w-0 flex-1 flex-col justify-between">
                   <div>
                     <div className="flex items-start justify-between gap-2">
-                      <h2 className="truncate text-sm font-semibold text-ink">
-                        {item.title}
-                      </h2>
+                      {(() => {
+                        const titles = getDisplayTitles(item, titleMode);
+                        return (
+                          <div className="min-w-0">
+                            <h2 className="truncate text-sm font-semibold text-ink">
+                              {titles.primary}
+                            </h2>
+                            {titles.secondary && (
+                              <p
+                                className="truncate text-[11px] italic"
+                                style={{ color: 'var(--text-secondary)' }}
+                              >
+                                {titles.secondary}
+                              </p>
+                            )}
+                          </div>
+                        );
+                      })()}
                       {item.isPlatinum && (
                         <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-accent/40 bg-accent/15 px-1.5 py-0.5 text-[10px] font-semibold text-accent">
                           <Star className="h-3 w-3 fill-current" strokeWidth={1.5} />
@@ -724,8 +856,23 @@ export function ListScreen({
                       <td className="px-3 py-2.5 font-mono text-[11px] text-accent whitespace-nowrap">
                         {call}
                       </td>
-                      <td className="px-3 py-2.5 font-medium text-ink max-w-[220px] truncate">
-                        {item.title}
+                      <td className="px-3 py-2.5 font-medium text-ink max-w-[220px]">
+                        {(() => {
+                          const titles = getDisplayTitles(item, titleMode);
+                          return (
+                            <>
+                              <span className="block truncate">{titles.primary}</span>
+                              {titles.secondary && (
+                                <span
+                                  className="block truncate text-[10px] italic font-normal"
+                                  style={{ color: 'var(--text-secondary)' }}
+                                >
+                                  {titles.secondary}
+                                </span>
+                              )}
+                            </>
+                          );
+                        })()}
                       </td>
                       <td className="px-3 py-2.5 text-muted max-w-[160px] truncate">
                         {item[cardFields.creator] || '—'}
@@ -769,9 +916,24 @@ export function ListScreen({
                     </span>
                     <StatusBadge statusId={item.status} size="xs" />
                   </div>
-                  <p className="truncate text-xs font-semibold text-ink">
-                    {item.title}
-                  </p>
+                  {(() => {
+                    const titles = getDisplayTitles(item, titleMode);
+                    return (
+                      <div>
+                        <p className="truncate text-xs font-semibold text-ink">
+                          {titles.primary}
+                        </p>
+                        {titles.secondary && (
+                          <p
+                            className="truncate text-[10px] italic"
+                            style={{ color: 'var(--text-secondary)' }}
+                          >
+                            {titles.secondary}
+                          </p>
+                        )}
+                      </div>
+                    );
+                  })()}
                   <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-muted">
                     <span className="truncate">
                       {item[cardFields.creator] || 'Autor não informado'}
@@ -844,10 +1006,25 @@ export function ListScreen({
                       compact
                       className="aspect-[2/3] w-full rounded-xl transition-transform duration-150 group-hover:scale-[1.02]"
                     />
-                    <p className="mt-1 truncate text-[11px] font-medium text-ink">
-                      {item.seriesIndex ? `#${item.seriesIndex} · ` : ''}
-                      {item.title}
-                    </p>
+                    {(() => {
+                      const titles = getDisplayTitles(item, titleMode);
+                      return (
+                        <>
+                          <p className="mt-1 truncate text-[11px] font-medium text-ink">
+                            {item.seriesIndex ? `#${item.seriesIndex} · ` : ''}
+                            {titles.primary}
+                          </p>
+                          {titles.secondary && (
+                            <p
+                              className="truncate text-[10px] italic"
+                              style={{ color: 'var(--text-secondary)' }}
+                            >
+                              {titles.secondary}
+                            </p>
+                          )}
+                        </>
+                      );
+                    })()}
                     <p className="truncate text-[10px] text-subtle">
                       {item[cardFields.creator] || getWorkTypeConfig(item.workType).shortLabel}
                     </p>

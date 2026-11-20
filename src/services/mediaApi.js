@@ -1,15 +1,45 @@
+import { normalizePublisherName } from '../data/brazilianPublishers.js';
 import { catalogItems, initialItems } from '../data/mockData.js';
 
 const GOOGLE_BOOKS_BASE_URL = 'https://www.googleapis.com/books/v1/volumes';
 const OPEN_LIBRARY_BASE_URL = 'https://openlibrary.org/search.json';
 const JIKAN_MANGA_BASE_URL = 'https://api.jikan.moe/v4/manga';
 const CROSSREF_WORKS_URL = 'https://api.crossref.org/works';
+const WIKIDATA_API_URL = 'https://www.wikidata.org/w/api.php';
+const OPENALEX_WORKS_URL = 'https://api.openalex.org/works';
+const GUTENDEX_BOOKS_URL = 'https://gutendex.com/books';
 const CROSSREF_POLITE_MAILTO = 'codice@projeto-codice.app';
 
-const SEARCH_CACHE_KEY = 'codice_search_cache_v2';
+const SEARCH_CACHE_KEY = 'codice_search_cache_v3';
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const CACHE_MAX_ENTRIES = 40;
 const API_TIMEOUT_MS = 8000;
+
+const WIKIDATA_COUNTRY_MAP = {
+  Q30: 'Estados Unidos',
+  Q145: 'Reino Unido',
+  Q155: 'Brasil',
+  Q17: 'Japão',
+  Q183: 'Alemanha',
+  Q142: 'França',
+  Q159: 'Rússia',
+  Q38: 'Itália',
+  Q29: 'Espanha',
+  Q45: 'Portugal',
+  Q414: 'Argentina',
+  Q16: 'Canadá',
+  Q148: 'China',
+  Q884: 'Coreia do Sul',
+  Q36: 'Polônia',
+  Q34: 'Suécia',
+  Q27: 'Irlanda',
+  Q668: 'Índia',
+  Q96: 'México',
+  Q739: 'Colômbia',
+};
+
+const LITERARY_WIKIDATA_HINTS =
+  /livro|book|romance|novel|novela|ficção|fiction|mang[aá]|comic|hq|ensaio|essay|conto|short story|poema|poem|peça|play|trilogia|série|treatise|tratado|tese|obra|literár/i;
 
 const memoryCache = new Map();
 let cacheHydrated = false;
@@ -206,10 +236,15 @@ function mapGoogleBook(volume, defaultWorkType = 'book', isbnFallback = '') {
   const genres = Array.isArray(volumeInfo.categories)
     ? volumeInfo.categories.filter(Boolean)
     : [];
+  const publisher = normalizePublisherName(volumeInfo.publisher || '');
+  const rawLang = String(volumeInfo.language || '').toLowerCase();
+  const isPt = rawLang === 'pt' || rawLang === 'pt-br' || rawLang === 'por';
 
   return {
     id: `gb-${String(volume.id)}`,
     title,
+    originalTitle: !isPt && rawLang ? title : '',
+    language: volumeInfo.language || '',
     author,
     coverUrl: coverSources[0] || null,
     coverSources,
@@ -219,8 +254,8 @@ function mapGoogleBook(volume, defaultWorkType = 'book', isbnFallback = '') {
     jikanCoverUrls: [],
     releaseYear: extractReleaseYear(volumeInfo.publishedDate),
     totalPages,
-    publisher: volumeInfo.publisher || '',
-    institution: defaultWorkType === 'academic' ? volumeInfo.publisher || '' : '',
+    publisher,
+    institution: defaultWorkType === 'academic' ? publisher : '',
     isbn,
     doi: '',
     issn: '',
@@ -254,15 +289,20 @@ function mapOpenLibraryDoc(doc, defaultWorkType = 'book', isbnFallback = '') {
     doc.number_of_pages_median > 0
       ? doc.number_of_pages_median
       : null;
-  const publisher =
+  const rawPublisher =
     Array.isArray(doc?.publisher) && doc.publisher.length ? doc.publisher[0] : '';
+  const publisher = normalizePublisherName(rawPublisher);
   const genres = Array.isArray(doc?.subject)
     ? doc.subject.filter(Boolean).slice(0, 3)
     : [];
+  const langs = Array.isArray(doc?.language) ? doc.language : [];
+  const hasPor = langs.some((l) => /^por$/i.test(l) || /^pt/i.test(l));
 
   return {
     id: `ol-${rawKey}`,
     title,
+    originalTitle: !hasPor && langs.length > 0 ? title : '',
+    language: langs[0] || '',
     author,
     coverUrl: coverSources[0] || null,
     coverSources,
@@ -297,6 +337,13 @@ function mapJikanOrigin(type) {
 
 function mapJikanManga(entry) {
   const title = entry?.title || entry?.title_english || 'Sem título';
+  const originalTitle =
+    entry?.title_japanese && entry.title_japanese !== title
+      ? entry.title_japanese
+      : entry?.title_english && entry.title_english !== title
+        ? entry.title_english
+        : '';
+
   const author = Array.isArray(entry?.authors)
     ? entry.authors.map((a) => a?.name).filter(Boolean).join(', ')
     : '';
@@ -327,6 +374,7 @@ function mapJikanManga(entry) {
   return {
     id: `jikan-${entry.mal_id}`,
     title,
+    originalTitle,
     author,
     coverUrl: coverSources[0] || null,
     coverSources,
@@ -394,7 +442,7 @@ function mapCrossRefWork(entry) {
   const containerTitle = Array.isArray(entry?.['container-title'])
     ? stripXmlTags(entry['container-title'][0] || '')
     : '';
-  const publisher = stripXmlTags(entry?.publisher || '');
+  const publisher = normalizePublisherName(stripXmlTags(entry?.publisher || ''));
   const institution = containerTitle || publisher;
 
   const subjects = Array.isArray(entry?.subject)
@@ -406,6 +454,7 @@ function mapCrossRefWork(entry) {
   return {
     id: `cr-${doi || normalizeText(title)}`,
     title,
+    originalTitle: entry?.language && entry.language !== 'pt' ? title : '',
     author,
     coverUrl: coverSources[0] || null,
     coverSources,
@@ -427,15 +476,321 @@ function mapCrossRefWork(entry) {
   };
 }
 
+export function mapOpenAlexWork(entry) {
+  if (!entry || typeof entry !== 'object') return null;
+  const title = stripXmlTags(entry.title || entry.display_name || 'Sem título');
+  const doi = String(entry.doi || '')
+    .replace(/^https?:\/\/(?:dx\.)?doi\.org\//i, '')
+    .trim();
+  const rawShortId = String(entry.id || title)
+    .replace(/^https?:\/\/openalex\.org\//i, '')
+    .trim();
+
+  const author = Array.isArray(entry.authorships)
+    ? entry.authorships
+        .map((a) => a?.author?.display_name)
+        .filter(Boolean)
+        .slice(0, 6)
+        .join(', ')
+    : '';
+
+  const citedByCount = Math.max(0, Number(entry.cited_by_count) || 0);
+  const openAccessUrl =
+    cleanCoverUrl(
+      entry.open_access?.oa_url ||
+        entry.best_oa_location?.pdf_url ||
+        entry.best_oa_location?.landing_page_url ||
+        entry.primary_location?.pdf_url ||
+        ''
+    ) || '';
+  const isOpenAccess = Boolean(entry.open_access?.is_oa || openAccessUrl);
+
+  const sourceName = stripXmlTags(
+    entry.primary_location?.source?.display_name || ''
+  );
+  const rawPublisher =
+    entry.primary_location?.source?.host_organization_name || sourceName || '';
+  const publisher = normalizePublisherName(rawPublisher);
+  const releaseYear =
+    typeof entry.publication_year === 'number' ? entry.publication_year : null;
+
+  const topicCandidates = [
+    entry.primary_topic?.display_name,
+    ...(Array.isArray(entry.concepts) ? entry.concepts.map((c) => c?.display_name) : []),
+  ].filter(Boolean);
+  const genres = Array.from(new Set(topicCandidates)).slice(0, 3);
+  if (genres.length === 0) genres.push('Pesquisa / Artigo');
+
+  const rawLang = String(entry.language || '').toLowerCase();
+
+  return {
+    id: `oa-${doi || rawShortId || normalizeText(title)}`,
+    title,
+    originalTitle: rawLang && rawLang !== 'pt' ? title : '',
+    language: entry.language || '',
+    author,
+    coverUrl: null,
+    coverSources: [],
+    googleCoverUrl: null,
+    openLibIsbnCover: null,
+    openLibIdCover: null,
+    jikanCoverUrls: [],
+    releaseYear,
+    totalPages: null,
+    publisher,
+    institution: sourceName || publisher,
+    isbn: '',
+    doi,
+    issn: Array.isArray(entry.primary_location?.source?.issn)
+      ? entry.primary_location.source.issn[0] || ''
+      : '',
+    citedByCount,
+    openAccessUrl,
+    isOpenAccess,
+    genres,
+    workType: 'academic',
+    sourceLabel: 'OpenAlex',
+    monogram: getMonogram(title),
+  };
+}
+
+function formatGutendexAuthorName(rawName) {
+  const clean = String(rawName || '').trim();
+  if (!clean) return '';
+  const parts = clean.split(',').map((p) => p.trim()).filter(Boolean);
+  if (parts.length === 2) {
+    return `${parts[1]} ${parts[0]}`;
+  }
+  return clean;
+}
+
+export function mapGutendexBook(entry, defaultWorkType = 'book') {
+  if (!entry || typeof entry !== 'object') return null;
+  const title = String(entry.title || 'Sem título').trim();
+  const author = Array.isArray(entry.authors)
+    ? entry.authors.map((a) => formatGutendexAuthorName(a?.name)).filter(Boolean).join(', ')
+    : '';
+  const langs = Array.isArray(entry.languages) ? entry.languages : [];
+  const hasPt = langs.includes('pt');
+
+  const formats = entry.formats || {};
+  const freeEpubUrl =
+    cleanCoverUrl(
+      formats['application/epub+zip'] ||
+        formats['application/epub'] ||
+        ''
+    ) || '';
+  const coverUrl = cleanCoverUrl(formats['image/jpeg'] || null);
+  const coverSources = coverUrl ? [coverUrl] : [];
+
+  const genres = Array.from(
+    new Set(
+      [...(entry.subjects || []), ...(entry.bookshelves || [])]
+        .map((s) => String(s).replace(/^Category:\s*/i, '').trim())
+        .filter(Boolean)
+    )
+  ).slice(0, 3);
+
+  return {
+    id: `gut-${entry.id || normalizeText(title)}`,
+    title,
+    originalTitle: !hasPt && langs.length > 0 ? title : '',
+    language: langs.join(', '),
+    author,
+    coverUrl: coverSources[0] || null,
+    coverSources,
+    googleCoverUrl: null,
+    openLibIsbnCover: null,
+    openLibIdCover: null,
+    jikanCoverUrls: [],
+    releaseYear: null,
+    totalPages: null,
+    publisher: 'Domínio Público (Project Gutenberg)',
+    institution: '',
+    isbn: '',
+    doi: '',
+    issn: '',
+    freeEpubUrl,
+    isPublicDomain: true,
+    downloadCount: Number(entry.download_count) || 0,
+    genres: genres.length ? genres : ['Clássico em Domínio Público'],
+    workType: defaultWorkType,
+    sourceLabel: 'Gutendex',
+    monogram: getMonogram(title),
+  };
+}
+
+function isLikelyLiteraryWikidataEntity(entity) {
+  if (!entity || typeof entity !== 'object') return false;
+  const claims = entity.claims || {};
+  if (claims.P212 || claims.P957 || claims.P1476 || claims.P50) {
+    return true;
+  }
+  const desc = [
+    entity.descriptions?.['pt-br']?.value,
+    entity.descriptions?.pt?.value,
+    entity.descriptions?.en?.value,
+  ]
+    .filter(Boolean)
+    .join(' ');
+  return LITERARY_WIKIDATA_HINTS.test(desc);
+}
+
+export function mapWikidataEntityToWork(entity, defaultWorkType = 'book') {
+  if (!isLikelyLiteraryWikidataEntity(entity)) return null;
+  const ptLabel = String(
+    entity.labels?.['pt-br']?.value || entity.labels?.pt?.value || ''
+  ).trim();
+  const enLabel = String(entity.labels?.en?.value || '').trim();
+  const claims = entity.claims || {};
+
+  const p1476Val = claims.P1476?.[0]?.mainsnak?.datavalue?.value;
+  const claimTitle =
+    typeof p1476Val === 'string'
+      ? p1476Val.trim()
+      : String(p1476Val?.text || '').trim();
+
+  const title = ptLabel || enLabel || claimTitle;
+  if (!title) return null;
+
+  const originalCandidate =
+    claimTitle && claimTitle.toLowerCase() !== title.toLowerCase()
+      ? claimTitle
+      : enLabel && enLabel.toLowerCase() !== title.toLowerCase()
+        ? enLabel
+        : '';
+
+  const pubTime = String(
+    claims.P577?.[0]?.mainsnak?.datavalue?.value?.time || ''
+  );
+  const yearMatch = pubTime.match(/^[+-]?(\d{4})/);
+  const releaseYear = yearMatch ? Number(yearMatch[1]) : null;
+
+  const countryQid = claims.P495?.[0]?.mainsnak?.datavalue?.value?.id || '';
+  const originCountry = WIKIDATA_COUNTRY_MAP[countryQid] || '';
+
+  const rawIsbn =
+    claims.P212?.[0]?.mainsnak?.datavalue?.value ||
+    claims.P957?.[0]?.mainsnak?.datavalue?.value ||
+    '';
+  const isbn = String(rawIsbn).replace(/[-\s]/g, '').trim();
+  const coverSources = buildCoverCascade({ isbn });
+
+  const description = String(
+    entity.descriptions?.['pt-br']?.value ||
+      entity.descriptions?.pt?.value ||
+      entity.descriptions?.en?.value ||
+      ''
+  ).trim();
+
+  return {
+    id: `wd-${entity.id}`,
+    wikidataId: entity.id,
+    title,
+    originalTitle: originalCandidate,
+    ptTitle: ptLabel,
+    enTitle: enLabel,
+    originCountry,
+    author: '',
+    coverUrl: coverSources[0] || null,
+    coverSources,
+    googleCoverUrl: null,
+    openLibIsbnCover: buildOpenLibraryIsbnCover(isbn),
+    openLibIdCover: null,
+    jikanCoverUrls: [],
+    releaseYear,
+    totalPages: null,
+    publisher: '',
+    institution: '',
+    isbn,
+    doi: '',
+    issn: '',
+    synopsis: description,
+    genres: originCountry ? [originCountry] : [],
+    workType: defaultWorkType,
+    sourceLabel: 'Wikidata',
+    monogram: getMonogram(title),
+  };
+}
+
+export function enrichBilingualTitles(items = [], wikidataWorks = []) {
+  if (!Array.isArray(wikidataWorks) || wikidataWorks.length === 0) {
+    return items;
+  }
+
+  return items.map((item) => {
+    const normTitle = normalizeText(item.title);
+    const normOrig = normalizeText(item.originalTitle);
+    const cleanIsbn = String(item.isbn || '').replace(/[-\s]/g, '');
+
+    const match = wikidataWorks.find((wd) => {
+      if (cleanIsbn && wd.isbn && wd.isbn === cleanIsbn) return true;
+      const wdTitle = normalizeText(wd.title);
+      const wdPt = normalizeText(wd.ptTitle);
+      const wdEn = normalizeText(wd.enTitle);
+      const wdOrig = normalizeText(wd.originalTitle);
+
+      return (
+        (normTitle &&
+          (normTitle === wdTitle ||
+            normTitle === wdPt ||
+            normTitle === wdEn ||
+            normTitle === wdOrig)) ||
+        (normOrig &&
+          (normOrig === wdEn || normOrig === wdOrig || normOrig === wdPt))
+      );
+    });
+
+    if (!match) return item;
+
+    const ptName = match.ptTitle || match.title || item.title;
+    const origName =
+      match.originalTitle || match.enTitle || item.originalTitle || '';
+
+    const hasPtTranslation =
+      Boolean(match.ptTitle) &&
+      Boolean(origName) &&
+      normalizeText(match.ptTitle) !== normalizeText(origName);
+
+    const nextTitle =
+      hasPtTranslation &&
+      normalizeText(item.title) === normalizeText(origName)
+        ? ptName
+        : item.title;
+
+    const nextOriginalTitle =
+      origName && normalizeText(origName) !== normalizeText(nextTitle)
+        ? origName
+        : item.originalTitle &&
+            normalizeText(item.originalTitle) !== normalizeText(nextTitle)
+          ? item.originalTitle
+          : '';
+
+    return {
+      ...item,
+      title: nextTitle,
+      originalTitle: nextOriginalTitle,
+      originCountry: item.originCountry || match.originCountry || '',
+      releaseYear: item.releaseYear || match.releaseYear || null,
+      wikidataId: match.wikidataId,
+    };
+  });
+}
+
 function scoreResultRichness(item) {
   return (
     (item.coverUrl ? 4 : 0) +
+    (item.originalTitle ? 1 : 0) +
     (item.totalPages || item.totalChapters ? 2 : 0) +
     (item.isbn ? 2 : 0) +
     (item.doi ? 2 : 0) +
+    (item.openAccessUrl || item.freeEpubUrl ? 2 : 0) +
     (item.author ? 1 : 0) +
     (item.sourceLabel === 'Jikan' && item.workType === 'manga' ? 3 : 0) +
-    (item.sourceLabel === 'CrossRef' && item.workType === 'academic' ? 3 : 0)
+    ((item.sourceLabel === 'CrossRef' || item.sourceLabel === 'OpenAlex') &&
+    item.workType === 'academic'
+      ? 3
+      : 0)
   );
 }
 
@@ -443,6 +798,7 @@ function scoreQueryRelevance(item, query, filter, isbn, doi) {
   let score = scoreResultRichness(item);
   const normQuery = normalizeText(query);
   const normTitle = normalizeText(item.title);
+  const normOriginal = normalizeText(item.originalTitle);
   const normAuthor = normalizeText(item.author);
 
   if (isbn && String(item.isbn || '').replace(/[-\s]/g, '') === isbn) {
@@ -453,9 +809,12 @@ function scoreQueryRelevance(item, query, filter, isbn, doi) {
   }
 
   if (normQuery) {
-    if (normTitle === normQuery) score += 60;
-    else if (normTitle.startsWith(normQuery)) score += 35;
-    else if (normTitle.includes(normQuery)) score += 20;
+    if (normTitle === normQuery || normOriginal === normQuery) score += 60;
+    else if (normTitle.startsWith(normQuery) || normOriginal.startsWith(normQuery)) {
+      score += 35;
+    } else if (normTitle.includes(normQuery) || normOriginal.includes(normQuery)) {
+      score += 20;
+    }
 
     if (normAuthor.includes(normQuery)) score += 12;
   }
@@ -498,16 +857,37 @@ function mergeTwoResults(primary, secondary) {
     ].filter(Boolean))
   );
 
+  const candidateOriginal =
+    winner.originalTitle ||
+    loser.originalTitle ||
+    (normalizeText(winner.title) !== normalizeText(loser.title)
+      ? loser.title
+      : '');
+
   return {
     ...winner,
+    originalTitle:
+      candidateOriginal &&
+      normalizeText(candidateOriginal) !== normalizeText(winner.title)
+        ? candidateOriginal
+        : '',
     author: winner.author || loser.author || '',
     isbn,
     doi,
     issn: winner.issn || loser.issn || '',
     releaseYear: winner.releaseYear || loser.releaseYear || null,
     totalPages: winner.totalPages || loser.totalPages || null,
-    publisher: winner.publisher || loser.publisher || '',
+    publisher: normalizePublisherName(winner.publisher || loser.publisher || ''),
     institution: winner.institution || loser.institution || '',
+    citedByCount: Math.max(
+      Number(winner.citedByCount) || 0,
+      Number(loser.citedByCount) || 0
+    ),
+    openAccessUrl: winner.openAccessUrl || loser.openAccessUrl || '',
+    isOpenAccess: Boolean(winner.isOpenAccess || loser.isOpenAccess),
+    freeEpubUrl: winner.freeEpubUrl || loser.freeEpubUrl || '',
+    isPublicDomain: Boolean(winner.isPublicDomain || loser.isPublicDomain),
+    originCountry: winner.originCountry || loser.originCountry || '',
     genres: winner.genres?.length ? winner.genres : loser.genres || [],
     googleCoverUrl,
     openLibIdCover,
@@ -571,6 +951,7 @@ export function searchMockMedia(query = '', filter = 'all') {
 
   return filteredByType.filter((item) => {
     const inTitle = item.title?.toLowerCase().includes(normalized);
+    const inOrig = item.originalTitle?.toLowerCase().includes(normalized);
     const inAuthor = item.author?.toLowerCase().includes(normalized);
     const inIsbn = item.isbn?.toLowerCase().includes(normalized);
     const inDoi = item.doi?.toLowerCase().includes(normalized);
@@ -578,7 +959,7 @@ export function searchMockMedia(query = '', filter = 'all') {
     const inGenres = item.genres?.some((g) =>
       g.toLowerCase().includes(normalized)
     );
-    return inTitle || inAuthor || inIsbn || inDoi || inFormat || inGenres;
+    return inTitle || inOrig || inAuthor || inIsbn || inDoi || inFormat || inGenres;
   });
 }
 
@@ -666,6 +1047,74 @@ function buildCrossRefUrl(cleanQuery, doi) {
   return url.toString();
 }
 
+function buildOpenAlexUrl(cleanQuery, doi) {
+  if (doi) {
+    const url = new URL(`${OPENALEX_WORKS_URL}/https://doi.org/${encodeURIComponent(doi)}`);
+    url.search = new URLSearchParams({ mailto: CROSSREF_POLITE_MAILTO }).toString();
+    return url.toString();
+  }
+  const url = new URL(OPENALEX_WORKS_URL);
+  url.search = new URLSearchParams({
+    search: cleanQuery,
+    'per-page': '6',
+    mailto: CROSSREF_POLITE_MAILTO,
+  }).toString();
+  return url.toString();
+}
+
+function buildGutendexUrl(cleanQuery) {
+  const url = new URL(GUTENDEX_BOOKS_URL);
+  url.search = new URLSearchParams({
+    search: cleanQuery,
+  }).toString();
+  return url.toString();
+}
+
+function buildWikidataSearchUrl(cleanQuery) {
+  const url = new URL(WIKIDATA_API_URL);
+  url.search = new URLSearchParams({
+    action: 'wbsearchentities',
+    search: cleanQuery,
+    language: 'pt',
+    uselang: 'pt',
+    format: 'json',
+    origin: '*',
+    limit: '6',
+  }).toString();
+  return url.toString();
+}
+
+function buildWikidataEntitiesUrl(ids) {
+  const url = new URL(WIKIDATA_API_URL);
+  url.search = new URLSearchParams({
+    action: 'wbgetentities',
+    ids: ids.join('|'),
+    props: 'labels|descriptions|claims',
+    languages: 'pt|pt-br|en',
+    format: 'json',
+    origin: '*',
+  }).toString();
+  return url.toString();
+}
+
+async function fetchWikidataSource(cleanQuery, defaultWorkType, { signal }) {
+  const searchJson = await fetchJsonWithTimeout(buildWikidataSearchUrl(cleanQuery), {
+    signal,
+  });
+  const ids = Array.isArray(searchJson?.search)
+    ? searchJson.search.map((entry) => entry?.id).filter(Boolean).slice(0, 5)
+    : [];
+  if (ids.length === 0) return [];
+
+  const entitiesJson = await fetchJsonWithTimeout(buildWikidataEntitiesUrl(ids), {
+    signal,
+  });
+  const entitiesObj = entitiesJson?.entities || {};
+  return Object.values(entitiesObj)
+    .map((entity) => mapWikidataEntityToWork(entity, defaultWorkType))
+    .filter(Boolean);
+}
+
 export async function searchMedia(
   query,
   { signal, filter = 'all', skipCache = false } = {}
@@ -703,33 +1152,70 @@ export async function searchMedia(
 
   const sourcePlan = [];
   if (doi) {
-    sourcePlan.push({
-      key: 'crossref',
-      url: buildCrossRefUrl(cleanQuery, doi),
-    });
+    sourcePlan.push(
+      {
+        key: 'crossref',
+        run: () => fetchJsonWithTimeout(buildCrossRefUrl(cleanQuery, doi), { signal }),
+      },
+      {
+        key: 'openalex',
+        run: () => fetchJsonWithTimeout(buildOpenAlexUrl(cleanQuery, doi), { signal }),
+      }
+    );
   } else if (isbn) {
     sourcePlan.push(
-      { key: 'google', url: buildGoogleBooksUrl(cleanQuery, isbn) },
-      { key: 'openlib', url: buildOpenLibraryUrl(cleanQuery, isbn) }
+      {
+        key: 'google',
+        run: () => fetchJsonWithTimeout(buildGoogleBooksUrl(cleanQuery, isbn), { signal }),
+      },
+      {
+        key: 'openlib',
+        run: () => fetchJsonWithTimeout(buildOpenLibraryUrl(cleanQuery, isbn), { signal }),
+      }
     );
   } else {
     sourcePlan.push(
-      { key: 'google', url: buildGoogleBooksUrl(cleanQuery, null) },
-      { key: 'openlib', url: buildOpenLibraryUrl(cleanQuery, null) }
+      {
+        key: 'google',
+        run: () => fetchJsonWithTimeout(buildGoogleBooksUrl(cleanQuery, null), { signal }),
+      },
+      {
+        key: 'openlib',
+        run: () => fetchJsonWithTimeout(buildOpenLibraryUrl(cleanQuery, null), { signal }),
+      },
+      {
+        key: 'wikidata',
+        run: () => fetchWikidataSource(cleanQuery, defaultWorkType, { signal }),
+      }
     );
     if (filter === 'all' || filter === 'manga') {
-      sourcePlan.push({ key: 'jikan', url: buildJikanUrl(cleanQuery) });
+      sourcePlan.push({
+        key: 'jikan',
+        run: () => fetchJsonWithTimeout(buildJikanUrl(cleanQuery), { signal }),
+      });
+    }
+    if (filter === 'all' || filter === 'book') {
+      sourcePlan.push({
+        key: 'gutendex',
+        run: () => fetchJsonWithTimeout(buildGutendexUrl(cleanQuery), { signal }),
+      });
     }
     if (filter === 'all' || filter === 'academic') {
-      sourcePlan.push({
-        key: 'crossref',
-        url: buildCrossRefUrl(cleanQuery, null),
-      });
+      sourcePlan.push(
+        {
+          key: 'crossref',
+          run: () => fetchJsonWithTimeout(buildCrossRefUrl(cleanQuery, null), { signal }),
+        },
+        {
+          key: 'openalex',
+          run: () => fetchJsonWithTimeout(buildOpenAlexUrl(cleanQuery, null), { signal }),
+        }
+      );
     }
   }
 
   const settled = await Promise.allSettled(
-    sourcePlan.map((entry) => fetchJsonWithTimeout(entry.url, { signal }))
+    sourcePlan.map((entry) => entry.run())
   );
 
   const abortErr = settled.find(
@@ -745,6 +1231,9 @@ export async function searchMedia(
     openlib: [],
     jikan: [],
     crossref: [],
+    openalex: [],
+    gutendex: [],
+    wikidata: [],
   };
 
   settled.forEach((res, idx) => {
@@ -771,6 +1260,20 @@ export async function searchMedia(
       } else if (value?.message && value.message.DOI) {
         itemsBySource.crossref = [mapCrossRefWork(value.message)];
       }
+    } else if (sourceKey === 'openalex') {
+      if (Array.isArray(value?.results)) {
+        itemsBySource.openalex = value.results.map(mapOpenAlexWork).filter(Boolean);
+      } else if (value?.id && (value.title || value.display_name)) {
+        const mapped = mapOpenAlexWork(value);
+        if (mapped) itemsBySource.openalex = [mapped];
+      }
+    } else if (sourceKey === 'gutendex' && Array.isArray(value?.results)) {
+      itemsBySource.gutendex = value.results
+        .slice(0, 6)
+        .map((g) => mapGutendexBook(g, defaultWorkType))
+        .filter(Boolean);
+    } else if (sourceKey === 'wikidata' && Array.isArray(value)) {
+      itemsBySource.wikidata = value;
     }
   });
 
@@ -789,15 +1292,34 @@ export async function searchMedia(
     };
   }
 
-  const combined = [
+  const baseCombined = [
     ...itemsBySource.google,
     ...itemsBySource.openlib,
     ...itemsBySource.jikan,
     ...itemsBySource.crossref,
+    ...itemsBySource.openalex,
+    ...itemsBySource.gutendex,
   ];
 
+  const enrichedCombined = enrichBilingualTitles(
+    baseCombined,
+    itemsBySource.wikidata
+  );
+
+  // Só adiciona obras do Wikidata que ainda não existam em outras fontes
+  const existingNormTitles = new Set(
+    enrichedCombined.flatMap((it) =>
+      [normalizeText(it.title), normalizeText(it.originalTitle)].filter(Boolean)
+    )
+  );
+  const uniqueWikidataExtras = itemsBySource.wikidata.filter(
+    (wd) =>
+      !existingNormTitles.has(normalizeText(wd.title)) &&
+      (!wd.originalTitle || !existingNormTitles.has(normalizeText(wd.originalTitle)))
+  );
+
   const merged = deduplicateAndSortResults(
-    combined,
+    [...enrichedCombined, ...uniqueWikidataExtras],
     cleanQuery,
     filter,
     isbn,

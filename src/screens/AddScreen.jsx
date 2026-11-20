@@ -12,6 +12,7 @@ import {
   getStatusConfig,
   getWorkTypeConfig,
 } from '../config/domainConfig';
+import { normalizePublisherName } from '../data/brazilianPublishers';
 import { createUuid } from '../services/codiceDatabase';
 import {
   detectDoiQuery,
@@ -24,6 +25,7 @@ import {
   calculateSmartRating,
   calculateWorkProgress,
   createDefaultReviewCriteria,
+  getDisplayTitles,
   getTodayLocalISO,
   getVerdictForScore,
 } from '../utils/backlogHelpers';
@@ -142,6 +144,9 @@ export function AddScreen({
       .forEach((item) => {
         byId.set(item.id, item);
         byTitle.set(item.title.trim().toLowerCase(), item);
+        if (item.originalTitle) {
+          byTitle.set(item.originalTitle.trim().toLowerCase(), item);
+        }
       });
     return { byId, byTitle };
   }, [items]);
@@ -282,7 +287,14 @@ export function AddScreen({
           totalChapters: item.totalChapters ?? null,
           demographicOrigin: item.demographicOrigin || 'Mangá',
           publicationStatus: item.publicationStatus || 'Em lançamento',
-          publisher: item.publisher || '',
+          originalTitle: item.originalTitle || '',
+          originCountry: item.originCountry || '',
+          openAccessUrl: item.openAccessUrl || '',
+          isOpenAccess: Boolean(item.isOpenAccess),
+          citedByCount: Number(item.citedByCount) || 0,
+          freeEpubUrl: item.freeEpubUrl || '',
+          isPublicDomain: Boolean(item.isPublicDomain),
+          publisher: normalizePublisherName(item.publisher || ''),
           isbn: item.isbn || '',
           doi: item.doi || '',
           issn: item.issn || '',
@@ -336,6 +348,7 @@ export function AddScreen({
         {
           workType: doiDetected ? 'academic' : defaultWorkType,
           title: isbnDetected || doiDetected ? '' : query.trim(),
+          originalTitle: '',
           [cardFields.creator]: '',
           [cardFields.year]: domainConfig.currentYear,
           genresText: '',
@@ -608,9 +621,24 @@ export function AddScreen({
                     />
 
                     <div className="min-w-0 flex-1">
-                      <h2 className="truncate text-sm font-medium text-ink">
-                        {item.title}
-                      </h2>
+                      {(() => {
+                        const titles = getDisplayTitles(item, 'bilingual');
+                        return (
+                          <>
+                            <h2 className="truncate text-sm font-medium text-ink">
+                              {titles.primary}
+                            </h2>
+                            {titles.secondary && (
+                              <p
+                                className="truncate text-[11px] italic"
+                                style={{ color: 'var(--text-secondary)' }}
+                              >
+                                {titles.secondary}
+                              </p>
+                            )}
+                          </>
+                        );
+                      })()}
                       {metaLine && (
                         <p className="mt-0.5 truncate text-xs text-muted">
                           {metaLine}
@@ -618,9 +646,24 @@ export function AddScreen({
                       )}
                       <div className="mt-1 flex flex-wrap items-center gap-1.5">
                         {item.sourceLabel && (
-                          <span className="inline-flex items-center gap-1 rounded-md border border-accent/30 bg-accent/10 px-1.5 py-0.5 text-[10px] font-medium text-accent">
+                          <span className="inline-flex items-center gap-1 rounded-[4px] border border-accent/30 bg-accent/10 px-1.5 py-0.5 text-[10px] font-medium text-accent">
                             <VectorIcon name={workMeta.icon} className="h-2.5 w-2.5" />
                             {item.sourceLabel}
+                          </span>
+                        )}
+                        {item.openAccessUrl && (
+                          <span className="rounded-[4px] border border-accent/40 px-1.5 py-0.5 text-[10px] font-medium text-accent">
+                            PDF Open Access
+                          </span>
+                        )}
+                        {item.citedByCount > 0 && (
+                          <span className="rounded-[4px] border border-line bg-app px-1.5 py-0.5 text-[10px] tabular-nums text-muted">
+                            {item.citedByCount} citações
+                          </span>
+                        )}
+                        {(item.freeEpubUrl || item.isPublicDomain) && (
+                          <span className="rounded-[4px] border border-accent/40 px-1.5 py-0.5 text-[10px] font-medium text-accent">
+                            {item.freeEpubUrl ? 'EPUB Grátis' : 'Domínio Público'}
                           </span>
                         )}
                         {genres.slice(0, 1).map((genre) => (
@@ -701,6 +744,16 @@ export function AddScreen({
                 <h3 className="truncate text-base font-semibold text-ink">
                   {draftItem.title}
                 </h3>
+                {draftItem.originalTitle &&
+                  draftItem.originalTitle.toLowerCase() !==
+                    String(draftItem.title || '').toLowerCase() && (
+                    <p
+                      className="truncate text-xs italic"
+                      style={{ color: 'var(--text-secondary)' }}
+                    >
+                      {draftItem.originalTitle}
+                    </p>
+                  )}
                 {(draftItem[cardFields.creator] || draftItem[cardFields.year]) && (
                   <p className="truncate text-xs text-muted">
                     {[draftItem[cardFields.creator], draftItem[cardFields.year]]
@@ -886,6 +939,24 @@ export function AddScreen({
                   }
                   placeholder={add.manualTitlePlaceholder}
                   className="w-full rounded-xl border border-line bg-app px-3 py-2.5 text-sm text-ink placeholder:text-subtle focus:border-accent focus:outline-none"
+                />
+              </label>
+
+              <label className="block">
+                <span className="mb-1 block text-xs font-medium text-muted">
+                  Título Original (opcional)
+                </span>
+                <input
+                  type="text"
+                  value={manualDraft.originalTitle || ''}
+                  onChange={(e) =>
+                    setManualDraft((prev) => ({
+                      ...prev,
+                      originalTitle: e.target.value,
+                    }))
+                  }
+                  placeholder="Ex: The Name of the Rose / 1984"
+                  className="w-full rounded-xl border border-line bg-app px-3 py-2 text-xs italic text-ink placeholder:not-italic placeholder:text-subtle focus:border-accent focus:outline-none"
                 />
               </label>
 
