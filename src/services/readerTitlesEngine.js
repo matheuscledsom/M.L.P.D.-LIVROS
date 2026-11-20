@@ -316,22 +316,89 @@ const GENRE_TITLES = GENRE_CDD_TEMPLATES.flatMap((topic) =>
   }))
 );
 
-const MILESTONE_SPEC_DEFS = [
-  // Bibliotecário & Catalogação
+export function toLocalDateKey(input = new Date()) {
+  const dt = input instanceof Date ? input : new Date(input);
+  if (Number.isNaN(dt.getTime())) return null;
+  const y = dt.getFullYear();
+  const m = String(dt.getMonth() + 1).padStart(2, '0');
+  const d = String(dt.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+export function computeConsecutiveReadingDays(
+  readingSessions = [],
+  nowDate = new Date()
+) {
+  const list = Array.isArray(readingSessions) ? readingSessions : [];
+  const daySet = new Set();
+  for (const s of list) {
+    const rawDate = s?.endedAt || s?.startedAt || s?.createdAt;
+    if (!rawDate) continue;
+    const key = toLocalDateKey(rawDate);
+    if (key) daySet.add(key);
+  }
+  if (daySet.size === 0) return 0;
+
+  const baseNow = nowDate instanceof Date ? nowDate : new Date(nowDate);
+  if (Number.isNaN(baseNow.getTime())) return 0;
+
+  const today = new Date(baseNow.getFullYear(), baseNow.getMonth(), baseNow.getDate());
+  const todayKey = toLocalDateKey(today);
+  const yesterday = new Date(today);
+  yesterday.setDate(yesterday.getDate() - 1);
+  const yesterdayKey = toLocalDateKey(yesterday);
+
+  let cursor = daySet.has(todayKey)
+    ? today
+    : daySet.has(yesterdayKey)
+      ? yesterday
+      : null;
+
+  if (!cursor) return 0;
+
+  let streak = 0;
+  while (cursor) {
+    const key = toLocalDateKey(cursor);
+    if (!key || !daySet.has(key)) break;
+    streak += 1;
+    cursor = new Date(cursor.getFullYear(), cursor.getMonth(), cursor.getDate() - 1);
+  }
+  return streak;
+}
+
+export function computeSafeBadgeProgress(current, target) {
+  const safeTarget = Math.max(0, Number(target) || 0);
+  const safeCurrent = Math.max(0, Number(current) || 0);
+  if (safeTarget <= 0) return 0;
+  return Math.min(100, Math.round((safeCurrent / safeTarget) * 100));
+}
+
+export const BADGE_RULES = [
+  // Catalogação & Acervo
   {
     prefix: 'bib',
     category: 'library',
     iconName: 'BookMarked',
     tiers: [
-      { id: 'iniciante', name: 'Catalogador Aprendiz', target: 1, desc: 'Catalogue sua primeira obra no acervo.' },
+      { id: 'iniciante', name: 'Catalogador Aprendiz', target: 1, desc: 'Catalogue sua primeira obra no acervo.', useAllWorks: true },
       { id: 'veterano', name: 'Bibliotecário Rigoroso', target: 5, desc: 'Tenha 5 obras com CDD/CDU e notação Cutter preenchidos.' },
       { id: 'mestre', name: 'Curador de Acervo', target: 15, desc: 'Mantenha 15 obras com classificação CDD e Cutter completa.' },
       { id: 'arquivista', name: 'Diretor de Biblioteca', target: 35, desc: 'Catalogação rigorosa em 35 obras da coleção.' },
     ],
-    measure: (ctx, tierIdx) =>
-      tierIdx === 0
-        ? ctx.backlogItems.length
-        : ctx.backlogItems.filter((i) => Boolean(i.cdu_cdd && i.cutter)).length,
+    measure: (stats, tier) =>
+      tier?.useAllWorks ? stats.catalogedWorksCount : stats.classifiedWorksCount,
+  },
+  // Sessões concluídas
+  {
+    prefix: 'sessions',
+    category: 'library',
+    iconName: 'Clock',
+    tiers: [
+      { id: 'iniciante', name: 'Primeira Sessão', target: 1, desc: 'Conclua 1 sessão de leitura registrada.' },
+      { id: 'veterano', name: 'Ritmo Constante', target: 5, desc: 'Conclua 5 sessões de leitura.' },
+      { id: 'mestre', name: 'Sessões Disciplinadas', target: 20, desc: 'Conclua 20 sessões de leitura.' },
+    ],
+    measure: (stats) => stats.completedSessionsCount,
   },
   // Citações
   {
@@ -344,7 +411,7 @@ const MILESTONE_SPEC_DEFS = [
       { id: 'mestre', name: 'Caçador de Citações II', target: 50, desc: 'Acumule 50 citações no cofre de pesquisa.' },
       { id: 'arquivista', name: 'Arquivo Vivo de Citações', target: 100, desc: 'Atinja a marca de 100 citações catalogadas.' },
     ],
-    measure: (ctx) => ctx.totalQuotesCount,
+    measure: (stats) => stats.totalQuotesCount,
   },
   // Crítico & Resenhas
   {
@@ -357,9 +424,9 @@ const MILESTONE_SPEC_DEFS = [
       { id: 'mestre', name: 'Crítico Consistente II', target: 15, desc: 'Registre 15 resenhas ou avaliações no acervo.' },
       { id: 'arquivista', name: 'Crítico Literário Titular', target: 30, desc: 'Acumule 30 obras avaliadas criticamente.' },
     ],
-    measure: (ctx) => ctx.reviewedWorksCount,
+    measure: (stats) => stats.reviewedWorksCount,
   },
-  // Constância / Sequência
+  // Constância / Dias seguidos
   {
     prefix: 'streak',
     category: 'library',
@@ -370,7 +437,7 @@ const MILESTONE_SPEC_DEFS = [
       { id: 'mestre', name: 'Disciplina de Ferro', target: 21, desc: 'Sustente 21 dias seguidos de leitura.' },
       { id: 'arquivista', name: 'Guardião da Constância', target: 60, desc: 'Mantenha 60 dias de sequência ativa.' },
     ],
-    measure: (ctx) => ctx.streakCount,
+    measure: (stats) => stats.streakCount,
   },
   // Páginas lidas
   {
@@ -383,7 +450,7 @@ const MILESTONE_SPEC_DEFS = [
       { id: 'mestre', name: 'Maratonista de Páginas', target: 10000, desc: 'Ultrapasse 10.000 páginas lidas.' },
       { id: 'arquivista', name: 'Lendário das Letras', target: 25000, desc: 'Supere 25.000 páginas lidas acumuladas.' },
     ],
-    measure: (ctx) => ctx.totalPagesRead,
+    measure: (stats) => stats.totalPagesRead,
   },
   // Bilíngue
   {
@@ -395,9 +462,9 @@ const MILESTONE_SPEC_DEFS = [
       { id: 'veterano', name: 'Poliglota do Acervo', target: 5, desc: 'Mantenha 5 obras com catalogação bilíngue PT-BR/Original.' },
       { id: 'mestre', name: 'Tradutor de Horizontes', target: 15, desc: 'Catalogue 15 obras com edição ou título original preservado.' },
     ],
-    measure: (ctx) => ctx.bilingualCount,
+    measure: (stats) => stats.bilingualCount,
   },
-  // Social: Mural, Chat, Feed
+  // Social: Mural, Chat, Diário
   {
     prefix: 'wall',
     category: 'library',
@@ -407,7 +474,7 @@ const MILESTONE_SPEC_DEFS = [
       { id: 'veterano', name: 'Anfitrião de Mural', target: 5, desc: 'Acumule 5 recados no mural literário.' },
       { id: 'mestre', name: 'Salão Literário', target: 15, desc: 'Acumule 15 trocas no mural.' },
     ],
-    measure: (ctx) => ctx.wallPostsCount,
+    measure: (stats) => stats.wallPostsCount,
   },
   {
     prefix: 'chat',
@@ -418,7 +485,7 @@ const MILESTONE_SPEC_DEFS = [
       { id: 'veterano', name: 'Curador de Chat', target: 5, desc: 'Compartilhe 5 mensagens ou recomendações no chat.' },
       { id: 'mestre', name: 'Conselheiro Literário', target: 20, desc: 'Acumule 20 interações no chat entre leitores.' },
     ],
-    measure: (ctx) => ctx.chatMessagesCount,
+    measure: (stats) => stats.chatMessagesCount,
   },
   {
     prefix: 'journal',
@@ -429,9 +496,9 @@ const MILESTONE_SPEC_DEFS = [
       { id: 'veterano', name: 'Cronista Social', target: 5, desc: 'Publique 5 registros no Diário.' },
       { id: 'mestre', name: 'Memorialista', target: 15, desc: 'Publique 15 entradas no Diário.' },
     ],
-    measure: (ctx) => ctx.postsCount,
+    measure: (stats) => stats.postsCount,
   },
-  // Hábitos de Leitura Digital & Noturna (E-Ink + Coruja da Madrugada)
+  // Leitura Digital & Noturna
   {
     prefix: 'owl',
     category: 'library',
@@ -441,7 +508,7 @@ const MILESTONE_SPEC_DEFS = [
       { id: 'veterano', name: 'Coruja da Madrugada', target: 5, desc: 'Registre 5 sessões noturnas após as 23h00.' },
       { id: 'mestre', name: 'Insone dos Livros', target: 15, desc: 'Complete 15 leituras pela madrugada.' },
     ],
-    measure: (ctx) => ctx.lateNightSessionsCount,
+    measure: (stats) => stats.lateNightSessionsCount,
   },
   {
     prefix: 'eink',
@@ -452,7 +519,7 @@ const MILESTONE_SPEC_DEFS = [
       { id: 'veterano', name: 'Viajante E-Ink', target: 5, desc: 'Utilize progresso flexível ou estante offline em 5 obras.' },
       { id: 'mestre', name: 'Nômade dos EPUBs', target: 15, desc: 'Mantenha 15 leituras digitais integradas ao Códice.' },
     ],
-    measure: (ctx) => ctx.digitalOrFlexibleCount,
+    measure: (stats) => stats.digitalOrFlexibleCount,
   },
   // Editoras Brasileiras & Acesso Aberto
   {
@@ -463,7 +530,7 @@ const MILESTONE_SPEC_DEFS = [
       { id: 'veterano', name: 'Apoiador Nacional', target: 5, desc: 'Catalogue 5 obras de editoras brasileiras.' },
       { id: 'mestre', name: 'Colecionador Nacional', target: 15, desc: 'Catalogue 15 obras com editoras brasileiras normalizadas.' },
     ],
-    measure: (ctx) => ctx.brPublisherCount,
+    measure: (stats) => stats.brPublisherCount,
   },
   {
     prefix: 'openaccess',
@@ -472,24 +539,41 @@ const MILESTONE_SPEC_DEFS = [
     tiers: [
       { id: 'veterano', name: 'Explorador Open Access', target: 3, desc: 'Catalogue 3 obras em domínio público ou acesso aberto.' },
     ],
-    measure: (ctx) => ctx.openAccessCount,
+    measure: (stats) => stats.openAccessCount,
   },
-];
-
-const MILESTONE_TITLES = MILESTONE_SPEC_DEFS.flatMap((group) =>
-  group.tiers.map((tier, tierIdx) => ({
+].map((group) => ({
+  ...group,
+  tiers: group.tiers.map((tier) => ({
+    ...tier,
     id: `${group.prefix}_${tier.id}`,
+    evaluate: (stats) => {
+      const progress = Math.max(0, Number(group.measure(stats, tier)) || 0);
+      const target = Math.max(1, Number(tier.target) || 1);
+      return {
+        earned: progress >= target,
+        progress,
+        target,
+      };
+    },
+  })),
+}));
+
+const MILESTONE_TITLES = BADGE_RULES.flatMap((group) =>
+  group.tiers.map((tier) => ({
+    id: tier.id,
     name: tier.name,
     category: group.category,
-    tier: tier.id,
+    tier: tier.id.split('_').pop(),
     iconName: group.iconName,
     description: tier.desc,
-    evaluate: (ctx) => {
-      const current = Math.max(0, Number(group.measure(ctx, tierIdx)) || 0);
+    evaluate: (stats) => {
+      const res = tier.evaluate(stats);
       return {
-        current,
-        target: tier.target,
-        unlocked: current >= tier.target,
+        earned: Boolean(res.earned),
+        progress: res.progress,
+        target: res.target,
+        current: res.progress,
+        unlocked: Boolean(res.earned),
       };
     },
   }))
@@ -579,15 +663,15 @@ export function detectLivingReaderTitle(activeReadingItems = []) {
   };
 }
 
-export function evaluateReaderTitles({
+export function buildReaderUsageStats({
   items = [],
-  profile = null,
   readingSessions = [],
   streakCount = 0,
   posts = [],
   wallPostsCount = 0,
   chatMessagesCount = 0,
   storedReaderBooksCount = 0,
+  nowDate = new Date(),
 } = {}) {
   const backlogItems = (Array.isArray(items) ? items : []).filter(
     (i) => i && i.inBacklog !== false
@@ -595,6 +679,7 @@ export function evaluateReaderTitles({
   const activeReadingItems = backlogItems.filter(
     (i) => i.status === 'playing' || i.status === 'reading'
   );
+  const sessions = Array.isArray(readingSessions) ? readingSessions : [];
 
   const totalQuotesCount = backlogItems.reduce(
     (sum, i) => sum + (Array.isArray(i.quotes) ? i.quotes.length : 0),
@@ -605,7 +690,7 @@ export function evaluateReaderTitles({
       typeof i.rating === 'number' ||
       (typeof i.notes === 'string' && i.notes.trim().length > 0)
   ).length;
-  const totalPagesRead = backlogItems.reduce((sum, i) => {
+  const itemPagesRead = backlogItems.reduce((sum, i) => {
     if (i.status === 'completed') {
       return sum + Math.max(0, Number(i.totalPages) || Number(i.currentPage) || 0);
     }
@@ -614,13 +699,32 @@ export function evaluateReaderTitles({
     }
     return sum;
   }, 0);
+  const sessionPagesRead = sessions.reduce(
+    (sum, s) => sum + Math.max(0, Number(s?.pagesRead) || 0),
+    0
+  );
+  const totalPagesRead = Math.max(itemPagesRead, sessionPagesRead);
+  const completedSessionsCount = sessions.filter(
+    (s) =>
+      s &&
+      (Boolean(s.endedAt) ||
+        Number(s.durationSeconds) > 0 ||
+        Number(s.pagesRead) > 0)
+  ).length;
+
+  const computedSessionDays = computeConsecutiveReadingDays(sessions, nowDate);
+  const effectiveStreak = Math.max(
+    Math.max(0, Number(streakCount) || 0),
+    computedSessionDays
+  );
+
   const bilingualCount = backlogItems.filter(
     (i) =>
       Boolean(i.originalTitle) &&
       norm(i.originalTitle) !== norm(i.title)
   ).length;
-  const lateNightSessionsCount = (Array.isArray(readingSessions) ? readingSessions : []).filter(
-    (s) => isLateNightIso(s?.startedAt || s?.endedAt || s?.createdAt)
+  const lateNightSessionsCount = sessions.filter((s) =>
+    isLateNightIso(s?.startedAt || s?.endedAt || s?.createdAt)
   ).length;
   const flexibleWorksCount = backlogItems.filter(
     (i) => i.progressMode === 'percent' || i.progressMode === 'loc'
@@ -632,35 +736,101 @@ export function evaluateReaderTitles({
   const brPublisherCount = backlogItems.filter((i) => {
     const raw = String(i.publisher || '').trim();
     if (!raw) return false;
-    const normalized = normalizePublisherName(raw);
-    return Boolean(normalized);
+    return Boolean(normalizePublisherName(raw));
   }).length;
   const openAccessCount = backlogItems.filter(
     (i) => Boolean(i.openAccessUrl || i.freeEpubUrl || i.isPublicDomain)
   ).length;
+  const classifiedWorksCount = backlogItems.filter((i) =>
+    Boolean(i.cdu_cdd && i.cutter)
+  ).length;
 
-  const ctx = {
+  return {
     backlogItems,
     activeReadingItems,
+    catalogedWorksCount: backlogItems.length,
+    classifiedWorksCount,
+    completedSessionsCount,
     totalQuotesCount,
     reviewedWorksCount,
-    streakCount: Number(streakCount) || 0,
+    streakCount: effectiveStreak,
     totalPagesRead,
     bilingualCount,
-    wallPostsCount: Number(wallPostsCount) || 0,
-    chatMessagesCount: Number(chatMessagesCount) || 0,
+    wallPostsCount: Math.max(0, Number(wallPostsCount) || 0),
+    chatMessagesCount: Math.max(0, Number(chatMessagesCount) || 0),
     postsCount: Array.isArray(posts) ? posts.length : 0,
     lateNightSessionsCount,
     digitalOrFlexibleCount,
     brPublisherCount,
     openAccessCount,
   };
+}
+
+export function canPinTitleBadge(badgeOrId, catalog = []) {
+  if (!badgeOrId || badgeOrId === 'auto') return true;
+  const targetId = typeof badgeOrId === 'object' ? badgeOrId.id : badgeOrId;
+  const targetName = typeof badgeOrId === 'object' ? badgeOrId.name : badgeOrId;
+  if (Array.isArray(catalog) && catalog.length > 0) {
+    const match = catalog.find(
+      (b) => b.id === targetId || b.name === targetName
+    );
+    return Boolean(match && match.unlocked);
+  }
+  return typeof badgeOrId === 'object' ? Boolean(badgeOrId.unlocked) : false;
+}
+
+export function pinTitleBadge(profile, badgeOrId, catalog = []) {
+  if (!badgeOrId || badgeOrId === 'auto') {
+    return { allowed: true, activeTitleBadge: 'auto', reason: '' };
+  }
+  const targetId = typeof badgeOrId === 'object' ? badgeOrId.id : badgeOrId;
+  const targetName = typeof badgeOrId === 'object' ? badgeOrId.name : badgeOrId;
+  const match = Array.isArray(catalog)
+    ? catalog.find((b) => b.id === targetId || b.name === targetName)
+    : null;
+
+  if (!match || !match.unlocked) {
+    return {
+      allowed: false,
+      activeTitleBadge: profile?.activeTitleBadge || 'auto',
+      reason: 'Conquiste esta insígnia antes de fixá-la no perfil.',
+    };
+  }
+  return {
+    allowed: true,
+    activeTitleBadge: match.name,
+    reason: '',
+  };
+}
+
+export function evaluateReaderTitles({
+  items = [],
+  profile = null,
+  readingSessions = [],
+  streakCount = 0,
+  posts = [],
+  wallPostsCount = 0,
+  chatMessagesCount = 0,
+  storedReaderBooksCount = 0,
+  nowDate = new Date(),
+} = {}) {
+  const stats = buildReaderUsageStats({
+    items,
+    readingSessions,
+    streakCount,
+    posts,
+    wallPostsCount,
+    chatMessagesCount,
+    storedReaderBooksCount,
+    nowDate,
+  });
 
   const catalog = READER_TITLES_CATALOG.map((entry) => {
-    const evalRes = entry.evaluate(ctx);
-    const target = Math.max(1, Number(evalRes.target) || 1);
-    const current = Math.max(0, Number(evalRes.current) || 0);
-    const progressPct = Math.min(100, Math.round((current / target) * 100));
+    const evalRes = entry.evaluate(stats);
+    const target = Math.max(0, Number(evalRes.target) || 1);
+    const current = Math.max(0, Number(evalRes.progress ?? evalRes.current) || 0);
+    const earned = Boolean(evalRes.earned ?? evalRes.unlocked);
+    const progressPct = computeSafeBadgeProgress(current, target);
     return {
       id: entry.id,
       name: entry.name,
@@ -669,31 +839,28 @@ export function evaluateReaderTitles({
       iconName: entry.iconName,
       description: entry.description,
       current,
+      progress: current,
       target,
-      unlocked: Boolean(evalRes.unlocked),
+      earned,
+      unlocked: earned,
       progressPct,
     };
   });
 
   const unlockedList = catalog.filter((b) => b.unlocked);
-  const livingTitle = detectLivingReaderTitle(activeReadingItems);
+  const livingTitle = detectLivingReaderTitle(stats.activeReadingItems);
 
   const pinnedRaw = String(profile?.activeTitleBadge || '').trim();
-  const isAutoMode = !pinnedRaw || pinnedRaw === 'auto';
-  const pinnedMatch = !isAutoMode
-    ? catalog.find((b) => b.id === pinnedRaw || b.name === pinnedRaw) || {
-        id: pinnedRaw,
-        name: pinnedRaw,
-        category: 'library',
-        tier: 'fixado',
-        iconName: 'Award',
-        description: 'Título fixado manualmente.',
-        unlocked: true,
-        current: 1,
-        target: 1,
-        progressPct: 100,
-      }
+  const hasSavedPin = Boolean(pinnedRaw && pinnedRaw !== 'auto');
+  const matchedPin = hasSavedPin
+    ? catalog.find((b) => b.id === pinnedRaw || b.name === pinnedRaw) || null
     : null;
+
+  // Se uma insígnia ativa salva (dado antigo) estiver bloqueada ou inválida, limpa a seleção
+  const isPinnedValid = Boolean(matchedPin && matchedPin.unlocked);
+  const stalePinnedCleared = hasSavedPin && !isPinnedValid;
+  const isAutoMode = !hasSavedPin || stalePinnedCleared;
+  const pinnedMatch = isPinnedValid ? matchedPin : null;
 
   const fallbackBadge =
     unlockedList[unlockedList.length - 1] || {
@@ -704,7 +871,9 @@ export function evaluateReaderTitles({
       iconName: 'BookOpen',
       description: 'Inicie uma leitura para desbloquear títulos dinâmicos.',
       unlocked: true,
+      earned: true,
       current: 1,
+      progress: 1,
       target: 1,
       progressPct: 100,
     };
@@ -712,11 +881,14 @@ export function evaluateReaderTitles({
   const resolvedActiveBadge = pinnedMatch || livingTitle || fallbackBadge;
 
   return {
+    stats,
     catalog,
     unlockedCount: unlockedList.length,
     totalCount: catalog.length,
     livingTitle,
     resolvedActiveBadge,
     isAutoMode,
+    stalePinnedCleared,
+    sanitizedActiveTitleBadge: isAutoMode ? 'auto' : pinnedMatch.name,
   };
 }

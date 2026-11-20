@@ -219,10 +219,16 @@ CREATE TABLE IF NOT EXISTS public.follows (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   follower_id uuid NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
   following_id uuid NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
+  status text NOT NULL DEFAULT 'approved'
+    CHECK (status IN ('pending', 'approved')),
   created_at timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT follows_no_self_chk CHECK (follower_id <> following_id),
   CONSTRAINT follows_unique_pair UNIQUE (follower_id, following_id)
 );
+
+ALTER TABLE public.follows
+  ADD COLUMN IF NOT EXISTS status text NOT NULL DEFAULT 'approved'
+  CHECK (status IN ('pending', 'approved'));
 
 CREATE INDEX IF NOT EXISTS idx_follows_following
   ON public.follows (following_id);
@@ -231,7 +237,7 @@ CREATE TABLE IF NOT EXISTS public.wall_posts (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   profile_id uuid NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
   author_id uuid NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
-  content text NOT NULL CHECK (char_length(trim(content)) > 0),
+  content text NOT NULL CHECK (char_length(trim(content)) > 0 AND char_length(content) <= 2000),
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
@@ -266,7 +272,7 @@ CREATE TABLE IF NOT EXISTS public.post_comments (
   author_id uuid NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
   journal_entry_id uuid REFERENCES public.journal_entries(id) ON DELETE CASCADE,
   wall_post_id uuid REFERENCES public.wall_posts(id) ON DELETE CASCADE,
-  content text NOT NULL CHECK (char_length(trim(content)) > 0),
+  content text NOT NULL CHECK (char_length(trim(content)) > 0 AND char_length(content) <= 2000),
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT post_comments_single_target_chk CHECK (
@@ -287,7 +293,7 @@ CREATE TABLE IF NOT EXISTS public.direct_messages (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   sender_id uuid NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
   recipient_id uuid NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
-  content text NOT NULL CHECK (char_length(trim(content)) > 0),
+  content text NOT NULL CHECK (char_length(trim(content)) > 0 AND char_length(content) <= 2000),
   read_at timestamptz,
   created_at timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT direct_messages_no_self_chk CHECK (sender_id <> recipient_id)
@@ -336,6 +342,7 @@ AS $$
               FROM public.follows f
               WHERE f.follower_id = viewer_id
                 AND f.following_id = target_profile_id
+                AND f.status = 'approved'
             )
           )
         )
@@ -370,7 +377,7 @@ AS $$
             AND p_viewer IS NOT NULL
             AND EXISTS (
               SELECT 1 FROM public.follows f
-              WHERE f.follower_id = p_viewer AND f.following_id = j.user_id
+              WHERE f.follower_id = p_viewer AND f.following_id = j.user_id AND f.status = 'approved'
             )
           )
           OR (
@@ -603,7 +610,7 @@ CREATE POLICY journal_entries_select_policy ON public.journal_entries
       AND auth.uid() IS NOT NULL
       AND EXISTS (
         SELECT 1 FROM public.follows f
-        WHERE f.follower_id = auth.uid() AND f.following_id = user_id
+        WHERE f.follower_id = auth.uid() AND f.following_id = user_id AND f.status = 'approved'
       )
     )
     OR (
@@ -634,9 +641,13 @@ CREATE POLICY follows_insert_policy ON public.follows
     )
   );
 
+DROP POLICY IF EXISTS follows_update_policy ON public.follows;
+CREATE POLICY follows_update_policy ON public.follows
+  FOR UPDATE USING (auth.uid() = following_id) WITH CHECK (auth.uid() = following_id);
+
 DROP POLICY IF EXISTS follows_delete_policy ON public.follows;
 CREATE POLICY follows_delete_policy ON public.follows
-  FOR DELETE USING (auth.uid() = follower_id);
+  FOR DELETE USING (auth.uid() = follower_id OR auth.uid() = following_id);
 
 -- wall_posts
 DROP POLICY IF EXISTS wall_posts_select_policy ON public.wall_posts;

@@ -2,11 +2,14 @@ import { Award, BookOpen, Heart, MessageCircle, Send, Trash2 } from 'lucide-reac
 import { useCallback, useEffect, useState } from 'react';
 import { useToast } from '../../context/ToastContext';
 import {
+  MAX_SOCIAL_MESSAGE_CHARS,
   addSocialComment,
   deleteSocialComment,
   listActivityFeed,
   togglePostReaction,
 } from '../../services/codiceBackend';
+
+const PAGE_SIZE = 20;
 
 function formatActivityDate(iso) {
   if (!iso) return '';
@@ -26,6 +29,7 @@ export function ActivityFeed({
 }) {
   const { showToast } = useToast();
   const [feed, setFeed] = useState([]);
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const [isLoading, setIsLoading] = useState(false);
   const [expandedComments, setExpandedComments] = useState({});
   const [commentDrafts, setCommentDrafts] = useState({});
@@ -136,9 +140,12 @@ export function ActivityFeed({
     );
   }
 
+  const visibleFeed = feed.slice(0, visibleCount);
+  const remainingCount = Math.max(0, feed.length - visibleFeed.length);
+
   return (
     <div className="space-y-3">
-      {feed.map((entry) => {
+      {visibleFeed.map((entry) => {
         const owner = entry.ownerProfile || {};
         const commentsOpen = Boolean(expandedComments[entry.id]);
         const commentList = entry.comments || [];
@@ -284,6 +291,7 @@ export function ActivityFeed({
                   <div className="flex gap-1.5">
                     <input
                       type="text"
+                      maxLength={MAX_SOCIAL_MESSAGE_CHARS}
                       value={commentDrafts[entry.id] || ''}
                       onChange={(e) =>
                         setCommentDrafts((prev) => ({
@@ -298,13 +306,13 @@ export function ActivityFeed({
                         }
                       }}
                       placeholder="Escrever comentário..."
-                      className="flex-1 rounded-[4px] border border-line bg-app px-2.5 py-1.5 text-xs text-ink placeholder:text-subtle focus:border-accent focus:outline-none"
+                      className="min-h-[44px] flex-1 rounded-[4px] border border-line bg-app px-2.5 py-1.5 text-xs text-ink placeholder:text-subtle focus:border-accent focus:outline-none"
                     />
                     <button
                       type="button"
                       onClick={() => handleAddComment(entry)}
                       aria-label="Enviar comentário"
-                      className="inline-flex min-h-[34px] items-center justify-center rounded-[4px] bg-accent px-2.5 text-accent-ink"
+                      className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-[4px] bg-accent px-2.5 text-accent-ink"
                     >
                       <Send className="h-3.5 w-3.5" strokeWidth={1.5} />
                     </button>
@@ -319,6 +327,16 @@ export function ActivityFeed({
           </article>
         );
       })}
+
+      {remainingCount > 0 && (
+        <button
+          type="button"
+          onClick={() => setVisibleCount((prev) => prev + PAGE_SIZE)}
+          className="min-h-[44px] w-full rounded-[4px] border border-line bg-card py-2 text-xs font-medium text-ink hover:border-accent hover:text-accent tabular-nums"
+        >
+          Carregar mais ({remainingCount} restantes)
+        </button>
+      )}
     </div>
   );
 }

@@ -1,130 +1,66 @@
 import {
   Award,
-  Bookmark,
-  BookMarked,
-  BookOpen,
   Camera,
-  Cloud,
-  Database,
-  FileSpreadsheet,
   Film,
-  Globe,
-  Grid3X3,
-  HardDrive,
   Layers,
   Link2,
-  Lock,
-  MessageSquare,
-  MessagesSquare,
-  Palette,
   PenLine,
   Plus,
   Settings,
-  Shield,
-  Sparkles,
+  Share2,
   Star,
-  Trophy,
-  Upload,
-  UserCheck,
-  Users,
-  Volume2,
-  VolumeX,
+  X,
   Zap,
 } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AiProvidersPanel } from '../components/AiProvidersPanel';
+import { BadgesGallery } from '../components/BadgesGallery';
 import { CoverArt } from '../components/CoverArt';
 import { PostDetailModal } from '../components/PostDetailModal';
 import { ProfileEditModal } from '../components/ProfileEditModal';
+import { ProfileSettingsDrawer } from '../components/ProfileSettingsDrawer';
 import { ReleaseHistoryModal } from '../components/ReleaseHistoryModal';
 import { ThemeModal } from '../components/ThemeModal';
 import { TitlesBadgesModal } from '../components/TitlesBadgesModal';
-import { VectorIcon } from '../components/VectorIcon';
 import { ProfileWall } from '../components/social/ProfileWall';
 import { domainConfig } from '../config/domainConfig';
 import { CODICE_RELEASE } from '../config/versioning';
+import { useToast } from '../context/ToastContext';
 import { useAiConfig } from '../hooks/useAiConfig';
-import { evaluateReaderTitles } from '../services/readerTitlesEngine';
-import { getHypeMeta, getPagesRead } from '../utils/backlogHelpers';
+import {
+  buildInviteShareUrl,
+  getFollowSummaryLists,
+} from '../services/codiceBackend';
+import {
+  evaluateReaderTitles,
+  pinTitleBadge,
+} from '../services/readerTitlesEngine';
+import { getPagesRead } from '../utils/backlogHelpers';
 import {
   isSoundEnabled,
   playTactileSound,
   setSoundEnabled,
 } from '../utils/soundEffects';
 
-const TAB_ICONS = {
-  Grid3X3,
-  Trophy,
-  Bookmark,
-  MessageSquare,
-};
+const PROFILE_TAB_SESSION_KEY = 'codice_profile_active_tab_v1';
+const PAGE_SIZE = 20;
 
-const VISIBILITY_OPTIONS = [
-  {
-    id: 'public',
-    label: 'Público',
-    description: 'Qualquer leitor no Códice pode ver seu perfil e estante.',
-    icon: Globe,
-  },
-  {
-    id: 'followers',
-    label: 'Apenas Seguidores',
-    description: 'Somente quem segue você acompanha suas atividades.',
-    icon: Users,
-  },
-  {
-    id: 'private',
-    label: 'Privado',
-    description: 'Arquivo pessoal reservado apenas para você.',
-    icon: Lock,
-  },
-];
+const PROFILE_TABS_IDS = ['journal', 'wall', 'shelf', 'badges'];
 
-function PrivacySwitchRow({ icon: Icon, label, description, checked, onToggle }) {
-  return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={checked}
-      onClick={onToggle}
-      className="flex min-h-[44px] w-full items-center justify-between gap-3 rounded-xl border border-line bg-app px-3 py-2.5 text-left transition-colors hover:border-accent/50"
-    >
-      <div className="flex min-w-0 items-start gap-2.5">
-        <Icon className="mt-0.5 h-4 w-4 shrink-0 text-accent" strokeWidth={1.5} />
-        <div className="min-w-0">
-          <span className="block text-xs font-medium text-ink">{label}</span>
-          {description && (
-            <span className="mt-0.5 block text-[11px] leading-snug text-muted">
-              {description}
-            </span>
-          )}
-        </div>
-      </div>
-
-      <span
-        aria-hidden="true"
-        className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full border transition-colors ${
-          checked
-            ? 'border-accent bg-accent'
-            : 'border-line bg-elevated'
-        }`}
-      >
-        <span
-          className={`inline-block h-4 w-4 rounded-full transition-transform ${
-            checked
-              ? 'translate-x-5.5 bg-accent-ink'
-              : 'translate-x-1 bg-subtle'
-          }`}
-        />
-      </span>
-    </button>
-  );
+function loadSessionActiveTab() {
+  try {
+    if (typeof sessionStorage === 'undefined') return 'journal';
+    const raw = sessionStorage.getItem(PROFILE_TAB_SESSION_KEY);
+    return PROFILE_TABS_IDS.includes(raw) ? raw : 'journal';
+  } catch {
+    return 'journal';
+  }
 }
 
 export function ProfileScreen({
-  items,
+  items = [],
   profile,
-  posts,
+  posts = [],
   readingSessions = [],
   streakCount = 0,
   viewerId = null,
@@ -154,14 +90,23 @@ export function ProfileScreen({
   onWallMutated,
   onSelectPeerProfile,
 }) {
+  const { showToast } = useToast();
   const { ui, cardFields } = domainConfig;
   const { profile: profileCfg } = ui;
-  const [activeTab, setActiveTab] = useState(profileCfg.tabs[0].id);
-  const [menuOpen, setMenuOpen] = useState(false);
+
+  const [activeTab, setActiveTab] = useState(loadSessionActiveTab);
+  const [journalLimit, setJournalLimit] = useState(PAGE_SIZE);
+  const [shelfLimit, setShelfLimit] = useState(PAGE_SIZE);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [themeModalOpen, setThemeModalOpen] = useState(false);
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [titlesModalOpen, setTitlesModalOpen] = useState(false);
   const [releaseModalOpen, setReleaseModalOpen] = useState(false);
+  const [connectionsModal, setConnectionsModal] = useState(null);
+  const [followSummary, setFollowSummary] = useState({
+    followers: [],
+    following: [],
+  });
   const [selectedPostId, setSelectedPostId] = useState(null);
   const [feedback, setFeedback] = useState(null);
   const [soundOn, setSoundOn] = useState(isSoundEnabled);
@@ -169,50 +114,77 @@ export function ProfileScreen({
   const localAiConfig = useAiConfig();
   const resolvedAiConfig = aiConfig || localAiConfig;
   const hasAnyAiConfigured = Boolean(
-    hasGeminiKey ||
-      resolvedAiConfig.hasAnyAiKey ||
-      geminiKey
+    hasGeminiKey || resolvedAiConfig.hasAnyAiKey || geminiKey
   );
 
-  const menuRef = useRef(null);
   const fileInputRef = useRef(null);
+  const settingsBtnRef = useRef(null);
+  const connectionsReturnRef = useRef(null);
+  const tabRefs = useRef([]);
 
   useEffect(() => {
-    if (!menuOpen) return;
-    const handleOutsideClick = (event) => {
-      if (menuRef.current && !menuRef.current.contains(event.target)) {
-        setMenuOpen(false);
+    try {
+      if (typeof sessionStorage !== 'undefined') {
+        sessionStorage.setItem(PROFILE_TAB_SESSION_KEY, activeTab);
       }
-    };
-    document.addEventListener('mousedown', handleOutsideClick);
-    return () => document.removeEventListener('mousedown', handleOutsideClick);
-  }, [menuOpen]);
+    } catch {
+      // Ignora erro de sessionStorage
+    }
+  }, [activeTab]);
+
+  const refreshFollowLists = useCallback(() => {
+    const targetId = profile?.id || viewerId;
+    if (!targetId) return;
+    getFollowSummaryLists(targetId, { viewerId: viewerId || targetId })
+      .then((res) => setFollowSummary(res))
+      .catch(() => {});
+  }, [profile?.id, viewerId]);
 
   useEffect(() => {
-    if (!feedback) return;
+    refreshFollowLists();
+  }, [refreshFollowLists]);
+
+  useEffect(() => {
+    if (!feedback) return undefined;
     const timer = setTimeout(() => setFeedback(null), 3000);
     return () => clearTimeout(timer);
   }, [feedback]);
 
+  useEffect(() => {
+    if (!connectionsModal) return undefined;
+    const handleKey = (e) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setConnectionsModal(null);
+        connectionsReturnRef.current?.focus();
+      }
+    };
+    window.addEventListener('keydown', handleKey);
+    return () => window.removeEventListener('keydown', handleKey);
+  }, [connectionsModal]);
+
   const handleFileChange = async (event) => {
     const file = event.target.files?.[0];
     event.target.value = '';
-    setMenuOpen(false);
     if (!file) return;
 
-    const result = await onImportBackup(file);
-    if (result.ok) {
+    const result = await onImportBackup?.(file);
+    if (result?.ok) {
       setFeedback({
         type: 'success',
         text: `${profileCfg.backup.importSuccessPrefix} ${result.count}`,
       });
-    } else {
+    } else if (result?.error) {
       setFeedback({ type: 'error', text: result.error });
     }
   };
 
+  const backlogItems = useMemo(
+    () => items.filter((item) => item && item.inBacklog !== false),
+    [items]
+  );
+
   const statsData = useMemo(() => {
-    const backlogItems = items.filter((item) => item.inBacklog);
     const completedCount = backlogItems.filter(
       (item) => item.status === 'completed'
     ).length;
@@ -233,50 +205,13 @@ export function ProfileScreen({
     const xpPct = Math.round((currentLevelXp / xpPerLevel) * 100);
 
     return {
-      metrics: [
-        { id: 'total', label: profileCfg.metrics.total, value: backlogItems.length },
-        { id: 'completed', label: profileCfg.metrics.completed, value: completedCount },
-        {
-          id: 'pages',
-          label: profileCfg.metrics.pages,
-          value: new Intl.NumberFormat('pt-BR').format(totalPagesRead),
-        },
-      ],
       level,
       totalXp,
       currentLevelXp,
       xpPerLevel,
       xpPct,
     };
-  }, [items, profileCfg.metrics, profileCfg.xpConfig]);
-
-  const trophyItems = useMemo(
-    () =>
-      items
-        .filter((item) => item.status === 'completed')
-        .sort((a, b) => {
-          const favDiff = Number(b.isPlatinum) - Number(a.isPlatinum);
-          if (favDiff !== 0) return favDiff;
-          return (b[cardFields.rating] ?? -1) - (a[cardFields.rating] ?? -1);
-        }),
-    [items, cardFields.rating]
-  );
-
-  const radarItems = useMemo(
-    () =>
-      items
-        .filter(
-          (item) =>
-            item.status === 'queued' ||
-            item.isWishlist ||
-            item.access === 'Wishlist'
-        )
-        .sort(
-          (a, b) =>
-            (getHypeMeta(b.hype)?.weight ?? 0) - (getHypeMeta(a.hype)?.weight ?? 0)
-        ),
-    [items]
-  );
+  }, [backlogItems, profileCfg.xpConfig]);
 
   const selectedPost = useMemo(
     () => posts.find((p) => p.id === selectedPostId) ?? null,
@@ -292,11 +227,6 @@ export function ProfileScreen({
   );
 
   const gamificationEnabled = profile?.gamificationEnabled !== false;
-  const privacyLevel = profile?.privacyLevel || 'public';
-  const activeVisibilityMeta =
-    VISIBILITY_OPTIONS.find((opt) => opt.id === privacyLevel) ||
-    VISIBILITY_OPTIONS[0];
-  const isSupabaseMode = backendSession?.mode === 'supabase';
 
   const titleEvaluation = useMemo(
     () =>
@@ -322,273 +252,110 @@ export function ProfileScreen({
     ]
   );
 
-  const profileTabs = useMemo(
+  const handlePinTitleBadge = (badge) => {
+    const result = pinTitleBadge(profile, badge, titleEvaluation.catalog);
+    if (!result.allowed) {
+      showToast({
+        message: result.reason || 'Conquiste esta insígnia antes de fixá-la.',
+        type: 'info',
+      });
+      return;
+    }
+    onUpdateProfile?.({ activeTitleBadge: result.activeTitleBadge });
+    setTitlesModalOpen(false);
+  };
+
+  const handleShareInvite = async () => {
+    const shareUrl = buildInviteShareUrl(profile?.handle || '@leitor');
+    const title = `${profile?.displayName || profile?.handle || 'Leitor'} no Projeto Códice`;
+    if (typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
+      try {
+        await navigator.share({
+          title,
+          text: `Acompanhe minhas leituras no Códice (${profile?.handle || ''})`,
+          url: shareUrl,
+        });
+        return;
+      } catch {
+        // Fallback para copiar caso compartilhamento seja cancelado
+      }
+    }
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+      showToast({
+        message: 'Link de convite copiado para a área de transferência.',
+        type: 'success',
+      });
+    } catch {
+      setFeedback({ type: 'success', text: `Convite: ${shareUrl}` });
+    }
+  };
+
+  const tabs = useMemo(
     () => [
-      ...profileCfg.tabs,
-      { id: 'wall', label: 'Mural', icon: 'MessageSquare' },
+      { id: 'journal', label: 'Publicações & Diário' },
+      { id: 'wall', label: `Mural (${wallPostsCount})` },
+      { id: 'shelf', label: 'Estante Pública' },
+      { id: 'badges', label: 'Insígnias' },
     ],
-    [profileCfg.tabs]
+    [wallPostsCount]
   );
+
+  const handleTabKeyDown = (e, idx) => {
+    if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
+    e.preventDefault();
+    const dir = e.key === 'ArrowRight' ? 1 : -1;
+    const nextIdx = (idx + dir + tabs.length) % tabs.length;
+    setActiveTab(tabs[nextIdx].id);
+    tabRefs.current[nextIdx]?.focus();
+  };
+
+  const visibleJournalPosts = posts.slice(0, journalLimit);
+  const remainingJournal = Math.max(0, posts.length - visibleJournalPosts.length);
+
+  const visibleShelfWorks = backlogItems.slice(0, shelfLimit);
+  const remainingShelf = Math.max(0, backlogItems.length - visibleShelfWorks.length);
 
   return (
     <div className="space-y-4 pb-24">
-      <header className="relative flex items-center justify-between gap-2 pt-2">
-        <div className="flex items-center gap-2 min-w-0">
-          <h1 className="truncate text-base font-semibold tracking-tight text-ink">
-            {profile.handle}
-          </h1>
-          <span className="hidden sm:inline-flex shrink-0 rounded-full border border-line bg-card px-2 py-0.5 text-[10px] font-medium text-muted">
-            {domainConfig.signature}
-          </span>
-        </div>
-
-        <div className="flex items-center gap-1" ref={menuRef}>
-          <button
-            type="button"
-            onClick={() => {
-              setMenuOpen(false);
-              onOpenAuthModal?.();
-            }}
-            aria-label="Conta e Perfis Locais"
-            title="Conta e Perfis Locais"
-            className={`flex h-11 w-11 items-center justify-center rounded-full border transition-colors ${
-              backendSession?.authenticated
-                ? 'border-accent/50 bg-accent/15 text-accent'
-                : 'border-line bg-card text-muted hover:border-accent/50 hover:text-ink'
-            }`}
-          >
-            <UserCheck className="h-4 w-4" strokeWidth={1.5} />
-          </button>
-
-          <button
-            type="button"
-            onClick={() => onOpenJournalComposer(null)}
-            aria-label={profileCfg.newPostLabel}
-            title={profileCfg.newPostLabel}
-            className="flex h-11 w-11 items-center justify-center rounded-full border border-accent/40 bg-accent/15 text-accent transition-colors hover:bg-accent hover:text-accent-ink"
-          >
-            <Plus className="h-4 w-4" strokeWidth={1.5} />
-          </button>
-
-          <button
-            type="button"
-            onClick={() => {
-              setMenuOpen(false);
-              setThemeModalOpen(true);
-            }}
-            aria-label={ui.theme.title}
-            title={ui.theme.title}
-            className="flex h-11 w-11 items-center justify-center rounded-full border border-line bg-card text-accent transition-colors hover:border-accent/50"
-          >
-            <Palette className="h-4 w-4" strokeWidth={1.5} />
-          </button>
-
-          <button
-            type="button"
-            onClick={() => {
-              setMenuOpen(false);
-              onOpenGeminiSettings?.();
-            }}
-            aria-label="Inteligência Artificial e Chaves"
-            title="Inteligência Artificial e Chaves"
-            className={`flex h-11 w-11 items-center justify-center rounded-full border transition-colors ${
-              hasAnyAiConfigured
-                ? 'border-accent/50 bg-accent/15 text-accent'
-                : 'border-line bg-card text-muted hover:border-accent/50 hover:text-ink'
-            }`}
-          >
-            <Sparkles className="h-4 w-4" strokeWidth={1.5} />
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setMenuOpen((prev) => !prev)}
-            aria-label={profileCfg.backup.menuLabel}
-            aria-expanded={menuOpen}
-            className="flex h-11 w-11 items-center justify-center rounded-full border border-line bg-card text-muted transition-colors hover:border-accent/50 hover:text-ink"
-          >
-            <Settings className="h-4 w-4" strokeWidth={1.5} />
-          </button>
-
-          {menuOpen && (
-            <div className="absolute right-0 top-12 z-30 w-68 overflow-hidden rounded-2xl border border-line bg-card p-1.5 shadow-2xl">
-              <button
-                type="button"
-                onClick={() => {
-                  setMenuOpen(false);
-                  onOpenAuthModal?.();
-                }}
-                className="flex min-h-[44px] w-full items-center justify-between gap-2 rounded-xl px-3 py-2 text-left text-xs font-medium text-ink transition-colors hover:bg-elevated"
-              >
-                <span className="inline-flex items-center gap-2.5">
-                  <Users className="h-4 w-4 shrink-0 text-accent" strokeWidth={1.5} />
-                  <span>Conta e Perfis Locais</span>
-                </span>
-                <span className="rounded-full bg-accent/15 px-1.5 py-0.5 text-[10px] font-semibold text-accent">
-                  {isSupabaseMode ? 'Nuvem' : 'Local'}
-                </span>
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setMenuOpen(false);
-                  onReopenOnboarding?.();
-                }}
-                className="flex min-h-[44px] w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-xs font-medium text-ink transition-colors hover:bg-elevated"
-              >
-                <BookOpen className="h-4 w-4 shrink-0 text-accent" strokeWidth={1.5} />
-                <span>Reabrir Boas-Vindas e Tutorial</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  const next = !soundOn;
-                  setSoundEnabled(next);
-                  setSoundOn(next);
-                  if (next) playTactileSound('tap');
-                }}
-                className="flex min-h-[44px] w-full items-center justify-between gap-2 rounded-xl px-3 py-2 text-left text-xs font-medium text-ink transition-colors hover:bg-elevated"
-              >
-                <span className="inline-flex items-center gap-2.5">
-                  {soundOn ? (
-                    <Volume2 className="h-4 w-4 text-accent" strokeWidth={1.5} />
-                  ) : (
-                    <VolumeX className="h-4 w-4 text-subtle" strokeWidth={1.5} />
-                  )}
-                  Efeitos Sonoros Táteis
-                </span>
-                <span
-                  className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${
-                    soundOn
-                      ? 'bg-accent/15 text-accent'
-                      : 'bg-elevated text-subtle'
-                  }`}
-                >
-                  {soundOn ? 'Ativo' : 'Mudo'}
-                </span>
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setMenuOpen(false);
-                  onOpenGeminiSettings?.();
-                }}
-                className="flex min-h-[44px] w-full items-center justify-between gap-2 rounded-xl px-3 py-2 text-left text-xs font-medium text-ink transition-colors hover:bg-elevated"
-              >
-                <span className="inline-flex items-center gap-2.5">
-                  <Sparkles className="h-4 w-4 text-accent" strokeWidth={1.5} />
-                  Motores de IA &amp; Chaves
-                </span>
-                <span
-                  className={`h-2 w-2 rounded-full ${
-                    hasAnyAiConfigured ? 'bg-accent' : 'bg-line'
-                  }`}
-                />
-              </button>
-              <div className="my-1 border-t border-line" />
-              <button
-                type="button"
-                onClick={() => {
-                  onExportBackup?.();
-                  setMenuOpen(false);
-                }}
-                className="flex min-h-[44px] w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-xs font-medium text-ink transition-colors hover:bg-elevated"
-              >
-                <Database className="h-4 w-4 shrink-0 text-accent" strokeWidth={1.5} />
-                <span>{profileCfg.backup.exportLabel}</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  onExportCsv?.();
-                  setMenuOpen(false);
-                }}
-                className="flex min-h-[44px] w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-xs font-medium text-ink transition-colors hover:bg-elevated"
-              >
-                <FileSpreadsheet className="h-4 w-4 shrink-0 text-accent" strokeWidth={1.5} />
-                <span>{profileCfg.backup.exportCsvLabel}</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  onExportBibtex?.();
-                  setMenuOpen(false);
-                }}
-                className="flex min-h-[44px] w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-xs font-medium text-ink transition-colors hover:bg-elevated"
-              >
-                <BookMarked className="h-4 w-4 shrink-0 text-accent" strokeWidth={1.5} />
-                <span>{profileCfg.backup.exportBibLabel}</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setMenuOpen(false);
-                  if (onOpenBackupModal) {
-                    onOpenBackupModal();
-                  } else {
-                    fileInputRef.current?.click();
-                  }
-                }}
-                className="flex min-h-[44px] w-full items-center gap-2.5 rounded-xl px-3 py-2 text-left text-xs font-medium text-ink transition-colors hover:bg-elevated"
-              >
-                <Upload className="h-4 w-4 shrink-0 text-accent" strokeWidth={1.5} />
-                <span>
-                  {onOpenBackupModal
-                    ? 'Restaurar Backup e Snapshots'
-                    : profileCfg.backup.importLabel}
-                </span>
-              </button>
-            </div>
-          )}
-
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".json,application/json"
-            onChange={handleFileChange}
-            className="hidden"
-          />
-        </div>
-      </header>
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".json,application/json"
+        onChange={handleFileChange}
+        className="hidden"
+      />
 
       {feedback && (
         <div
-          className={`rounded-xl border px-3 py-2 text-xs font-medium ${
-            feedback.type === 'success'
-              ? 'border-accent/40 bg-accent/10 text-accent'
-              : 'border-rose-500/30 bg-rose-500/10 text-rose-400'
-          }`}
+          role="status"
+          className="rounded-[4px] border border-line bg-card px-3 py-2 text-xs text-ink"
         >
           {feedback.text}
         </div>
       )}
 
-      {/* Banner de Capa */}
-      <section className="-mx-4 sm:-mx-6">
-        <div className="relative h-28 sm:h-36 md:h-40 w-full overflow-hidden border-y border-line bg-card">
-          {profile.coverUrl ? (
+      {/* Cabeçalho Editorial (Estilo Letterboxd / Goodreads) */}
+      <header className="-mx-4 sm:-mx-6">
+        <div
+          className="relative aspect-[3/1] w-full overflow-hidden border-y border-line"
+          style={{ backgroundColor: 'var(--bg-elevated, var(--bg-card))' }}
+        >
+          {profile.coverUrl && (
             <img
               src={profile.coverUrl}
               alt="Capa do perfil"
               className="h-full w-full object-cover"
             />
-          ) : (
-            <div className="h-full w-full bg-gradient-to-br from-accent/35 via-card to-elevated" />
           )}
-          <button
-            type="button"
-            onClick={() => setEditModalOpen(true)}
-            className="absolute right-3 top-2.5 inline-flex min-h-[36px] items-center gap-1 rounded-full bg-black/65 px-3 py-1.5 text-[11px] font-medium text-white backdrop-blur-xs transition-colors hover:bg-black/85"
-          >
-            <PenLine className="h-3.5 w-3.5" strokeWidth={1.5} />
-            {profileCfg.editProfileLabel}
-          </button>
         </div>
 
-        {/* Avatar circular sobre a junção capa/contadores + 3 Métricas lado a lado */}
-        <div className="px-4 sm:px-6">
-          <div className="flex items-end gap-4 sm:gap-6">
-            <div className="-mt-10 relative z-10 flex h-20 w-20 sm:h-24 sm:w-24 shrink-0 items-center justify-center overflow-hidden rounded-full border-2 border-accent bg-card ring-4 ring-[var(--bg-app)] shadow-lg">
+        <div className="px-4 sm:px-6 space-y-3">
+          <div className="flex items-end justify-between gap-3">
+            <div
+              className="-mt-10 relative z-10 flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-full border-2 bg-card"
+              style={{ borderColor: 'var(--bg-app)' }}
+            >
               {profile.avatarUrl ? (
                 <img
                   src={profile.avatarUrl}
@@ -596,252 +363,540 @@ export function ProfileScreen({
                   className="h-full w-full object-cover"
                 />
               ) : (
-                <span className="text-lg sm:text-xl font-bold tracking-tight text-ink">
+                <span className="text-lg font-bold tracking-tight text-ink">
                   {profile.avatarInitials || 'AK'}
                 </span>
               )}
             </div>
 
-            <div className="grid flex-1 grid-cols-3 pt-2 pb-1 text-center">
-              {statsData.metrics.map((metric) => (
-                <div key={metric.id} className="px-1">
-                  <span className="block text-base sm:text-lg font-semibold tracking-tight text-ink">
-                    {metric.value}
-                  </span>
-                  <span className="block text-[11px] text-muted">
-                    {metric.label}
-                  </span>
-                </div>
-              ))}
-            </div>
+            <button
+              type="button"
+              onClick={() => onOpenJournalComposer?.(null)}
+              aria-label={profileCfg.newPostLabel}
+              className="mt-2 inline-flex min-h-[44px] items-center gap-1.5 rounded-[4px] border border-accent bg-accent px-3 py-1.5 text-xs font-semibold text-accent-ink hover:opacity-90"
+            >
+              <Plus className="h-3.5 w-3.5" strokeWidth={1.5} />
+              <span>{profileCfg.newPostLabel}</span>
+            </button>
           </div>
 
-          {/* Nome, Bio & Link */}
-          <div className="mt-3 space-y-1 text-xs">
-            <div className="flex flex-wrap items-center gap-2">
-              <p className="font-semibold text-ink">{profile.displayName}</p>
-              <span className="text-[11px] text-subtle">{profile.handle}</span>
-              {gamificationEnabled && titleEvaluation.resolvedActiveBadge?.name && (
-                <button
-                  type="button"
-                  onClick={() => setTitlesModalOpen(true)}
-                  aria-label="Abrir títulos e insígnias do leitor"
-                  className="inline-flex min-h-[28px] items-center gap-1 rounded-[4px] border border-accent/40 bg-accent/10 px-2 py-0.5 text-[11px] font-medium text-accent transition-colors hover:bg-accent/20"
-                >
-                  <Award className="h-3.5 w-3.5" strokeWidth={1.5} />
-                  <span>{titleEvaluation.resolvedActiveBadge.name}</span>
-                </button>
-              )}
+          {/* Nome, @handle, bio e 1 insígnia ativa */}
+          <div className="min-w-0 space-y-1">
+            <div className="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-0.5">
+              <h1 className="min-w-0 truncate text-lg font-semibold tracking-tight text-ink">
+                {profile.displayName || profile.handle}
+              </h1>
+              <span className="min-w-0 truncate text-xs text-subtle tabular-nums">
+                {profile.handle}
+              </span>
             </div>
-            {profile.bio && (
-              <p className="leading-relaxed text-muted">{profile.bio}</p>
+
+            {gamificationEnabled && titleEvaluation.resolvedActiveBadge?.name && (
+              <div className="pt-0.5">
+                <span className="inline-flex max-w-full items-center gap-1 rounded-[4px] border border-line bg-card px-2 py-0.5 text-[11px] font-medium text-accent">
+                  <Award className="h-3 w-3 shrink-0" strokeWidth={1.5} />
+                  <span className="truncate">
+                    {titleEvaluation.resolvedActiveBadge.name}
+                  </span>
+                </span>
+              </div>
             )}
+
+            {profile.bio && (
+              <p className="line-clamp-3 text-xs leading-relaxed text-muted">
+                {profile.bio}
+              </p>
+            )}
+
             {profile.linkLabel && (
               <a
                 href={profile.linkUrl || '#'}
                 target="_blank"
                 rel="noreferrer"
-                className="inline-flex items-center gap-1 pt-0.5 font-medium text-accent hover:opacity-80"
+                className="inline-flex max-w-full items-center gap-1 text-[11px] font-medium text-accent hover:underline"
               >
-                <Link2 className="h-3 w-3" strokeWidth={1.5} />
-                <span>{profile.linkLabel}</span>
+                <Link2 className="h-3 w-3 shrink-0" strokeWidth={1.5} />
+                <span className="truncate">{profile.linkLabel}</span>
               </a>
             )}
           </div>
 
-          {/* Barra de Nível / XP do Leitor (oculta quando gamificação desligada) */}
-          {gamificationEnabled && (
-            <div className="mt-3.5 rounded-[4px] border border-line bg-card p-3 space-y-2.5">
-              <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
-                <span className="inline-flex items-center gap-1.5 font-semibold text-ink">
-                  <span className="inline-flex items-center gap-1 rounded-[4px] bg-accent px-2 py-0.5 text-[11px] font-bold text-accent-ink tabular-nums">
-                    <Zap className="h-3 w-3" strokeWidth={1.5} />
-                    {profileCfg.levelPrefix} {statsData.level}
-                  </span>
-                  <span className="text-muted font-medium">
-                    {profileCfg.xpTitle}
-                  </span>
-                </span>
-                <span className="text-[11px] text-subtle tabular-nums">
-                  {statsData.currentLevelXp}/{statsData.xpPerLevel} XP
-                </span>
-              </div>
-
-              <div className="h-1.5 w-full overflow-hidden rounded-[2px] bg-elevated">
-                <div
-                  className="h-full rounded-[2px] bg-accent transition-all duration-500"
-                  style={{ width: `${Math.max(4, statsData.xpPct)}%` }}
-                />
-              </div>
-
-              <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-line">
-                <span className="text-[11px] text-muted tabular-nums">
-                  {titleEvaluation.unlockedCount}/{titleEvaluation.totalCount} insígnias desbloqueadas
-                  {titleEvaluation.livingTitle
-                    ? ` · Título Vivo: ${titleEvaluation.livingTitle.name}`
-                    : ''}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => setTitlesModalOpen(true)}
-                  className="min-h-[44px] inline-flex items-center gap-1.5 rounded-[4px] border border-line bg-app px-3 py-1.5 text-[11px] font-medium text-ink transition-colors hover:border-accent hover:text-accent"
-                >
-                  <Award className="h-3.5 w-3.5" strokeWidth={1.5} />
-                  <span>Títulos & Insígnias</span>
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
-      </section>
-
-      {/* Privacidade & Experiência */}
-      <section
-        aria-label="Privacidade e Experiência"
-        className="rounded-2xl border border-line bg-card p-4 space-y-3.5"
-      >
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="flex items-center gap-2 min-w-0">
-            <Shield className="h-4 w-4 shrink-0 text-accent" strokeWidth={1.5} />
-            <div>
-              <h2 className="text-sm font-semibold tracking-tight text-ink">
-                Privacidade & Experiência
-              </h2>
-              <p className="text-[11px] text-muted">
-                Defina quem acessa seu perfil, interações sociais e modo de leitura.
-              </p>
-            </div>
-          </div>
-
-          <button
-            type="button"
-            onClick={() => onOpenAuthModal?.()}
-            className="inline-flex min-h-[36px] shrink-0 items-center gap-1.5 rounded-full border border-accent/40 bg-accent/15 px-3 py-1 text-[11px] font-semibold text-accent transition-colors hover:bg-accent hover:text-accent-ink"
-          >
-            {isSupabaseMode ? (
-              <Cloud className="h-3.5 w-3.5" strokeWidth={1.5} />
-            ) : (
-              <HardDrive className="h-3.5 w-3.5" strokeWidth={1.5} />
-            )}
-            <span>{isSupabaseMode ? 'Conta Supabase' : 'Modo Local'}</span>
-          </button>
-        </div>
-
-        {/* Visibilidade do perfil */}
-        <div className="space-y-2">
-          <div className="flex items-center justify-between gap-2">
-            <span className="text-xs font-medium text-ink">
-              Visibilidade do perfil
-            </span>
-            <span className="text-[11px] text-muted">
-              {activeVisibilityMeta.label}
-            </span>
-          </div>
-
-          <div
-            role="radiogroup"
-            aria-label="Visibilidade do perfil"
-            className="grid grid-cols-1 sm:grid-cols-3 gap-2"
-          >
-            {VISIBILITY_OPTIONS.map((option) => {
-              const Icon = option.icon;
-              const isSelected = privacyLevel === option.id;
-              return (
-                <button
-                  key={option.id}
-                  type="button"
-                  role="radio"
-                  aria-checked={isSelected}
-                  onClick={() => onUpdateProfile?.({ privacyLevel: option.id })}
-                  className={`flex min-h-[44px] items-center justify-center gap-2 rounded-xl border px-3 py-2 text-xs font-semibold transition-colors ${
-                    isSelected
-                      ? 'border-accent bg-accent/15 text-ink'
-                      : 'border-line bg-app text-muted hover:border-accent/40 hover:text-ink'
-                  }`}
-                >
-                  <Icon
-                    className={`h-4 w-4 shrink-0 ${
-                      isSelected ? 'text-accent' : 'text-subtle'
-                    }`}
-                    strokeWidth={1.5}
-                  />
-                  <span>{option.label}</span>
-                </button>
-              );
-            })}
-          </div>
-          <p className="text-[11px] text-subtle">
-            {activeVisibilityMeta.description}
-          </p>
-        </div>
-
-        {/* Switches individuais de privacidade e gamificação */}
-        <div className="space-y-2">
-          <PrivacySwitchRow
-            icon={PenLine}
-            label="Permitir recados no mural"
-            description="Outros leitores podem deixar mensagens públicas no seu perfil."
-            checked={profile?.allowWallPosts !== false}
-            onToggle={() =>
-              onUpdateProfile?.({
-                allowWallPosts: !(profile?.allowWallPosts !== false),
-              })
-            }
-          />
-
-          <PrivacySwitchRow
-            icon={MessageSquare}
-            label="Permitir comentários"
-            description="Habilita comentários em suas publicações do Diário e recados."
-            checked={profile?.allowComments !== false}
-            onToggle={() =>
-              onUpdateProfile?.({
-                allowComments: !(profile?.allowComments !== false),
-              })
-            }
-          />
-
-          <PrivacySwitchRow
-            icon={MessagesSquare}
-            label="Receber mensagens no chat"
-            description="Permite que outros leitores iniciem conversas diretas com você."
-            checked={profile?.allowDms !== false}
-            onToggle={() =>
-              onUpdateProfile?.({
-                allowDms: !(profile?.allowDms !== false),
-              })
-            }
-          />
-
-          <PrivacySwitchRow
-            icon={Zap}
-            label="Ativar Gamificação (XP, Níveis, Títulos e Sequência)"
-            description="Quando desligado, oculta barras de XP, níveis, insígnias e sequências na Home e no Perfil."
-            checked={gamificationEnabled}
-            onToggle={() =>
-              onUpdateProfile?.({
-                gamificationEnabled: !gamificationEnabled,
-              })
-            }
-          />
-        </div>
-
-        {/* Motor Multi-IA & Chaves locais */}
-        <div className="space-y-3 border-t border-line pt-3">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <span className="inline-flex items-center gap-1.5 text-xs font-medium text-ink">
-              <Sparkles className="h-3.5 w-3.5 text-accent" strokeWidth={1.5} />
-              <span>Multi-IA &amp; Chaves da API (Gemini, Groq, OpenRouter)</span>
+          {/* Métricas clicáveis como <button> reais */}
+          <div className="flex flex-wrap items-center gap-1.5 border-y border-line py-2 text-xs tabular-nums">
+            <button
+              type="button"
+              onClick={() => setActiveTab('shelf')}
+              aria-label={`Ver ${backlogItems.length} obras catalogadas`}
+              className="min-h-[44px] rounded-[4px] px-2 py-1 text-left font-medium text-ink hover:text-accent"
+            >
+              <strong>{backlogItems.length}</strong>{' '}
+              <span style={{ color: 'var(--text-secondary)' }}>Obras</span>
+            </button>
+            <span aria-hidden="true" className="text-subtle">
+              ·
             </span>
             <button
               type="button"
-              onClick={() => onOpenGeminiSettings?.()}
-              className="min-h-[36px] text-[11px] font-medium text-accent hover:underline"
+              onClick={(e) => {
+                connectionsReturnRef.current = e.currentTarget;
+                setConnectionsModal({ tab: 'followers' });
+              }}
+              aria-label={`Ver ${followSummary.followers.length} seguidores`}
+              className="min-h-[44px] rounded-[4px] px-2 py-1 text-left font-medium text-ink hover:text-accent"
             >
-              Abrir em modal
+              <strong>{followSummary.followers.length}</strong>{' '}
+              <span style={{ color: 'var(--text-secondary)' }}>Seguidores</span>
+            </button>
+            <span aria-hidden="true" className="text-subtle">
+              ·
+            </span>
+            <button
+              type="button"
+              onClick={(e) => {
+                connectionsReturnRef.current = e.currentTarget;
+                setConnectionsModal({ tab: 'following' });
+              }}
+              aria-label={`Ver ${followSummary.following.length} perfis seguindo`}
+              className="min-h-[44px] rounded-[4px] px-2 py-1 text-left font-medium text-ink hover:text-accent"
+            >
+              <strong>{followSummary.following.length}</strong>{' '}
+              <span style={{ color: 'var(--text-secondary)' }}>Seguindo</span>
             </button>
           </div>
 
+          {/* Barra de ações compacta com 3 botões */}
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setEditModalOpen(true)}
+              className="inline-flex min-h-[44px] flex-1 items-center justify-center gap-1.5 rounded-[4px] border border-line bg-card px-3 py-2 text-xs font-medium text-ink hover:border-accent hover:text-accent"
+            >
+              <PenLine className="h-3.5 w-3.5" strokeWidth={1.5} />
+              <span className="truncate">{profileCfg.editProfileLabel}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={handleShareInvite}
+              className="inline-flex min-h-[44px] flex-1 items-center justify-center gap-1.5 rounded-[4px] border border-line bg-card px-3 py-2 text-xs font-medium text-ink hover:border-accent hover:text-accent"
+            >
+              <Share2 className="h-3.5 w-3.5" strokeWidth={1.5} />
+              <span className="truncate">Compartilhar Convite</span>
+            </button>
+
+            <button
+              ref={settingsBtnRef}
+              type="button"
+              onClick={() => setSettingsOpen(true)}
+              aria-label="Configurações"
+              aria-expanded={settingsOpen}
+              title="Configurações"
+              className={`flex min-h-[44px] min-w-[44px] shrink-0 items-center justify-center rounded-[4px] border transition-colors ${
+                hasAnyAiConfigured
+                  ? 'border-accent/50 bg-card text-accent'
+                  : 'border-line bg-card hover:border-accent hover:text-ink'
+              }`}
+              style={!hasAnyAiConfigured ? { color: 'var(--text-secondary)' } : undefined}
+            >
+              <Settings className="h-4 w-4" strokeWidth={1.5} />
+            </button>
+          </div>
+        </div>
+      </header>
+
+      {/* Abas acessíveis (Publicações & Diário, Mural, Estante Pública, Insígnias) */}
+      <section className="-mx-4 sm:-mx-6 pt-1">
+        <div
+          role="tablist"
+          aria-label="Seções do perfil"
+          className="grid border-y border-line"
+          style={{
+            gridTemplateColumns: `repeat(${tabs.length}, minmax(0, 1fr))`,
+          }}
+        >
+          {tabs.map((tab, idx) => {
+            const isActive = activeTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                ref={(el) => {
+                  tabRefs.current[idx] = el;
+                }}
+                type="button"
+                role="tab"
+                aria-selected={isActive}
+                tabIndex={isActive ? 0 : -1}
+                onClick={() => setActiveTab(tab.id)}
+                onKeyDown={(e) => handleTabKeyDown(e, idx)}
+                className={`relative flex min-h-[44px] items-center justify-center px-1.5 py-2.5 text-[11px] font-medium transition-colors ${
+                  isActive ? 'text-ink' : 'hover:text-ink'
+                }`}
+                style={!isActive ? { color: 'var(--text-secondary)' } : undefined}
+              >
+                <span className="truncate tabular-nums">{tab.label}</span>
+                {isActive && (
+                  <span className="absolute bottom-0 left-0 right-0 h-[2px] bg-accent" />
+                )}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Monte apenas o conteúdo da aba ativa */}
+        {activeTab === 'journal' && (
+          <div className="px-4 sm:px-6 pt-4">
+            {posts.length === 0 ? (
+              <div className="flex flex-col items-center justify-center gap-3 rounded-[4px] border border-line bg-card px-4 py-8 text-center">
+                <p className="text-xs text-muted">
+                  Nenhuma publicação ou nota no diário ainda.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => onOpenJournalComposer?.(null)}
+                  className="inline-flex min-h-[44px] items-center gap-1.5 rounded-[4px] bg-accent px-4 py-2 text-xs font-semibold text-accent-ink"
+                >
+                  <Camera className="h-3.5 w-3.5" strokeWidth={1.5} />
+                  <span>{profileCfg.emptyJournalCta}</span>
+                </button>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <div className="grid grid-cols-3 gap-1">
+                  {visibleJournalPosts.map((post) => {
+                    const firstMedia = post.media?.[0];
+                    const hasMultiple = (post.media?.length || 0) > 1;
+                    const linked = post.itemId
+                      ? items.find((i) => i.id === post.itemId)
+                      : null;
+                    const fallbackItem = linked || post.itemSnapshot;
+
+                    return (
+                      <button
+                        key={post.id}
+                        type="button"
+                        onClick={() => setSelectedPostId(post.id)}
+                        className="group relative aspect-square overflow-hidden rounded-[2px] border border-line bg-card text-left"
+                      >
+                        {firstMedia?.type === 'image' || firstMedia?.type === 'gif' ? (
+                          <img
+                            src={firstMedia.url}
+                            alt={post.title}
+                            className="h-full w-full object-cover"
+                          />
+                        ) : firstMedia?.type === 'video' ? (
+                          <div className="flex h-full w-full flex-col items-center justify-center bg-elevated p-2 text-center">
+                            <Film className="h-5 w-5 text-accent" strokeWidth={1.5} />
+                            <span className="mt-1 line-clamp-2 text-[10px] font-medium text-ink">
+                              {post.title}
+                            </span>
+                          </div>
+                        ) : fallbackItem ? (
+                          <CoverArt
+                            item={fallbackItem}
+                            compact
+                            className="h-full w-full rounded-none border-0"
+                          />
+                        ) : (
+                          <div className="flex h-full w-full items-center justify-center bg-elevated p-2 text-center">
+                            <span className="line-clamp-3 text-[10px] font-medium text-ink">
+                              {post.title}
+                            </span>
+                          </div>
+                        )}
+
+                        {post.progressMarker && (
+                          <span className="absolute left-1 top-1 max-w-[74%] truncate rounded-[2px] bg-black/75 px-1.5 py-0.5 text-[9px] font-medium text-accent">
+                            {post.progressMarker}
+                          </span>
+                        )}
+
+                        <div className="absolute inset-x-0 bottom-0 bg-black/75 px-1.5 py-1">
+                          <p className="truncate text-[10px] font-medium text-white">
+                            {post.title}
+                          </p>
+                        </div>
+
+                        {hasMultiple && (
+                          <span className="absolute right-1 top-1 rounded-[2px] bg-black/70 p-1 text-white">
+                            <Layers className="h-3 w-3" strokeWidth={1.5} />
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {remainingJournal > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setJournalLimit((prev) => prev + PAGE_SIZE)}
+                    className="min-h-[44px] w-full rounded-[4px] border border-line bg-card py-2 text-xs font-medium text-ink hover:border-accent hover:text-accent tabular-nums"
+                  >
+                    Carregar mais ({remainingJournal} restantes)
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {activeTab === 'wall' && (
+          <div className="px-4 sm:px-6 pt-4">
+            <ProfileWall
+              profileId={profile?.id}
+              viewerId={viewerId || profile?.id}
+              isOwner
+              canPostWall={profile?.allowWallPosts !== false}
+              allowWallPosts={profile?.allowWallPosts !== false}
+              onSelectAuthor={(authorId) => onSelectPeerProfile?.(authorId)}
+              onWallMutated={onWallMutated}
+            />
+          </div>
+        )}
+
+        {activeTab === 'shelf' && (
+          <div className="px-4 sm:px-6 pt-4">
+            {backlogItems.length === 0 ? (
+              <p className="rounded-[4px] border border-line bg-card py-8 text-center text-xs text-muted">
+                Nenhuma obra catalogada na estante ainda.
+              </p>
+            ) : (
+              <div className="space-y-3">
+                <div className="divide-y divide-line rounded-[4px] border border-line bg-card">
+                  {visibleShelfWorks.map((work) => (
+                    <button
+                      key={work.id}
+                      type="button"
+                      onClick={() => onSelectItem?.(work)}
+                      className="flex min-h-[56px] w-full items-center justify-between gap-3 p-2.5 text-left hover:bg-app"
+                    >
+                      <div className="flex min-w-0 items-center gap-2.5">
+                        <CoverArt
+                          item={work}
+                          compact
+                          className="h-12 w-8 shrink-0 rounded-[2px]"
+                        />
+                        <div className="min-w-0">
+                          <p className="truncate text-xs font-semibold text-ink">
+                            {work.title}
+                          </p>
+                          <p className="truncate text-[11px] text-muted">
+                            {work[cardFields.creator] || 'Autor não informado'}
+                          </p>
+                        </div>
+                      </div>
+                      {typeof work[cardFields.rating] === 'number' && (
+                        <span className="inline-flex shrink-0 items-center gap-1 text-xs font-medium text-accent tabular-nums">
+                          <Star className="h-3 w-3 fill-current" strokeWidth={1.5} />
+                          {work[cardFields.rating]}
+                        </span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+
+                {remainingShelf > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setShelfLimit((prev) => prev + PAGE_SIZE)}
+                    className="min-h-[44px] w-full rounded-[4px] border border-line bg-card py-2 text-xs font-medium text-ink hover:border-accent hover:text-accent tabular-nums"
+                  >
+                    Carregar mais ({remainingShelf} restantes)
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {activeTab === 'badges' && (
+          <div className="px-4 sm:px-6 pt-4 space-y-3">
+            {!gamificationEnabled ? (
+              <p className="rounded-[4px] border border-line bg-card py-8 text-center text-xs text-muted">
+                Gamificação desativada nas configurações do perfil.
+              </p>
+            ) : (
+              <>
+                <div className="rounded-[4px] border border-line bg-card p-3 space-y-2">
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                    <span className="inline-flex items-center gap-1.5 font-semibold text-ink">
+                      <span className="inline-flex items-center gap-1 rounded-[2px] bg-accent px-2 py-0.5 text-[11px] font-bold text-accent-ink tabular-nums">
+                        <Zap className="h-3 w-3" strokeWidth={1.5} />
+                        {profileCfg.levelPrefix} {statsData.level}
+                      </span>
+                      <span className="text-muted font-medium">
+                        {titleEvaluation.unlockedCount}/{titleEvaluation.totalCount} insígnias
+                      </span>
+                    </span>
+                    <span className="text-[11px] text-subtle tabular-nums">
+                      {statsData.currentLevelXp}/{statsData.xpPerLevel} XP
+                    </span>
+                  </div>
+                  <div
+                    role="progressbar"
+                    aria-label="Progresso de XP do leitor"
+                    aria-valuemin={0}
+                    aria-valuemax={statsData.xpPerLevel}
+                    aria-valuenow={statsData.currentLevelXp}
+                    className="h-[2px] w-full overflow-hidden rounded-[2px] bg-line"
+                  >
+                    <div
+                      className="h-full bg-accent transition-all duration-300"
+                      style={{ width: `${Math.max(4, statsData.xpPct)}%` }}
+                    />
+                  </div>
+                </div>
+
+                <BadgesGallery
+                  evaluation={titleEvaluation}
+                  onSelectAutoMode={() =>
+                    onUpdateProfile?.({ activeTitleBadge: 'auto' })
+                  }
+                  onPinTitleBadge={handlePinTitleBadge}
+                />
+              </>
+            )}
+          </div>
+        )}
+      </section>
+
+      {/* Modal de Seguidores / Seguindo */}
+      {connectionsModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-0 sm:items-center sm:p-4"
+          onClick={() => setConnectionsModal(null)}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label={
+              connectionsModal.tab === 'followers' ? 'Seguidores' : 'Seguindo'
+            }
+            onClick={(e) => e.stopPropagation()}
+            className="flex max-h-[85dvh] w-full max-w-md flex-col rounded-t-[6px] border border-line bg-card text-ink sm:rounded-[6px] pb-[env(safe-area-inset-bottom)]"
+          >
+            <div className="flex items-center justify-between border-b border-line px-4 py-3">
+              <div className="flex gap-1" role="tablist" aria-label="Conexões">
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={connectionsModal.tab === 'followers'}
+                  onClick={() => setConnectionsModal({ tab: 'followers' })}
+                  className={`min-h-[40px] rounded-[4px] px-3 text-xs font-medium ${
+                    connectionsModal.tab === 'followers'
+                      ? 'bg-accent text-accent-ink'
+                      : 'text-muted hover:text-ink'
+                  }`}
+                >
+                  Seguidores ({followSummary.followers.length})
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={connectionsModal.tab === 'following'}
+                  onClick={() => setConnectionsModal({ tab: 'following' })}
+                  className={`min-h-[40px] rounded-[4px] px-3 text-xs font-medium ${
+                    connectionsModal.tab === 'following'
+                      ? 'bg-accent text-accent-ink'
+                      : 'text-muted hover:text-ink'
+                  }`}
+                >
+                  Seguindo ({followSummary.following.length})
+                </button>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setConnectionsModal(null);
+                  connectionsReturnRef.current?.focus();
+                }}
+                aria-label="Fechar conexões"
+                className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-[4px] border border-line text-muted hover:text-ink"
+              >
+                <X className="h-4 w-4" strokeWidth={1.5} />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-3 no-scrollbar">
+              {(() => {
+                const list =
+                  connectionsModal.tab === 'followers'
+                    ? followSummary.followers
+                    : followSummary.following;
+                if (list.length === 0) {
+                  return (
+                    <p className="py-8 text-center text-xs text-muted">
+                      {connectionsModal.tab === 'followers'
+                        ? 'Nenhum seguidor ainda.'
+                        : 'Você ainda não segue outros leitores.'}
+                    </p>
+                  );
+                }
+                return (
+                  <div className="divide-y divide-line rounded-[4px] border border-line bg-app">
+                    {list.map((peer) => (
+                      <button
+                        key={peer.id}
+                        type="button"
+                        onClick={() => {
+                          setConnectionsModal(null);
+                          onSelectPeerProfile?.(peer.id);
+                        }}
+                        className="flex min-h-[52px] w-full items-center gap-3 p-2.5 text-left hover:bg-card"
+                      >
+                        <div className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full border border-line bg-card text-xs font-semibold text-accent">
+                          {peer.avatarUrl ? (
+                            <img
+                              src={peer.avatarUrl}
+                              alt={peer.displayName || peer.handle}
+                              className="h-full w-full object-cover"
+                            />
+                          ) : (
+                            peer.avatarInitials || 'LC'
+                          )}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-xs font-semibold text-ink">
+                            {peer.displayName || peer.handle}
+                          </p>
+                          <p className="truncate text-[11px] text-subtle">
+                            {peer.handle}
+                          </p>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                );
+              })()}
+            </div>
+          </div>
+        </div>
+      )}
+
+      <ProfileSettingsDrawer
+        isOpen={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        returnFocusRef={settingsBtnRef}
+        profile={profile}
+        backendSession={backendSession}
+        soundOn={soundOn}
+        onToggleSound={() => {
+          const next = !soundOn;
+          setSoundEnabled(next);
+          setSoundOn(next);
+          if (next) playTactileSound('tap');
+        }}
+        onOpenAuthModal={onOpenAuthModal}
+        onUpdateProfile={onUpdateProfile}
+        onOpenThemeStudio={() => setThemeModalOpen(true)}
+        onReopenOnboarding={onReopenOnboarding}
+        onOpenGeminiSettings={onOpenGeminiSettings}
+        onExportBackup={onExportBackup}
+        onExportCsv={onExportCsv}
+        onExportBibtex={onExportBibtex}
+        onImportBackupClick={() => fileInputRef.current?.click()}
+        onOpenBackupModal={onOpenBackupModal}
+        aiPanelSlot={
           <AiProvidersPanel
             keys={resolvedAiConfig.keys}
             preferences={resolvedAiConfig.preferences}
@@ -856,232 +911,8 @@ export function ProfileScreen({
             }}
             onUpdatePreferences={(next) => resolvedAiConfig.updatePreferences(next)}
           />
-        </div>
-      </section>
-
-      {/* Abas internas de Perfil (Diário, Estante, Radar, Mural) */}
-      <section className="-mx-4 sm:-mx-6 pt-1">
-        <div
-          className="grid border-y border-line"
-          style={{
-            gridTemplateColumns: `repeat(${profileTabs.length}, minmax(0, 1fr))`,
-          }}
-        >
-          {profileTabs.map((tab) => {
-            const Icon = TAB_ICONS[tab.icon] || Grid3X3;
-            const isActive = activeTab === tab.id;
-            return (
-              <button
-                key={tab.id}
-                type="button"
-                onClick={() => setActiveTab(tab.id)}
-                aria-label={tab.label}
-                className={`relative flex min-h-[44px] items-center justify-center gap-1.5 py-3 text-xs font-medium transition-colors ${
-                  isActive ? 'text-ink' : 'text-subtle hover:text-muted'
-                }`}
-              >
-                <Icon className="h-4 w-4" strokeWidth={1.5} />
-                <span className="truncate">{tab.label}</span>
-                {isActive && (
-                  <span className="absolute bottom-0 left-0 right-0 h-[2px] bg-accent" />
-                )}
-              </button>
-            );
-          })}
-        </div>
-
-        {/* Aba 1: Feed de Postagens / Diário */}
-        {activeTab === 'journal' && (
-          posts.length === 0 ? (
-            <div className="px-6 py-12 text-center">
-              <p className="text-sm font-semibold text-ink">
-                {profileCfg.emptyJournalTitle}
-              </p>
-              <p className="mx-auto mt-1 max-w-xs text-xs text-muted">
-                {profileCfg.emptyJournalDescription}
-              </p>
-              <button
-                type="button"
-                onClick={() => onOpenJournalComposer(null)}
-                className="mt-4 inline-flex items-center gap-2 rounded-xl bg-accent px-4 py-2.5 text-xs font-semibold text-accent-ink transition-opacity hover:opacity-90"
-              >
-                <Camera className="h-3.5 w-3.5" />
-                {profileCfg.emptyJournalCta}
-              </button>
-            </div>
-          ) : (
-            <div className="grid grid-cols-3 gap-0.5 bg-app pt-0.5">
-              {posts.map((post) => {
-                const firstMedia = post.media?.[0];
-                const hasMultiple = (post.media?.length || 0) > 1;
-                const linked = post.itemId
-                  ? items.find((i) => i.id === post.itemId)
-                  : null;
-                const fallbackItem = linked || post.itemSnapshot;
-
-                return (
-                  <button
-                    key={post.id}
-                    type="button"
-                    onClick={() => setSelectedPostId(post.id)}
-                    className="group relative aspect-square overflow-hidden bg-card text-left focus:outline-none"
-                  >
-                    {firstMedia?.type === 'image' || firstMedia?.type === 'gif' ? (
-                      <img
-                        src={firstMedia.url}
-                        alt={post.title}
-                        className="h-full w-full object-cover transition-transform duration-200 group-hover:scale-105"
-                      />
-                    ) : firstMedia?.type === 'video' ? (
-                      <div className="flex h-full w-full flex-col items-center justify-center bg-elevated p-2 text-center">
-                        <Film className="h-5 w-5 text-accent" />
-                        <span className="mt-1 line-clamp-2 text-[10px] font-medium text-ink">
-                          {post.title}
-                        </span>
-                      </div>
-                    ) : fallbackItem ? (
-                      <CoverArt
-                        item={fallbackItem}
-                        compact
-                        className="h-full w-full rounded-none border-0"
-                      />
-                    ) : (
-                      <div className="flex h-full w-full items-center justify-center bg-elevated p-2 text-center">
-                        <span className="line-clamp-3 text-[10px] font-medium text-ink">
-                          {post.title}
-                        </span>
-                      </div>
-                    )}
-
-                    {post.progressMarker && (
-                      <span className="absolute left-1.5 top-1.5 max-w-[72%] truncate rounded bg-black/70 px-1.5 py-0.5 text-[9px] font-medium text-accent backdrop-blur-xs">
-                        {post.progressMarker}
-                      </span>
-                    )}
-
-                    <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 via-black/30 to-transparent p-1.5 pt-5">
-                      <p className="truncate text-[10px] font-medium text-white">
-                        {post.title}
-                      </p>
-                    </div>
-
-                    {hasMultiple && (
-                      <span className="absolute right-1.5 top-1.5 rounded bg-black/60 p-1 text-white backdrop-blur-xs">
-                        <Layers className="h-3 w-3" />
-                      </span>
-                    )}
-                    {!hasMultiple && firstMedia?.type === 'gif' && (
-                      <span className="absolute right-1.5 top-1.5 rounded bg-black/70 px-1 py-0.5 text-[8px] font-bold text-accent backdrop-blur-xs">
-                        GIF
-                      </span>
-                    )}
-                    {!hasMultiple && firstMedia?.type === 'video' && (
-                      <span className="absolute right-1.5 top-1.5 rounded bg-black/60 p-1 text-white backdrop-blur-xs">
-                        <Film className="h-3 w-3" />
-                      </span>
-                    )}
-                  </button>
-                );
-              })}
-            </div>
-          )
-        )}
-
-        {/* Aba 2: Estante de Concluídos & Favoritos 5 Estrelas */}
-        {activeTab === 'trophies' && (
-          trophyItems.length === 0 ? (
-            <div className="py-14 text-center text-xs text-subtle">
-              {profileCfg.emptyTrophies}
-            </div>
-          ) : (
-            <div className="grid grid-cols-3 gap-0.5 bg-app pt-0.5">
-              {trophyItems.map((item) => (
-                <button
-                  key={item.id}
-                  type="button"
-                  onClick={() => onSelectItem(item)}
-                  className="group relative aspect-square overflow-hidden focus:outline-none"
-                >
-                  <CoverArt
-                    item={item}
-                    showTitle
-                    compact
-                    className="h-full w-full rounded-none border-0 transition-opacity group-hover:opacity-85"
-                  />
-
-                  <div className="absolute inset-x-1.5 top-1.5 flex items-center justify-between gap-1">
-                    {item.isPlatinum ? (
-                      <span className="inline-flex items-center gap-0.5 rounded-full bg-black/75 px-1.5 py-0.5 text-[9px] font-bold text-accent ring-1 ring-accent/50 backdrop-blur-xs">
-                        <Star className="h-2.5 w-2.5 fill-current" />
-                        5
-                      </span>
-                    ) : (
-                      <span />
-                    )}
-
-                    {typeof item[cardFields.rating] === 'number' && (
-                      <span className="rounded-md bg-black/75 px-1.5 py-0.5 text-[9px] font-semibold text-white backdrop-blur-xs">
-                        {item[cardFields.rating]}
-                      </span>
-                    )}
-                  </div>
-                </button>
-              ))}
-            </div>
-          )
-        )}
-
-        {/* Aba 3: Radar / Na Estante */}
-        {activeTab === 'radar' && (
-          radarItems.length === 0 ? (
-            <div className="py-14 text-center text-xs text-subtle">
-              {profileCfg.emptyRadar}
-            </div>
-          ) : (
-            <div className="grid grid-cols-3 gap-0.5 bg-app pt-0.5">
-              {radarItems.map((item) => {
-                const hype = getHypeMeta(item.hype);
-                return (
-                  <button
-                    key={item.id}
-                    type="button"
-                    onClick={() => onSelectItem(item)}
-                    className="group relative aspect-square overflow-hidden focus:outline-none"
-                  >
-                    <CoverArt
-                      item={item}
-                      showTitle
-                      compact
-                      className="h-full w-full rounded-none border-0 transition-opacity group-hover:opacity-85"
-                    />
-                    {hype && (
-                      <span className="absolute left-1.5 top-1.5 inline-flex items-center gap-1 rounded-md bg-black/70 px-1.5 py-0.5 text-[9px] font-medium text-white backdrop-blur-xs">
-                        <VectorIcon name={hype.icon} className="h-2.5 w-2.5 text-accent" />
-                        {hype.label}
-                      </span>
-                    )}
-                  </button>
-                );
-              })}
-            </div>
-          )
-        )}
-
-        {/* Aba 4: Mural de Recados */}
-        {activeTab === 'wall' && (
-          <div className="px-4 sm:px-6 py-4">
-            <ProfileWall
-              profileId={profile?.id}
-              viewerId={viewerId || profile?.id}
-              isOwner
-              canPostWall={profile?.allowWallPosts !== false}
-              allowWallPosts={profile?.allowWallPosts !== false}
-              onSelectAuthor={(authorId) => onSelectPeerProfile?.(authorId)}
-              onWallMutated={onWallMutated}
-            />
-          </div>
-        )}
-      </section>
+        }
+      />
 
       <ThemeModal
         isOpen={themeModalOpen}
@@ -1104,10 +935,7 @@ export function ProfileScreen({
           onUpdateProfile?.({ activeTitleBadge: 'auto' });
           setTitlesModalOpen(false);
         }}
-        onPinTitleBadge={(badge) => {
-          onUpdateProfile?.({ activeTitleBadge: badge?.name || badge || 'auto' });
-          setTitlesModalOpen(false);
-        }}
+        onPinTitleBadge={handlePinTitleBadge}
       />
 
       <PostDetailModal

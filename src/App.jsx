@@ -1,4 +1,5 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { UserCheck, UserPlus, X } from 'lucide-react';
 import { AuthModal } from './components/auth/AuthModal';
 import { BackupRestoreModal } from './components/BackupRestoreModal';
 import { BottomNav } from './components/BottomNav';
@@ -24,11 +25,14 @@ import {
 import {
   bootstrapBackend,
   ensureLocalCommunitySeeded,
+  followReader,
   getBackendMode,
   getUnreadMessagesCount,
   listDirectConversations,
   listDirectMessages,
   listWallPosts,
+  parseInviteHandleParam,
+  resolveInviteProfile,
   syncActiveWorkspaceToBackend,
   updateActiveProfileInBackend,
 } from './services/codiceBackend';
@@ -90,6 +94,9 @@ export function App() {
     wallPostsCount: 0,
     chatMessagesCount: 0,
   });
+  const [pendingInviteHandle, setPendingInviteHandle] = useState(null);
+  const [inviteCandidate, setInviteCandidate] = useState(null);
+  const [inviteFollowBusy, setInviteFollowBusy] = useState(false);
 
   const { showToast } = useToast();
 
@@ -699,7 +706,7 @@ export function App() {
     refreshSocialSignals();
   }, [refreshSocialSignals]);
 
-  const resolvedTitleBadge = useMemo(
+  const titleEvaluation = useMemo(
     () =>
       evaluateReaderTitles({
         items,
@@ -710,7 +717,7 @@ export function App() {
         wallPostsCount: socialCounts.wallPostsCount,
         chatMessagesCount: socialCounts.chatMessagesCount,
         storedReaderBooksCount: storedReaderWorkIds.length,
-      })?.resolvedActiveBadge?.name || '',
+      }),
     [
       items,
       profile,
@@ -721,6 +728,69 @@ export function App() {
       storedReaderWorkIds.length,
     ]
   );
+
+  const resolvedTitleBadge = titleEvaluation?.resolvedActiveBadge?.name || '';
+
+  useEffect(() => {
+    if (!backendReady || !titleEvaluation?.stalePinnedCleared) return;
+    updateProfile({ activeTitleBadge: 'auto' });
+  }, [backendReady, titleEvaluation?.stalePinnedCleared, updateProfile]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search || '');
+    if (!params.has('invite')) return;
+
+    const rawInvite = params.get('invite');
+    const parsedHandle = parseInviteHandleParam(rawInvite);
+
+    params.delete('invite');
+    const nextSearch = params.toString();
+    const cleanUrl = `${window.location.pathname}${nextSearch ? `?${nextSearch}` : ''}${window.location.hash || ''}`;
+    if (typeof window.history?.replaceState === 'function') {
+      window.history.replaceState({}, '', cleanUrl);
+    }
+
+    if (parsedHandle) {
+      setPendingInviteHandle(parsedHandle);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!backendReady || !pendingInviteHandle) return undefined;
+    let active = true;
+    resolveInviteProfile(pendingInviteHandle, { viewerId: activeViewerId })
+      .then((resolved) => {
+        if (!active) return;
+        setPendingInviteHandle(null);
+        if (resolved) {
+          setInviteCandidate(resolved);
+        } else {
+          showToast({
+            message: `Convite ${pendingInviteHandle} não encontrado.`,
+            type: 'info',
+          });
+        }
+      })
+      .catch(() => {
+        if (active) setPendingInviteHandle(null);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [backendReady, pendingInviteHandle, activeViewerId, showToast]);
+
+  useEffect(() => {
+    if (!inviteCandidate) return undefined;
+    const onKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        setInviteCandidate(null);
+      }
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [inviteCandidate]);
 
   const handleOpenDirectChat = useCallback((peerId = null) => {
     setChatPeerId(peerId || null);
@@ -912,9 +982,15 @@ export function App() {
           {activeTab === 'community' && (
             <CommunityScreen
               viewerId={activeViewerId}
+              myProfile={profile}
+              myShelfItems={items}
               unreadDmCount={unreadDmCount}
+              backendMode={backendSession?.mode || 'local'}
+              onOpenAuthModal={() => setAuthModalOpen(true)}
               onOpenUserProfile={(id) => setViewingUserProfileId(id)}
               onOpenDirectChat={handleOpenDirectChat}
+              onCopyBookToWishlist={handleCopyWorkToWishlist}
+              onSocialChanged={refreshSocialSignals}
             />
           )}
           {activeTab === 'profile' && (
@@ -1137,9 +1213,141 @@ export function App() {
           viewerId={activeViewerId}
           initialPeerId={chatPeerId}
           myShelfItems={items}
+          backendMode={backendSession?.mode || 'local'}
+          onOpenAuthModal={() => setAuthModalOpen(true)}
           onCopyBookToWishlist={handleCopyWorkToWishlist}
           onUnreadChanged={refreshSocialSignals}
         />
+
+        {inviteCandidate && (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4"
+            onClick={() => setInviteCandidate(null)}
+          >
+            <div
+              role="dialog"
+              aria-modal="true"
+              aria-label="Confirmação de convite de leitor"
+              onClick={(e) => e.stopPropagation()}
+              className="w-full max-w-md rounded-[6px] border border-line bg-card p-5 text-ink space-y-4"
+            >
+              <div className="flex items-start justify-between gap-3 border-b border-line pb-3">
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-wider text-muted">
+                    Convite recebido
+                  </p>
+                  <h2 className="text-base font-serif font-semibold text-ink">
+                    Conectar com leitor convidado?
+                  </h2>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setInviteCandidate(null)}
+                  aria-label="Fechar convite"
+                  className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-[4px] border border-line text-muted hover:text-ink"
+                >
+                  <X className="h-4 w-4" strokeWidth={1.5} />
+                </button>
+              </div>
+
+              <div className="flex items-center gap-3 rounded-[4px] border border-line bg-app p-3">
+                {inviteCandidate.avatarUrl ? (
+                  <img
+                    src={inviteCandidate.avatarUrl}
+                    alt={inviteCandidate.displayName || inviteCandidate.handle}
+                    className="h-12 w-12 shrink-0 rounded-full border border-line object-cover"
+                  />
+                ) : (
+                  <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-line bg-card text-sm font-serif font-semibold text-accent">
+                    {inviteCandidate.avatarInitials || 'LC'}
+                  </div>
+                )}
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-serif font-semibold text-ink">
+                    {inviteCandidate.displayName || inviteCandidate.handle}
+                  </p>
+                  <p className="truncate text-xs text-muted tabular-nums">
+                    {inviteCandidate.handle}
+                  </p>
+                </div>
+              </div>
+
+              {Boolean(
+                inviteCandidate.isLocalContact ||
+                  String(inviteCandidate.id || '').startsWith('contact:')
+              ) && (
+                <p className="rounded-[4px] border border-line bg-app px-3 py-2 text-xs text-muted leading-relaxed">
+                  Convite salvo na lista local de contatos. Conecte o Supabase para seguir este leitor em tempo real.
+                </p>
+              )}
+
+              <div className="flex flex-wrap items-center justify-end gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const targetId = inviteCandidate.id;
+                    setInviteCandidate(null);
+                    if (targetId) setViewingUserProfileId(targetId);
+                  }}
+                  className="min-h-[44px] rounded-[4px] border border-line px-3.5 py-2 text-xs font-medium text-ink hover:border-accent hover:text-accent"
+                >
+                  Ver perfil
+                </button>
+
+                {inviteCandidate.isLocalContact ||
+                String(inviteCandidate.id || '').startsWith('contact:') ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setInviteCandidate(null);
+                      setAuthModalOpen(true);
+                    }}
+                    className="inline-flex min-h-[44px] items-center gap-1.5 rounded-[4px] border border-accent bg-accent px-3.5 py-2 text-xs font-medium text-accent-ink"
+                  >
+                    <UserCheck className="h-4 w-4" strokeWidth={1.5} />
+                    <span>Conectar Supabase</span>
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    disabled={inviteFollowBusy}
+                    onClick={async () => {
+                      if (inviteFollowBusy) return;
+                      setInviteFollowBusy(true);
+                      try {
+                        const res = await followReader(inviteCandidate.id, {
+                          viewerId: activeViewerId,
+                        });
+                        showToast({
+                          message:
+                            res?.status === 'pending'
+                              ? 'Solicitação de vínculo enviada.'
+                              : `Você começou a seguir ${inviteCandidate.displayName || inviteCandidate.handle}.`,
+                          type: 'success',
+                        });
+                        refreshSocialSignals();
+                        setInviteCandidate(null);
+                      } catch (err) {
+                        showToast({
+                          message:
+                            err?.userMessage ||
+                            'Não foi possível seguir este leitor.',
+                          type: 'error',
+                        });
+                      } finally {
+                        setInviteFollowBusy(false);
+                      }
+                    }}
+                    className="inline-flex min-h-[44px] items-center gap-1.5 rounded-[4px] border border-accent bg-accent px-3.5 py-2 text-xs font-medium text-accent-ink disabled:opacity-50"
+                  >
+                    <UserPlus className="h-4 w-4" strokeWidth={1.5} />
+                    <span>{inviteFollowBusy ? 'Seguindo...' : 'Seguir'}</span>
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

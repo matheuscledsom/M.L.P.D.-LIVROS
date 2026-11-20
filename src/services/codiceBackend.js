@@ -269,6 +269,42 @@ function writeLocalStorageValue(key, value) {
   }
 }
 
+const ADMIN_JWT_ROLE = ['service', 'role'].join('_');
+export const MAX_SOCIAL_MESSAGE_CHARS = 2000;
+export const INVITE_HANDLE_REGEX = /^@?[a-z0-9_][a-z0-9_.-]{2,29}$/i;
+
+export function decodeJwtPayload(token) {
+  const parts = String(token || '').trim().split('.');
+  if (parts.length !== 3 || !parts[1]) return null;
+  try {
+    const b64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+    const padded = b64 + '='.repeat((4 - (b64.length % 4)) % 4);
+    let jsonText = '';
+    if (typeof atob === 'function') {
+      const bin = atob(padded);
+      const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0));
+      jsonText = new TextDecoder().decode(bytes);
+    } else if (typeof globalThis !== 'undefined' && globalThis.Buffer) {
+      jsonText = globalThis.Buffer.from(padded, 'base64').toString('utf8');
+    } else {
+      return null;
+    }
+    const parsed = JSON.parse(jsonText);
+    return parsed && typeof parsed === 'object' ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+export function isServiceRoleKey(rawKey) {
+  const clean = String(rawKey || '').trim();
+  if (!clean) return false;
+  if (/^sb_secret_/i.test(clean)) return true;
+  const payload = decodeJwtPayload(clean);
+  if (!payload) return false;
+  return String(payload.role || '').toLowerCase() === ADMIN_JWT_ROLE;
+}
+
 function validateHttpUrl(rawUrl) {
   const trimmed = String(rawUrl || '').trim();
   if (!trimmed) return '';
@@ -283,17 +319,32 @@ function validateHttpUrl(rawUrl) {
   }
 }
 
+export function validateSupabaseProjectUrl(rawUrl) {
+  const trimmed = String(rawUrl || '').trim();
+  if (!trimmed) return '';
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.protocol !== 'https:') return '';
+    if (!parsed.hostname.toLowerCase().endsWith('.supabase.co')) return '';
+    return `${parsed.protocol}//${parsed.host}`;
+  } catch {
+    return '';
+  }
+}
+
 export function getSupabaseConfig() {
   const envUrl = validateHttpUrl(readEnvValue('VITE_SUPABASE_URL'));
-  const envKey = readEnvValue('VITE_SUPABASE_ANON_KEY');
+  const rawEnvKey = readEnvValue('VITE_SUPABASE_ANON_KEY');
+  const envKey = isServiceRoleKey(rawEnvKey) ? '' : rawEnvKey;
 
   const lsUrl = validateHttpUrl(
     readLocalStorageValue(STORAGE_KEYS.envUrl) ||
       readLocalStorageValue(STORAGE_KEYS.supabaseUrl)
   );
-  const lsKey =
+  const rawLsKey =
     readLocalStorageValue(STORAGE_KEYS.envKey) ||
     readLocalStorageValue(STORAGE_KEYS.supabaseKey);
+  const lsKey = isServiceRoleKey(rawLsKey) ? '' : rawLsKey;
 
   const url = envUrl || lsUrl;
   const anonKey = envKey || lsKey;
@@ -313,24 +364,107 @@ export function isSupabaseConfigured() {
 }
 
 export function saveSupabaseConfig({ url, anonKey }) {
-  const validUrl = validateHttpUrl(url);
+  const validUrl = validateSupabaseProjectUrl(url);
   const cleanKey = String(anonKey || '').trim();
   if (!validUrl) {
     throw new BackendError('URL do Supabase inválida.', {
       code: 'INVALID_SUPABASE_URL',
-      userMessage: 'Informe uma URL válida do projeto Supabase (ex.: https://xyz.supabase.co).',
+      userMessage:
+        'Informe uma URL HTTPS válida do Supabase (ex.: https://seu-projeto.supabase.co).',
+    });
+  }
+  if (isServiceRoleKey(cleanKey)) {
+    throw new BackendError('Chave administrativa recusada.', {
+      code: 'SERVICE_ROLE_FORBIDDEN',
+      userMessage:
+        'Chave administrativa secreta recusada por segurança. Informe apenas a chave pública (anon).',
     });
   }
   if (cleanKey.length < 16) {
     throw new BackendError('Chave anon inválida.', {
       code: 'INVALID_SUPABASE_KEY',
-      userMessage: 'Informe uma VITE_SUPABASE_ANON_KEY válida.',
+      userMessage: 'Informe uma chave pública (anon) válida do Supabase.',
     });
   }
   writeLocalStorageValue(STORAGE_KEYS.supabaseUrl, validUrl);
   writeLocalStorageValue(STORAGE_KEYS.supabaseKey, cleanKey);
   writeLocalStorageValue(STORAGE_KEYS.forceLocal, '');
   return getSupabaseConfig();
+}
+
+export async function testSupabaseConnection({ url, anonKey } = {}) {
+  const validUrl = validateSupabaseProjectUrl(url);
+  const cleanKey = String(anonKey || '').trim();
+
+  if (!validUrl) {
+    return {
+      ok: false,
+      latencyMs: 0,
+      errorMessage:
+        'Informe uma URL HTTPS válida do Supabase (https://seu-projeto.supabase.co).',
+    };
+  }
+  if (isServiceRoleKey(cleanKey)) {
+    return {
+      ok: false,
+      latencyMs: 0,
+      errorMessage:
+        'Chave administrativa secreta recusada por segurança. Use apenas a chave pública (anon).',
+    };
+  }
+  if (cleanKey.length < 16) {
+    return {
+      ok: false,
+      latencyMs: 0,
+      errorMessage: 'Informe uma chave pública (anon) válida para testar.',
+    };
+  }
+
+  const startedAt = Date.now();
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(`${validUrl}/rest/v1/profiles?select=id&limit=1`, {
+      method: 'GET',
+      headers: {
+        apikey: cleanKey,
+        Authorization: `Bearer ${cleanKey}`,
+      },
+      signal: controller.signal,
+    });
+    const latencyMs = Math.max(1, Date.now() - startedAt);
+    if (!response.ok) {
+      if (response.status === 401 || response.status === 403) {
+        return {
+          ok: false,
+          latencyMs,
+          errorMessage: 'Chave anon recusada ou sem acesso ao schema público.',
+        };
+      }
+      return {
+        ok: false,
+        latencyMs,
+        errorMessage: `Servidor respondeu HTTP ${response.status}. Confira se rodou supabase/schema.sql.`,
+      };
+    }
+    return {
+      ok: true,
+      latencyMs,
+      errorMessage: '',
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      latencyMs: Math.max(1, Date.now() - startedAt),
+      errorMessage:
+        err?.name === 'AbortError'
+          ? 'Tempo limite ao conectar ao Supabase (8s).'
+          : 'Não foi possível alcançar o endereço informado.',
+    };
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 export function clearSupabaseConfig() {
@@ -1589,6 +1723,7 @@ const SOCIAL_META_KEYS = {
   reactions: 'social_reactions_v1',
   comments: 'social_comments_v1',
   messages: 'social_messages_v1',
+  localContacts: 'social_local_contacts_v1',
   communitySeeded: 'social_community_seeded_v1',
   communityDirectory: 'community_directory_peers_v1',
 };
@@ -2142,6 +2277,36 @@ export async function listPendingFollowRequests(profileId = null) {
 
 export async function getReaderProfileBundle(targetProfileId, { viewerId = null } = {}) {
   const resolvedViewerId = await resolveCurrentViewerId(viewerId);
+
+  if (String(targetProfileId || '').startsWith('contact:')) {
+    const contacts = await readSocialList(SOCIAL_META_KEYS.localContacts);
+    const matchedContact = contacts.find((c) => c.id === targetProfileId);
+    if (matchedContact) {
+      return {
+        restricted: false,
+        followStatus: 'none',
+        isLocalContact: true,
+        permissions: {
+          isOwner: false,
+          privacyLevel: 'public',
+          canView: true,
+          canFollow: false,
+          canPostWall: false,
+          canComment: false,
+          canSendDm: false,
+        },
+        followerCount: 0,
+        followingCount: 0,
+        resolvedBadgeName: '',
+        profile: matchedContact,
+        readingNow: [],
+        latestReviews: [],
+        publicShelf: [],
+        posts: [],
+      };
+    }
+  }
+
   const allEntries = await getAllLocalProfilesWithWorkspaces();
   let targetEntry = allEntries.find((e) => e.profile.id === targetProfileId) || null;
 
@@ -2347,6 +2512,12 @@ export async function createWallPost(profileId, content, { viewerId = null } = {
     throw new BackendError('Mensagem vazia.', {
       code: 'EMPTY_WALL_POST',
       userMessage: 'Escreva uma mensagem antes de publicar no mural.',
+    });
+  }
+  if (cleanContent.length > MAX_SOCIAL_MESSAGE_CHARS) {
+    throw new BackendError('Mensagem excede o limite.', {
+      code: 'WALL_POST_TOO_LONG',
+      userMessage: `O recado não pode ultrapassar ${MAX_SOCIAL_MESSAGE_CHARS} caracteres.`,
     });
   }
 
@@ -2613,6 +2784,12 @@ export async function addSocialComment({
       userMessage: 'Digite um comentário antes de enviar.',
     });
   }
+  if (cleanContent.length > MAX_SOCIAL_MESSAGE_CHARS) {
+    throw new BackendError('Comentário excede o limite.', {
+      code: 'COMMENT_TOO_LONG',
+      userMessage: `O comentário não pode ultrapassar ${MAX_SOCIAL_MESSAGE_CHARS} caracteres.`,
+    });
+  }
 
   const resolvedViewerId = await resolveCurrentViewerId(viewerId);
   if (!resolvedViewerId || !targetId) {
@@ -2688,11 +2865,59 @@ export async function deleteSocialComment(commentId, { viewerId = null } = {}) {
   return true;
 }
 
+function mapSqlDirectMessage(row = {}) {
+  return {
+    id: row.id,
+    senderId: row.sender_id ?? row.senderId,
+    recipientId: row.recipient_id ?? row.recipientId,
+    content: String(row.content || ''),
+    attachedWorkSnapshot: row.attached_work_snapshot ?? row.attachedWorkSnapshot ?? null,
+    readAt: row.read_at ?? row.readAt ?? null,
+    createdAt: row.created_at ?? row.createdAt ?? new Date().toISOString(),
+  };
+}
+
+function sortMessagesChronologically(messages = []) {
+  return [...messages].sort((a, b) => {
+    const tA = Date.parse(a?.createdAt || '') || 0;
+    const tB = Date.parse(b?.createdAt || '') || 0;
+    if (tA !== tB) return tA - tB;
+    return String(a?.id || '').localeCompare(String(b?.id || ''));
+  });
+}
+
+async function fetchAndMergeRemoteMessages(resolvedViewerId, localMessages) {
+  if (getBackendMode() !== 'supabase' || !resolvedViewerId) {
+    return localMessages;
+  }
+  const session = await ensureFreshSupabaseSession();
+  if (!session?.access_token) return localMessages;
+
+  try {
+    const rows = await supabaseFetchJson(
+      `/rest/v1/direct_messages?or=(sender_id.eq.${encodeURIComponent(
+        resolvedViewerId
+      )},recipient_id.eq.${encodeURIComponent(resolvedViewerId)})&order=created_at.asc&limit=200`,
+      { token: session.access_token }
+    );
+    if (!Array.isArray(rows)) return localMessages;
+    const byId = new Map(localMessages.map((m) => [m.id, m]));
+    for (const r of rows) {
+      const mapped = mapSqlDirectMessage(r);
+      if (mapped.id) byId.set(mapped.id, mapped);
+    }
+    return sortMessagesChronologically(Array.from(byId.values()));
+  } catch {
+    return localMessages;
+  }
+}
+
 export async function listDirectConversations({ viewerId = null } = {}) {
   const resolvedViewerId = await resolveCurrentViewerId(viewerId);
   if (!resolvedViewerId) return [];
 
-  const messages = await readSocialList(SOCIAL_META_KEYS.messages);
+  const localMessages = await readSocialList(SOCIAL_META_KEYS.messages);
+  const messages = await fetchAndMergeRemoteMessages(resolvedViewerId, localMessages);
   const allEntries = await getAllLocalProfilesWithWorkspaces();
   const profileMap = new Map(allEntries.map((e) => [e.profile.id, e.profile]));
 
@@ -2714,17 +2939,18 @@ export async function listDirectConversations({ viewerId = null } = {}) {
     }
     if (
       !prev.lastMessage ||
-      String(msg.createdAt || '') > String(prev.lastMessage.createdAt || '')
+      (Date.parse(msg.createdAt || '') || 0) >=
+        (Date.parse(prev.lastMessage.createdAt || '') || 0)
     ) {
       prev.lastMessage = msg;
     }
     convMap.set(peerId, prev);
   }
 
-  return Array.from(convMap.values()).sort((a, b) =>
-    String(b.lastMessage?.createdAt || '').localeCompare(
-      String(a.lastMessage?.createdAt || '')
-    )
+  return Array.from(convMap.values()).sort(
+    (a, b) =>
+      (Date.parse(b.lastMessage?.createdAt || '') || 0) -
+      (Date.parse(a.lastMessage?.createdAt || '') || 0)
   );
 }
 
@@ -2732,14 +2958,15 @@ export async function listDirectMessages(peerId, { viewerId = null } = {}) {
   const resolvedViewerId = await resolveCurrentViewerId(viewerId);
   if (!resolvedViewerId || !peerId) return [];
 
-  const messages = await readSocialList(SOCIAL_META_KEYS.messages);
-  return messages
-    .filter(
+  const localMessages = await readSocialList(SOCIAL_META_KEYS.messages);
+  const messages = await fetchAndMergeRemoteMessages(resolvedViewerId, localMessages);
+  return sortMessagesChronologically(
+    messages.filter(
       (m) =>
         (m.senderId === resolvedViewerId && m.recipientId === peerId) ||
         (m.senderId === peerId && m.recipientId === resolvedViewerId)
     )
-    .sort((a, b) => String(a.createdAt || '').localeCompare(String(b.createdAt || '')));
+  );
 }
 
 export async function markConversationRead(peerId, { viewerId = null } = {}) {
@@ -2760,6 +2987,22 @@ export async function markConversationRead(peerId, { viewerId = null } = {}) {
 
   if (changed > 0) {
     await writeSocialList(SOCIAL_META_KEYS.messages, next);
+  }
+
+  if (getBackendMode() === 'supabase') {
+    const session = await ensureFreshSupabaseSession();
+    if (session?.access_token) {
+      supabaseFetchJson(
+        `/rest/v1/direct_messages?sender_id=eq.${encodeURIComponent(
+          peerId
+        )}&recipient_id=eq.${encodeURIComponent(resolvedViewerId)}&read_at=is.null`,
+        {
+          method: 'PATCH',
+          token: session.access_token,
+          body: { read_at: nowIso },
+        }
+      ).catch(() => {});
+    }
   }
   return changed;
 }
@@ -2782,6 +3025,12 @@ export async function sendDirectMessage({
     throw new BackendError('Mensagem vazia.', {
       code: 'EMPTY_DM',
       userMessage: 'Digite uma mensagem ou anexe uma obra antes de enviar.',
+    });
+  }
+  if (cleanContent.length > MAX_SOCIAL_MESSAGE_CHARS) {
+    throw new BackendError('Mensagem excede o limite.', {
+      code: 'DM_TOO_LONG',
+      userMessage: `A mensagem não pode ultrapassar ${MAX_SOCIAL_MESSAGE_CHARS} caracteres.`,
     });
   }
 
@@ -2875,4 +3124,278 @@ export async function sendDirectMessage({
   list.push(messageRecord);
   await writeSocialList(SOCIAL_META_KEYS.messages, list);
   return messageRecord;
+}
+
+export function subscribeDirectMessagesRealtime({ viewerId = null, onMessage } = {}) {
+  if (getBackendMode() !== 'supabase' || !viewerId || typeof onMessage !== 'function') {
+    return () => {};
+  }
+  const cfg = getSupabaseConfig();
+  const session = loadStoredSupabaseSession();
+  if (!cfg.configured || !session?.access_token) {
+    return () => {};
+  }
+
+  let closed = false;
+  let socket = null;
+  let heartbeatTimer = null;
+  let refCounter = 1;
+
+  const cleanup = () => {
+    if (closed) return;
+    closed = true;
+    if (heartbeatTimer !== null) {
+      clearInterval(heartbeatTimer);
+      heartbeatTimer = null;
+    }
+    if (socket) {
+      try {
+        if (socket.readyState === 1) {
+          socket.send(
+            JSON.stringify({
+              topic: 'realtime:public:direct_messages',
+              event: 'phx_leave',
+              payload: {},
+              ref: String(refCounter++),
+            })
+          );
+        }
+        socket.close();
+      } catch {
+        // Ignora erro ao encerrar socket
+      }
+      socket = null;
+    }
+  };
+
+  if (typeof WebSocket === 'undefined') {
+    return cleanup;
+  }
+
+  try {
+    const wsUrl = new URL('/realtime/v1/websocket', cfg.url);
+    wsUrl.protocol = wsUrl.protocol === 'http:' ? 'ws:' : 'wss:';
+    wsUrl.search = new URLSearchParams({
+      apikey: cfg.anonKey,
+      vsn: '1.0.0',
+    }).toString();
+
+    socket = new WebSocket(wsUrl.toString());
+    socket.onopen = () => {
+      if (closed || !socket) return;
+      socket.send(
+        JSON.stringify({
+          topic: 'realtime:public:direct_messages',
+          event: 'phx_join',
+          payload: {
+            config: {
+              postgres_changes: [
+                {
+                  event: 'INSERT',
+                  schema: 'public',
+                  table: 'direct_messages',
+                },
+              ],
+            },
+            access_token: session.access_token,
+          },
+          ref: String(refCounter++),
+        })
+      );
+
+      heartbeatTimer = setInterval(() => {
+        if (closed || !socket || socket.readyState !== 1) return;
+        try {
+          socket.send(
+            JSON.stringify({
+              topic: 'phoenix',
+              event: 'heartbeat',
+              payload: {},
+              ref: String(refCounter++),
+            })
+          );
+        } catch {
+          // Ignora heartbeat em desconexão
+        }
+      }, 25000);
+    };
+
+    socket.onmessage = (event) => {
+      if (closed) return;
+      try {
+        const frame = JSON.parse(event?.data || '{}');
+        const record =
+          frame?.event === 'postgres_changes'
+            ? frame?.payload?.data?.record || frame?.payload?.record
+            : null;
+        if (!record) return;
+        const mapped = mapSqlDirectMessage(record);
+        if (mapped.senderId === viewerId || mapped.recipientId === viewerId) {
+          onMessage(mapped);
+        }
+      } catch {
+        // Frame ignorado
+      }
+    };
+
+    socket.onerror = () => {
+      // Sem erro fatal na UI; apenas limpa se fechar
+    };
+  } catch {
+    return cleanup;
+  }
+
+  return cleanup;
+}
+
+export function parseInviteHandleParam(rawInvite) {
+  const trimmed = String(rawInvite || '').trim();
+  if (!trimmed || !INVITE_HANDLE_REGEX.test(trimmed)) {
+    return null;
+  }
+  return `@${trimmed.replace(/^@+/, '').toLowerCase()}`;
+}
+
+export function buildInviteShareUrl(handle, baseOriginUrl = null) {
+  const normalized = normalizeHandle(handle, 'leitor');
+  let base = String(baseOriginUrl || '').trim();
+  if (!base && typeof window !== 'undefined' && window.location) {
+    base = `${window.location.origin}${window.location.pathname}`;
+  }
+  if (!base) base = 'https://codice.app/';
+  const sep = base.includes('?') ? '&' : '?';
+  return `${base}${sep}invite=${encodeURIComponent(normalized)}`;
+}
+
+export async function listLocalInviteContacts() {
+  return readSocialList(SOCIAL_META_KEYS.localContacts);
+}
+
+export async function resolveInviteProfile(rawInvite, { viewerId = null } = {}) {
+  const validHandle = parseInviteHandleParam(rawInvite);
+  if (!validHandle) return null;
+
+  const resolvedViewerId = await resolveCurrentViewerId(viewerId);
+  const follows = await listFollowRelationships(resolvedViewerId);
+  const allEntries = await getAllLocalProfilesWithWorkspaces();
+  const localMatch = allEntries.find(
+    (e) => String(e.profile?.handle || '').toLowerCase() === validHandle
+  );
+
+  if (localMatch) {
+    const p = localMatch.profile;
+    const rel = follows.find(
+      (f) => f.followerId === resolvedViewerId && f.followingId === p.id
+    );
+    return {
+      id: p.id,
+      handle: p.handle,
+      displayName: p.displayName || p.handle.slice(1),
+      avatarUrl: p.avatarUrl || '',
+      avatarInitials: p.avatarInitials || buildInitials(p.displayName || p.handle),
+      isLocalContact: false,
+      followStatus: rel ? rel.status : 'none',
+      isSelf: Boolean(resolvedViewerId && p.id === resolvedViewerId),
+    };
+  }
+
+  if (getBackendMode() === 'supabase') {
+    const cfg = getSupabaseConfig();
+    const session = await ensureFreshSupabaseSession();
+    const token = session?.access_token || cfg.anonKey;
+    if (cfg.configured && token) {
+      try {
+        const rows = await supabaseFetchJson(
+          `/rest/v1/profiles?handle=eq.${encodeURIComponent(
+            validHandle
+          )}&select=id,handle,display_name,avatar_url,avatar_initials&limit=1`,
+          { token }
+        );
+        if (Array.isArray(rows) && rows[0]) {
+          const pub = rows[0];
+          const rel = follows.find(
+            (f) => f.followerId === resolvedViewerId && f.followingId === pub.id
+          );
+          return {
+            id: pub.id,
+            handle: normalizeHandle(pub.handle),
+            displayName: String(pub.display_name || validHandle.slice(1)),
+            avatarUrl: String(pub.avatar_url || ''),
+            avatarInitials:
+              pub.avatar_initials || buildInitials(pub.display_name || validHandle),
+            isLocalContact: false,
+            followStatus: rel ? rel.status : 'none',
+            isSelf: Boolean(resolvedViewerId && pub.id === resolvedViewerId),
+          };
+        }
+      } catch {
+        // Fallback em contato local abaixo
+      }
+    }
+  }
+
+  // Sem Supabase (ou offline/não encontrado): importa apenas campos públicos e salva contato local
+  const cleanName = validHandle.replace(/^@+/, '');
+  const contactCard = {
+    id: `contact:${cleanName}`,
+    handle: validHandle,
+    displayName: cleanName,
+    avatarUrl: '',
+    avatarInitials: buildInitials(cleanName),
+    isLocalContact: true,
+    followStatus: 'none',
+    isSelf: false,
+    savedAt: new Date().toISOString(),
+  };
+
+  const contacts = await readSocialList(SOCIAL_META_KEYS.localContacts);
+  const existingIdx = contacts.findIndex(
+    (c) => String(c.handle || '').toLowerCase() === validHandle
+  );
+  if (existingIdx >= 0) {
+    contacts[existingIdx] = { ...contacts[existingIdx], ...contactCard };
+  } else {
+    contacts.unshift(contactCard);
+  }
+  await writeSocialList(SOCIAL_META_KEYS.localContacts, contacts);
+  return contactCard;
+}
+
+export async function getFollowSummaryLists(targetProfileId, { viewerId = null } = {}) {
+  if (!targetProfileId) return { followers: [], following: [] };
+  const [follows, allEntries, contacts] = await Promise.all([
+    listFollowRelationships(viewerId || targetProfileId),
+    getAllLocalProfilesWithWorkspaces(),
+    listLocalInviteContacts(),
+  ]);
+  const profileMap = new Map(allEntries.map((e) => [e.profile.id, e.profile]));
+  for (const c of contacts) {
+    if (c?.id && !profileMap.has(c.id)) profileMap.set(c.id, c);
+  }
+
+  const followers = follows
+    .filter((f) => f.followingId === targetProfileId && f.status === 'approved')
+    .map(
+      (f) =>
+        profileMap.get(f.followerId) || {
+          id: f.followerId,
+          handle: '@leitor',
+          displayName: 'Leitor',
+          avatarInitials: 'LC',
+        }
+    );
+
+  const following = follows
+    .filter((f) => f.followerId === targetProfileId && f.status === 'approved')
+    .map(
+      (f) =>
+        profileMap.get(f.followingId) || {
+          id: f.followingId,
+          handle: '@leitor',
+          displayName: 'Leitor',
+          avatarInitials: 'LC',
+        }
+    );
+
+  return { followers, following };
 }

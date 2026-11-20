@@ -1,10 +1,11 @@
 import { Award, MessageSquare, Pin, Send, Trash2 } from 'lucide-react';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useToast } from '../../context/ToastContext';
 import {
   createWallPost,
   deleteWallPost,
   listWallPosts,
+  MAX_SOCIAL_MESSAGE_CHARS,
   togglePinWallPost,
 } from '../../services/codiceBackend';
 
@@ -34,6 +35,7 @@ export function ProfileWall({
   const [isLoading, setIsLoading] = useState(false);
   const [draft, setDraft] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const sendingRef = useRef(false);
 
   const loadPosts = useCallback(async () => {
     if (!profileId) return;
@@ -54,8 +56,17 @@ export function ProfileWall({
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (sendingRef.current) return;
     const clean = draft.trim();
     if (!clean) return;
+    if (clean.length > MAX_SOCIAL_MESSAGE_CHARS) {
+      showToast({
+        message: `Limite máximo de ${MAX_SOCIAL_MESSAGE_CHARS} caracteres no mural.`,
+        type: 'error',
+      });
+      return;
+    }
+    sendingRef.current = true;
     setSubmitting(true);
     try {
       await createWallPost(profileId, clean, { viewerId });
@@ -69,6 +80,7 @@ export function ProfileWall({
         type: 'error',
       });
     } finally {
+      sendingRef.current = false;
       setSubmitting(false);
     }
   };
@@ -109,15 +121,19 @@ export function ProfileWall({
           <textarea
             rows={2}
             value={draft}
+            maxLength={MAX_SOCIAL_MESSAGE_CHARS}
             onChange={(e) => setDraft(e.target.value)}
             placeholder="Deixe uma recomendação de livro ou recado literário..."
             className="w-full resize-none rounded-[4px] border border-line bg-app px-3 py-2 text-xs text-ink placeholder:text-subtle focus:border-accent focus:outline-none"
           />
-          <div className="flex justify-end">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[10px] tabular-nums text-muted">
+              {draft.length >= 1500 ? `${draft.length}/${MAX_SOCIAL_MESSAGE_CHARS}` : ''}
+            </span>
             <button
               type="submit"
               disabled={submitting || !draft.trim()}
-              className="inline-flex min-h-[38px] items-center gap-1.5 rounded-[4px] bg-accent px-3 py-1.5 text-xs font-semibold text-accent-ink transition-opacity hover:opacity-90 disabled:opacity-50"
+              className="inline-flex min-h-[44px] items-center gap-1.5 rounded-[4px] bg-accent px-3 py-1.5 text-xs font-semibold text-accent-ink transition-opacity hover:opacity-90 disabled:opacity-50"
             >
               <Send className="h-3.5 w-3.5" strokeWidth={1.5} />
               <span>{submitting ? 'Enviando...' : 'Escrever no mural'}</span>
