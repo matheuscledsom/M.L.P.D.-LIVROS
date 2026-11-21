@@ -31,6 +31,7 @@ import { useEffect, useRef, useState } from 'react';
 import { domainConfig } from '../config/domainConfig';
 import { CODICE_RELEASE } from '../config/versioning';
 import { SPECIAL_THEMES } from '../data/themePresets';
+import { FONT_SCALE_OPTIONS } from '../design/themeEngine';
 import {
   DNA_DENSITY_OPTIONS,
   DNA_DIMENSIONS,
@@ -401,6 +402,43 @@ export function ProfileSettingsDrawer({
                     pastelCustomColor={themeProps.pastelCustomColor}
                     onSelectPastelSubpalette={themeProps.onSelectPastelSubpalette}
                     onChangePastelColor={themeProps.onChangePastelColor}
+                  />
+                </div>
+              )}
+
+              {themeProps && (
+                <div className="space-y-2 rounded-[4px] border border-line bg-app p-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs font-medium text-ink">
+                      Tamanho global da fonte
+                    </span>
+                    <div className="inline-flex rounded-[4px] border border-line bg-card p-0.5">
+                      {FONT_SCALE_OPTIONS.map((opt) => {
+                        const active = (themeProps.fontScale || 'normal') === opt.id;
+                        return (
+                          <button
+                            key={opt.id}
+                            type="button"
+                            aria-pressed={active}
+                            onClick={() => themeProps.onSelectFontScale?.(opt.id)}
+                            className={`min-h-[34px] rounded-[2px] px-2.5 text-[11px] font-medium transition-colors ${
+                              active ? 'bg-accent text-accent-ink' : 'text-muted hover:text-ink'
+                            }`}
+                          >
+                            {opt.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                  <PrivacySwitchRow
+                    icon={Feather}
+                    label="Espaçamento para Dislexia"
+                    description="Amplia distância entre letras, palavras e entrelinhas na interface."
+                    checked={Boolean(themeProps.dyslexiaSpacing)}
+                    onToggle={() =>
+                      themeProps.onToggleDyslexia?.(!themeProps.dyslexiaSpacing)
+                    }
                   />
                 </div>
               )}

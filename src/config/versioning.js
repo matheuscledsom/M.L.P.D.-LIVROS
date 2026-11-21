@@ -16,16 +16,25 @@ export const VERSIONING_RULES = {
 };
 
 export const CODICE_RELEASE = {
-  version: '4.16.0',
+  version: '4.17.0',
   codename: 'Ymir',
-  label: 'v4.16.0 · Ymir',
+  label: 'v4.17.0 · Ymir',
   releaseType: 'minor',
   date: '2026-11',
   summary:
-    'Power user: atalhos globais (?), importador Goodreads/StoryGraph/Calibre/Lista com detector de duplicadas, scanner ISBN, tags, Para reler, empréstimos, Markdown e Undo universal',
+    'Acessibilidade WCAG/teclado (UX_AUDIT.md), 3 escalas de fonte, espaçamento dislexia, badges com formas para daltonismo, PWA registerType prompt com toast e banner de modo privado',
 };
 
 export const RELEASE_HISTORY = [
+  {
+    version: '4.17.0',
+    codename: 'Ymir',
+    label: 'v4.17.0 · Ymir',
+    releaseType: 'minor',
+    date: '2026-11',
+    summary: 'Acessibilidade WCAG/teclado (UX_AUDIT.md), 3 escalas de fonte, espaçamento dislexia, badges com formas para daltonismo, PWA registerType prompt com toast e banner de modo privado',
+    highlights: ['Release automatizado via bump-version.mjs.'],
+  },
   {
     version: '4.16.0',
     codename: 'Ymir',

@@ -53,10 +53,12 @@ export function ToastProvider({ children }) {
 
       setToasts((prev) => [...prev.slice(-2), { id, message, type, action }]);
 
-      const timer = setTimeout(() => {
-        dismissToast(id);
-      }, duration);
-      timersRef.current.set(id, timer);
+      if (duration > 0) {
+        const timer = setTimeout(() => {
+          dismissToast(id);
+        }, duration);
+        timersRef.current.set(id, timer);
+      }
     },
     [dismissToast]
   );

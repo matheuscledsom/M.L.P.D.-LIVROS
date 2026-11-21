@@ -25,8 +25,12 @@ if (import.meta.env.PROD && 'serviceWorker' in navigator) {
     }
   });
 
-  registerSW({
+  const updateSW = registerSW({
     immediate: true,
+    onNeedRefresh() {
+      window.__codiceApplySwUpdate = () => updateSW(true);
+      window.dispatchEvent(new CustomEvent('codice:pwa-update-available'));
+    },
     onRegisteredSW(_swUrl, registration) {
       if (!registration) return;
 

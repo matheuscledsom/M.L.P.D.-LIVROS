@@ -461,3 +461,18 @@
 :root[data-theme-style="focus"] button:not(.bg-accent):focus-visible {
   opacity: 1;
 }
+
+/* Acessibilidade: escalas globais de tipografia e espaçamento dislexia */
+:root[data-font-scale="large"] {
+  font-size: 112%;
+}
+
+:root[data-font-scale="xlarge"] {
+  font-size: 124%;
+}
+
+:root[data-dyslexia="true"] body {
+  letter-spacing: 0.03em;
+  word-spacing: 0.08em;
+  line-height: 1.68;
+}

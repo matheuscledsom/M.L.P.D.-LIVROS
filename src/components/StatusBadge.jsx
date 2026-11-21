@@ -1,7 +1,17 @@
+import { BookOpen, CheckCircle2, Clock, PauseCircle } from 'lucide-react';
 import { getStatusConfig } from '../config/domainConfig';
+
+const STATUS_SHAPES = {
+  playing: BookOpen,
+  reading: BookOpen,
+  completed: CheckCircle2,
+  queued: Clock,
+  dropped: PauseCircle,
+};
 
 export function StatusBadge({ statusId, size = 'sm' }) {
   const status = getStatusConfig(statusId);
+  const ShapeIcon = STATUS_SHAPES[status.id] || Clock;
   const sizeClasses =
     size === 'xs'
       ? 'px-1.5 py-0.5 text-[10px]'
@@ -9,10 +19,10 @@ export function StatusBadge({ statusId, size = 'sm' }) {
 
   return (
     <span
-      className={`inline-flex items-center gap-1.5 rounded-full border font-medium ${status.badgeClass} ${sizeClasses}`}
+      className={`inline-flex items-center gap-1 rounded-full border font-medium ${status.badgeClass} ${sizeClasses}`}
     >
-      <span className={`h-1.5 w-1.5 rounded-full ${status.dotClass}`} />
-      {status.label}
+      <ShapeIcon className="h-2.5 w-2.5 shrink-0" strokeWidth={1.75} aria-hidden="true" />
+      <span>{status.label}</span>
     </span>
   );
 }

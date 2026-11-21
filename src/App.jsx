@@ -166,6 +166,7 @@ export function App() {
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [importCatalogOpen, setImportCatalogOpen] = useState(false);
   const [requestedCollectionId, setRequestedCollectionId] = useState(null);
+  const [privateStorageMode, setPrivateStorageMode] = useState(false);
   const [onboardingReopened, setOnboardingReopened] = useState(false);
   const [storedReaderWorkIds, setStoredReaderWorkIds] = useState([]);
   const [storedReaderBooks, setStoredReaderBooks] = useState([]);
@@ -215,6 +216,8 @@ export function App() {
     texture,
     density,
     motion,
+    fontScale,
+    dyslexiaSpacing,
     presetId,
     specialThemeId,
     pastelSubpaletteId,
@@ -227,6 +230,8 @@ export function App() {
     setTexture,
     setDensity,
     setMotion,
+    setFontScale,
+    setDyslexiaSpacing,
     applyPreset,
     applySpecialTheme,
     selectPastelSubpalette,
@@ -326,6 +331,45 @@ export function App() {
       active = false;
     };
   }, [restoreSocialBackup]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    const onSwUpdate = () => {
+      showToast({
+        message: 'Nova versão disponível — Atualizar',
+        type: 'info',
+        duration: 0,
+        action: {
+          label: 'Atualizar',
+          onClick: () => {
+            window.__codiceApplySwUpdate?.();
+          },
+        },
+      });
+    };
+    window.addEventListener('codice:pwa-update-available', onSwUpdate);
+    return () => window.removeEventListener('codice:pwa-update-available', onSwUpdate);
+  }, [showToast]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !('indexedDB' in window)) {
+      setPrivateStorageMode(true);
+      return;
+    }
+    try {
+      const probe = window.indexedDB.open('codice_probe_v1', 1);
+      probe.onerror = () => setPrivateStorageMode(true);
+      probe.onsuccess = () => {
+        try {
+          probe.result?.close?.();
+        } catch {
+          // Ignora
+        }
+      };
+    } catch {
+      setPrivateStorageMode(true);
+    }
+  }, []);
 
   useEffect(() => {
     if (!backendReady) return undefined;
@@ -1417,7 +1461,42 @@ export function App() {
         />
       )}
       <div className="relative z-10 mx-auto min-h-screen max-w-md md:max-w-2xl lg:max-w-4xl bg-transparent sm:border-x sm:border-line/60">
-        <main className="px-4 sm:px-6 pt-4 pb-[env(safe-area-inset-bottom)]">
+        <a
+          href="#main-content"
+          className="sr-only focus:not-sr-only focus:fixed focus:left-3 focus:top-3 focus:z-[100] focus:rounded-[4px] focus:bg-accent focus:px-3 focus:py-2 focus:text-xs focus:font-semibold focus:text-accent-ink"
+        >
+          Ir para o conteúdo principal
+        </a>
+        <div role="status" aria-live="polite" className="sr-only">
+          Tela ativa: {
+            {
+              home: 'Início',
+              stats: 'Métricas',
+              add: 'Catalogar',
+              list: 'Acervo',
+              community: 'Rede',
+              profile: 'Perfil',
+            }[activeTab] || activeTab
+          }
+        </div>
+        {privateStorageMode && (
+          <div
+            role="status"
+            className="mx-4 sm:mx-6 mt-3 flex flex-wrap items-center justify-between gap-2 rounded-[4px] border border-line bg-card px-3 py-2 text-xs text-muted"
+          >
+            <span>
+              Modo privado ou IndexedDB indisponível: seus arquivos digitais ficam apenas nesta sessão. Faça cópia de segurança antes de fechar.
+            </span>
+            <button
+              type="button"
+              onClick={handleSaveBackupCopyNow}
+              className="min-h-[36px] rounded-[4px] border border-accent bg-accent/10 px-2.5 text-[11px] font-semibold text-accent hover:bg-accent hover:text-accent-ink"
+            >
+              Salvar Cópia
+            </button>
+          </div>
+        )}
+        <main id="main-content" tabIndex={-1} className="px-4 sm:px-6 pt-4 pb-[env(safe-area-inset-bottom)] focus:outline-none">
           <ErrorBoundary
             key={activeTab}
             screenName={
@@ -1567,6 +1646,8 @@ export function App() {
                 texture,
                 density,
                 motion,
+                fontScale,
+                dyslexiaSpacing,
                 presetId,
                 specialThemeId,
                 pastelSubpaletteId,
@@ -1579,6 +1660,8 @@ export function App() {
                 onSelectTexture: setTexture,
                 onSelectDensity: setDensity,
                 onSelectMotion: setMotion,
+                onSelectFontScale: setFontScale,
+                onToggleDyslexia: setDyslexiaSpacing,
                 onApplyPreset: applyPreset,
                 onApplySpecialTheme: applySpecialTheme,
                 onSelectPastelSubpalette: selectPastelSubpalette,

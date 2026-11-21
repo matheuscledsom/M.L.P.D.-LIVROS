@@ -13,8 +13,24 @@ export const MOTION_OPTIONS = [
   { id: 'reduced', label: 'Reduzido' },
 ];
 
+export const FONT_SCALE_OPTIONS = [
+  { id: 'normal', label: 'Padrão' },
+  { id: 'large', label: 'Grande' },
+  { id: 'xlarge', label: 'Extra' },
+];
+
+function normalizeFontScale(value) {
+  if (value === 'large' || value === 'xlarge') return value;
+  return 'normal';
+}
+
 export function loadThemeEnginePrefs() {
-  const defaults = { density: 'comfortable', motion: 'system' };
+  const defaults = {
+    density: 'comfortable',
+    motion: 'system',
+    fontScale: 'normal',
+    dyslexiaSpacing: false,
+  };
   try {
     if (typeof localStorage === 'undefined') return defaults;
     const raw = localStorage.getItem(THEME_PREFS_STORAGE_KEY);
@@ -26,6 +42,8 @@ export function loadThemeEnginePrefs() {
         parsed?.motion === 'full' || parsed?.motion === 'reduced'
           ? parsed.motion
           : 'system',
+      fontScale: normalizeFontScale(parsed?.fontScale),
+      dyslexiaSpacing: Boolean(parsed?.dyslexiaSpacing),
     };
   } catch {
     return defaults;
@@ -43,6 +61,8 @@ export function saveThemeEnginePrefs(prefs) {
           prefs?.motion === 'full' || prefs?.motion === 'reduced'
             ? prefs.motion
             : 'system',
+        fontScale: normalizeFontScale(prefs?.fontScale),
+        dyslexiaSpacing: Boolean(prefs?.dyslexiaSpacing),
       })
     );
   } catch {
@@ -67,6 +87,8 @@ export function applyThemeEngineAttributes({
   styleAttr = null,
   density = 'comfortable',
   motion = 'system',
+  fontScale = 'normal',
+  dyslexiaSpacing = false,
 } = {}) {
   if (!root) return;
   if (styleAttr) {
@@ -76,6 +98,12 @@ export function applyThemeEngineAttributes({
   }
   root.setAttribute('data-density', density === 'compact' ? 'compact' : 'comfortable');
   root.setAttribute('data-motion', resolveEffectiveMotion(motion));
+  root.setAttribute('data-font-scale', normalizeFontScale(fontScale));
+  if (dyslexiaSpacing) {
+    root.setAttribute('data-dyslexia', 'true');
+  } else {
+    root.removeAttribute('data-dyslexia');
+  }
 }
 
 export function runWithViewTransition(updateFn, motionPref = 'system') {

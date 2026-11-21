@@ -423,6 +423,8 @@ export function migrateV2ToV3(v2Data) {
           ? [rawItem.coverUrl]
           : [],
       monogram: rawItem.monogram || '',
+      wantToReread: Boolean(rawItem.wantToReread),
+      tags: Array.isArray(rawItem.tags) ? rawItem.tags.map(String).filter(Boolean) : [],
       readerState: rawItem.readerState || null,
       collectionIds: Array.isArray(rawItem.collectionIds)
         ? Array.from(new Set(rawItem.collectionIds.map(String).filter(Boolean)))
@@ -598,6 +600,8 @@ function normalizeWorkRowV4(work = {}) {
     originalTitle: String(work.originalTitle || '').trim(),
     loanedTo: String(work.loanedTo || '').trim(),
     loanedAt: work.loanedAt || null,
+    wantToReread: Boolean(work.wantToReread),
+    tags: Array.isArray(work.tags) ? work.tags.map(String).filter(Boolean) : [],
     progressMode: normalizeProgressMode(work.progressMode),
     progressPercent: hasPct
       ? calculatePercentProgress(work.progressPercent)

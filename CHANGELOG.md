@@ -17,6 +17,10 @@ npm run version:major -- --name="Odin"
 
 ---
 
+## [v4.17.0 · Ymir] — 2026-11
+
+**Resumo:** Acessibilidade WCAG/teclado (UX_AUDIT.md), 3 escalas de fonte, espaçamento dislexia, badges com formas para daltonismo, PWA registerType prompt com toast e banner de modo privado
+
 ## [v4.16.0 · Ymir] — 2026-11
 
 **Resumo:** Power user: atalhos globais (?), importador Goodreads/StoryGraph/Calibre/Lista com detector de duplicadas, scanner ISBN, tags, Para reler, empréstimos, Markdown e Undo universal

@@ -113,6 +113,8 @@ export function useTheme() {
       styleAttr: specialConfig?.styleAttr || null,
       density: enginePrefs.density,
       motion: enginePrefs.motion,
+      fontScale: enginePrefs.fontScale,
+      dyslexiaSpacing: enginePrefs.dyslexiaSpacing,
     });
 
     root.style.setProperty('--accent-color', activeAccentColor);
@@ -153,6 +155,19 @@ export function useTheme() {
       ...prev,
       motion:
         motion === 'full' || motion === 'reduced' ? motion : 'system',
+    }));
+
+  const setFontScale = (fontScale) =>
+    setEnginePrefs((prev) => ({
+      ...prev,
+      fontScale:
+        fontScale === 'large' || fontScale === 'xlarge' ? fontScale : 'normal',
+    }));
+
+  const setDyslexiaSpacing = (dyslexiaSpacing) =>
+    setEnginePrefs((prev) => ({
+      ...prev,
+      dyslexiaSpacing: Boolean(dyslexiaSpacing),
     }));
 
   const setMode = (mode) =>
@@ -278,6 +293,8 @@ export function useTheme() {
     texture: theme.texture,
     density: enginePrefs.density,
     motion: enginePrefs.motion,
+    fontScale: enginePrefs.fontScale,
+    dyslexiaSpacing: enginePrefs.dyslexiaSpacing,
     presetId: theme.presetId,
     specialThemeId: theme.specialThemeId,
     pastelSubpaletteId: theme.pastelSubpaletteId,
@@ -294,6 +311,8 @@ export function useTheme() {
     setTexture,
     setDensity,
     setMotion,
+    setFontScale,
+    setDyslexiaSpacing,
     applyPreset,
     applySpecialTheme,
     selectPastelSubpalette,
