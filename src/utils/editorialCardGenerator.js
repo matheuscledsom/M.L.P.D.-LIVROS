@@ -1,4 +1,10 @@
-import { domainConfig } from '../config/domainConfig';
+import { domainConfig } from '../config/domainConfig.js';
+
+export const EDITORIAL_CARD_TEMPLATES = [
+  { id: 'ficha', label: 'Ficha de Biblioteca' },
+  { id: 'pagina', label: 'Página de Livro' },
+  { id: 'carimbo', label: 'Carimbo Tipográfico' },
+];
 
 function parseHexToRgba(hex, alpha = 1) {
   const clean = String(hex || '').trim();
@@ -79,12 +85,60 @@ function drawVectorQuoteMark(ctx, x, y, color) {
   ctx.restore();
 }
 
+function drawLibraryIndexMotifs(ctx, { width, height, pad, innerX, innerW, borderSubtle, accentColor, bgApp }) {
+  // Linhas pautadas finas estilo ficha catalográfica física
+  ctx.save();
+  ctx.strokeStyle = parseHexToRgba(borderSubtle, 0.42);
+  ctx.lineWidth = 1;
+  const startY = pad + 132;
+  const endY = height - pad - 240;
+  for (let y = startY; y <= endY; y += 56) {
+    ctx.beginPath();
+    ctx.moveTo(innerX, y);
+    ctx.lineTo(innerX + innerW, y);
+    ctx.stroke();
+  }
+  // Furo de fichário inferior centralizado
+  ctx.beginPath();
+  ctx.arc(width / 2, height - pad - 44, 18, 0, Math.PI * 2);
+  ctx.fillStyle = bgApp;
+  ctx.fill();
+  ctx.lineWidth = 2;
+  ctx.strokeStyle = accentColor;
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawTypographicStamp(ctx, { cx, cy, accentColor, fontFamily }) {
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.rotate(-0.14);
+  ctx.strokeStyle = parseHexToRgba(accentColor, 0.72);
+  ctx.lineWidth = 2.5;
+  ctx.beginPath();
+  ctx.arc(0, 0, 56, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.lineWidth = 1.2;
+  ctx.beginPath();
+  ctx.arc(0, 0, 47, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.fillStyle = accentColor;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.font = `700 13px ${fontFamily}`;
+  ctx.fillText('EX LIBRIS', 0, -9);
+  ctx.font = `600 11px ${fontFamily}`;
+  ctx.fillText('CÓDICE', 0, 9);
+  ctx.restore();
+}
+
 export async function generateEditorialQuoteCard({
   quoteText,
   location = '',
   note = '',
   title = '',
   author = '',
+  templateId = 'pagina',
 }) {
   if (document?.fonts?.ready) {
     try {
@@ -109,48 +163,65 @@ export async function generateEditorialQuoteCard({
     rootStyle.getPropertyValue('--accent-color').trim() || '#8B5CF6';
   const fontFamily =
     rootStyle.getPropertyValue('--font-app').trim() ||
-    '"Inter", sans-serif';
+    '"Newsreader Variable", Georgia, serif';
 
   const WIDTH = 1080;
   const HEIGHT = 1350;
+  const activeTemplate = EDITORIAL_CARD_TEMPLATES.some((t) => t.id === templateId)
+    ? templateId
+    : 'pagina';
 
   const canvas = document.createElement('canvas');
   canvas.width = WIDTH;
   canvas.height = HEIGHT;
   const ctx = canvas.getContext('2d');
 
-  // 1. Fundo base
+  // 1. Fundo sólido editorial (zero gradientes)
   ctx.fillStyle = bgApp;
   ctx.fillRect(0, 0, WIDTH, HEIGHT);
 
-  // Brilho radial sutil usando a cor de destaque ativa
-  const glow = ctx.createRadialGradient(
-    WIDTH * 0.85,
-    HEIGHT * 0.14,
-    20,
-    WIDTH * 0.85,
-    HEIGHT * 0.14,
-    620
-  );
-  glow.addColorStop(0, parseHexToRgba(accentColor, 0.18));
-  glow.addColorStop(1, parseHexToRgba(accentColor, 0));
-  ctx.fillStyle = glow;
-  ctx.fillRect(0, 0, WIDTH, HEIGHT);
-
-  // 2. Moldura Editorial interna
+  // 2. Moldura Editorial interna conforme o modelo
   const PAD = 68;
   const FRAME_W = WIDTH - PAD * 2;
   const FRAME_H = HEIGHT - PAD * 2;
+  const frameRadius = activeTemplate === 'ficha' ? 12 : activeTemplate === 'carimbo' ? 6 : 24;
 
-  drawRoundedRect(ctx, PAD, PAD, FRAME_W, FRAME_H, 40);
+  drawRoundedRect(ctx, PAD, PAD, FRAME_W, FRAME_H, frameRadius);
   ctx.fillStyle = bgCard;
   ctx.fill();
-  ctx.lineWidth = 2;
-  ctx.strokeStyle = borderSubtle;
+  ctx.lineWidth = activeTemplate === 'carimbo' ? 3 : 2;
+  ctx.strokeStyle = activeTemplate === 'carimbo' ? accentColor : borderSubtle;
   ctx.stroke();
+
+  if (activeTemplate === 'pagina') {
+    drawRoundedRect(ctx, PAD + 16, PAD + 16, FRAME_W - 32, FRAME_H - 32, 16);
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = parseHexToRgba(accentColor, 0.35);
+    ctx.stroke();
+  }
 
   const INNER_X = PAD + 68;
   const INNER_W = FRAME_W - 136;
+
+  if (activeTemplate === 'ficha') {
+    drawLibraryIndexMotifs(ctx, {
+      width: WIDTH,
+      height: HEIGHT,
+      pad: PAD,
+      innerX: INNER_X,
+      innerW: INNER_W,
+      borderSubtle,
+      accentColor,
+      bgApp,
+    });
+  } else if (activeTemplate === 'carimbo') {
+    drawTypographicStamp(ctx, {
+      cx: WIDTH - PAD - 104,
+      cy: PAD + 114,
+      accentColor,
+      fontFamily,
+    });
+  }
 
   // 3. Cabeçalho superior
   const HEADER_Y = PAD + 74;
@@ -160,24 +231,26 @@ export async function generateEditorialQuoteCard({
   ctx.fill();
 
   ctx.fillStyle = textMuted;
-  ctx.font = `600 20px ${fontFamily}`;
+  ctx.font = `600 18px ${fontFamily}`;
   ctx.textBaseline = 'middle';
-  ctx.fillText(
-    `${domainConfig.appName.toUpperCase()} · ${domainConfig.signature.toUpperCase()}`,
-    INNER_X + 28,
-    HEADER_Y - 6
-  );
+  const headerSubtitle =
+    activeTemplate === 'ficha'
+      ? `${domainConfig.appName.toUpperCase()} · FICHA CATALOGRÁFICA`
+      : activeTemplate === 'carimbo'
+        ? `${domainConfig.appName.toUpperCase()} · ACERVO PESSOAL`
+        : `${domainConfig.appName.toUpperCase()} · ${domainConfig.signature.toUpperCase()}`;
+  ctx.fillText(headerSubtitle, INNER_X + 28, HEADER_Y - 6);
 
-  if (location.trim()) {
+  if (location.trim() && activeTemplate !== 'carimbo') {
     const locLabel = location.trim();
-    ctx.font = `600 22px ${fontFamily}`;
+    ctx.font = `600 21px ${fontFamily}`;
     const textW = ctx.measureText(locLabel).width;
-    const pillW = textW + 36;
-    const pillH = 42;
+    const pillW = textW + 34;
+    const pillH = 40;
     const pillX = INNER_X + INNER_W - pillW;
     const pillY = HEADER_Y - pillH / 2 - 6;
 
-    drawRoundedRect(ctx, pillX, pillY, pillW, pillH, 21);
+    drawRoundedRect(ctx, pillX, pillY, pillW, pillH, 6);
     ctx.fillStyle = parseHexToRgba(accentColor, 0.14);
     ctx.fill();
     ctx.lineWidth = 1.5;
@@ -194,7 +267,7 @@ export async function generateEditorialQuoteCard({
   const QUOTE_ICON_Y = HEADER_Y + 76;
   drawVectorQuoteMark(ctx, INNER_X, QUOTE_ICON_Y, accentColor);
 
-  // 5. Texto principal da citação (ajuste automático de tamanho)
+  // 5. Texto principal da citação
   const QUOTE_TOP = QUOTE_ICON_Y + 62;
   const FOOTER_TOP = HEIGHT - PAD - 220;
   const NOTE_SPACE = note.trim() ? 130 : 20;
@@ -243,7 +316,7 @@ export async function generateEditorialQuoteCard({
     cursorY += chosenLineHeight;
   });
 
-  // 6. Nota analítica (se informada)
+  // 6. Nota analítica
   if (note.trim()) {
     const noteY = FOOTER_TOP - 95;
     ctx.fillStyle = borderSubtle;
@@ -279,7 +352,7 @@ export async function generateEditorialQuoteCard({
   }
 
   // 8. Download direto PNG
-  const filename = `card-editorial-${slugifyFilename(title)}.png`;
+  const filename = `card-${activeTemplate}-${slugifyFilename(title)}.png`;
 
   await new Promise((resolve) => {
     if (canvas.toBlob) {

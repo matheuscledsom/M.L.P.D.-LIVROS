@@ -1,6 +1,7 @@
 import {
   ArrowRight,
   BookOpen,
+  CalendarClock,
   Dices,
   FilePlus2,
   Layers,
@@ -40,6 +41,7 @@ import {
   getDisplayTitles,
 } from '../utils/backlogHelpers';
 import { detectBookFileFormat } from '../utils/fileFormatDetector';
+import { buildTimeCapsuleEntries } from '../utils/timeCapsule';
 
 export function HomeScreen({
   items,
@@ -196,6 +198,16 @@ export function HomeScreen({
       })
       .slice(0, 10);
   }, [backlogItems]);
+
+  const timeCapsuleEntries = useMemo(
+    () =>
+      buildTimeCapsuleEntries({
+        items: backlogItems,
+        readingSessions,
+        dailyLogs,
+      }),
+    [backlogItems, readingSessions, dailyLogs]
+  );
 
   const summaryCards = [
     {
@@ -863,6 +875,52 @@ export function HomeScreen({
                       </span>
                     )}
                   </div>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {/* Neste Dia (Cápsula do Tempo) */}
+          {timeCapsuleEntries.length > 0 && (
+            <section aria-label="Neste Dia no seu acervo" className="space-y-2.5">
+              <div className="flex items-center gap-2">
+                <CalendarClock className="h-4 w-4 text-accent" strokeWidth={1.5} />
+                <div>
+                  <h2 className="text-sm font-semibold tracking-tight text-ink">
+                    Neste Dia
+                  </h2>
+                  <p className="text-[11px] text-subtle">
+                    Memórias e marcos da sua linha do tempo literária
+                  </p>
+                </div>
+              </div>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                {timeCapsuleEntries.map((entry) => (
+                  <button
+                    key={entry.id}
+                    type="button"
+                    disabled={!entry.work}
+                    onClick={() => entry.work && onSelectItem?.(entry.work)}
+                    className="flex min-h-[44px] flex-col justify-between gap-1.5 rounded-[6px] border border-line bg-card p-3 text-left transition-colors hover:border-accent/50 disabled:cursor-default"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="rounded-[4px] border border-accent/40 bg-accent/10 px-2 py-0.5 text-[10px] font-semibold text-accent">
+                        {entry.badgeLabel}
+                      </span>
+                      <span className="text-[10px] tabular-nums text-subtle">
+                        {entry.dateIso}
+                      </span>
+                    </div>
+                    <p className="truncate text-xs font-semibold text-ink">
+                      {entry.title}
+                    </p>
+                    <p className="truncate text-[11px] text-muted">{entry.subtitle}</p>
+                    {entry.quoteText && (
+                      <p className="line-clamp-2 border-l-2 border-accent/50 pl-2 text-[11px] italic text-subtle">
+                        {entry.quoteText}
+                      </p>
+                    )}
+                  </button>
                 ))}
               </div>
             </section>

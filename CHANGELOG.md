@@ -17,6 +17,10 @@ npm run version:major -- --name="Odin"
 
 ---
 
+## [v4.14.0 · Ymir] — 2026-11
+
+**Resumo:** Ecossistema sem servidor: dicionário offline-cached, Cápsula do Tempo (Neste Dia) e 3 templates editoriais PNG
+
 ## [v4.13.0 · Ymir] — 2026-11
 
 **Resumo:** Engajamento sem ruído: check-in +1 Cap, heatmap SVG acessível com padrões daltônicos, roleta ponderada pelo DNA e timer silencioso no leitor

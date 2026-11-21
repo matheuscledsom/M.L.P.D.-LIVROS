@@ -280,16 +280,17 @@ export function AnnotationPopover({
             <button
               type="button"
               onClick={handleLookupTerm}
-              aria-label="Pesquisar termo"
-              title="Pesquisar termo"
-              className="flex min-h-[40px] min-w-[34px] items-center justify-center rounded-[4px] transition-colors duration-150 ease-out"
+              aria-label="Definir palavra ou expressão"
+              title="Definir termo"
+              className="flex min-h-[40px] items-center gap-1 rounded-[4px] px-2 text-[11px] font-medium transition-colors duration-150 ease-out"
               style={{
                 color: termPanelOpen
                   ? 'var(--reader-accent)'
                   : 'var(--reader-muted)',
               }}
             >
-              <Search className="h-4 w-4" strokeWidth={1.5} />
+              <Search className="h-3.5 w-3.5" strokeWidth={1.5} />
+              <span>Definir</span>
             </button>
 
             <button

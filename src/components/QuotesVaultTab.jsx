@@ -1,7 +1,10 @@
 import { Check, ImageDown, Plus, Quote, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { useToast } from '../context/ToastContext';
-import { generateEditorialQuoteCard } from '../utils/editorialCardGenerator';
+import {
+  EDITORIAL_CARD_TEMPLATES,
+  generateEditorialQuoteCard,
+} from '../utils/editorialCardGenerator';
 
 function formatQuoteDate(iso) {
   if (!iso) return '';
@@ -20,6 +23,7 @@ export function QuotesVaultTab({ item, onUpdate }) {
   const [quoteText, setQuoteText] = useState('');
   const [location, setLocation] = useState('');
   const [note, setNote] = useState('');
+  const [templateId, setTemplateId] = useState('pagina');
   const [generatingId, setGeneratingId] = useState(null);
   const [downloadedId, setDownloadedId] = useState(null);
 
@@ -58,6 +62,7 @@ export function QuotesVaultTab({ item, onUpdate }) {
         note: quote.note,
         title: item.title,
         author: item.author,
+        templateId,
       });
       setDownloadedId(quote.id);
       showToast({
@@ -122,11 +127,32 @@ export function QuotesVaultTab({ item, onUpdate }) {
 
       {/* Lista de Citações Salvas */}
       <div className="space-y-2.5">
-        <div className="flex items-center justify-between text-xs">
+        <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
           <span className="font-medium text-muted">Cofre de Citações</span>
           <span className="text-[11px] text-subtle">
             {quotes.length} {quotes.length === 1 ? 'registro' : 'registros'}
           </span>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Estilo do card PNG">
+          {EDITORIAL_CARD_TEMPLATES.map((tpl) => {
+            const active = templateId === tpl.id;
+            return (
+              <button
+                key={tpl.id}
+                type="button"
+                aria-pressed={active}
+                onClick={() => setTemplateId(tpl.id)}
+                className={`min-h-[36px] rounded-[4px] border px-2.5 py-1 text-[11px] font-medium transition-colors ${
+                  active
+                    ? 'border-accent bg-accent/15 text-ink'
+                    : 'border-line bg-app text-muted hover:text-ink'
+                }`}
+              >
+                {tpl.label}
+              </button>
+            );
+          })}
         </div>
 
         {quotes.length === 0 ? (
