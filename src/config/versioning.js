@@ -16,16 +16,25 @@ export const VERSIONING_RULES = {
 };
 
 export const CODICE_RELEASE = {
-  version: '4.4.0',
+  version: '4.5.0',
   codename: 'Ymir',
-  label: 'v4.4.0 · Ymir',
+  label: 'v4.5.0 · Ymir',
   releaseType: 'minor',
   date: '2026-11',
   summary:
-    'Fase 3: Acervo Estante Direta, Filtros em ResponsiveSheet, Estante de Lombadas, Cor Dominante e Capas SVG Geradas',
+    'Fase 4: Configuracoes em 4 abas com hash, DNA do Leitor em 8 dimensoes, exclusoes e migracao retrocompativel',
 };
 
 export const RELEASE_HISTORY = [
+  {
+    version: '4.5.0',
+    codename: 'Ymir',
+    label: 'v4.5.0 · Ymir',
+    releaseType: 'minor',
+    date: '2026-11',
+    summary: 'Fase 4: Configuracoes em 4 abas com hash, DNA do Leitor em 8 dimensoes, exclusoes e migracao retrocompativel',
+    highlights: ['Release automatizado via bump-version.mjs.'],
+  },
   {
     version: '4.4.0',
     codename: 'Ymir',

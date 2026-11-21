@@ -11,6 +11,7 @@ import {
   normalizeFavoriteGenres,
   normalizePreferredCriteria,
 } from '../utils/readerPreferences.js';
+import { normalizeReaderDna } from './dnaScoring.js';
 
 export const CODICE_SCHEMA_VERSION = '4.0-codice-sql';
 export const CODICE_V3_SCHEMA_VERSION = '3.0-codice-sql';
@@ -260,6 +261,8 @@ function buildDefaultUserProfile(profileData) {
     preferredCriterion: preferredCriteria.join(', '),
     preferredAtmosphere: profileData?.preferredAtmosphere || 'Tinta OLED',
     favoriteGenres: normalizeFavoriteGenres(profileData?.favoriteGenres),
+    profileSchemaVersion: Math.max(2, Number(profileData?.profileSchemaVersion) || 2),
+    readerDna: normalizeReaderDna(profileData?.readerDna ?? profileData?.reader_dna),
     privacyLevel: normalizePrivacyLevel(rawPrivacy),
     allowWallPosts: rawAllowWall !== undefined ? Boolean(rawAllowWall) : true,
     allowComments: rawAllowComments !== undefined ? Boolean(rawAllowComments) : true,
@@ -646,15 +649,34 @@ export function migrateV3ToV4(v3Data) {
 }
 
 export function migrateDatabase(rawData) {
-  const detectedVersion = detectSchemaVersion(rawData);
-  if (detectedVersion === 4 || detectedVersion === 3) {
-    return migrateV3ToV4(rawData);
+  let rollbackSnapshot = null;
+  try {
+    rollbackSnapshot = rawData && typeof rawData === 'object'
+      ? JSON.parse(JSON.stringify(rawData))
+      : rawData;
+  } catch {
+    rollbackSnapshot = rawData;
   }
-  if (detectedVersion === 2) {
-    return migrateV3ToV4(migrateV2ToV3(rawData));
+
+  try {
+    const detectedVersion = detectSchemaVersion(rollbackSnapshot);
+    if (detectedVersion === 4 || detectedVersion === 3) {
+      return migrateV3ToV4(rollbackSnapshot);
+    }
+    if (detectedVersion === 2) {
+      return migrateV3ToV4(migrateV2ToV3(rollbackSnapshot));
+    }
+    const v2 = migrateV1ToV2(rollbackSnapshot);
+    return migrateV3ToV4(migrateV2ToV3(v2));
+  } catch {
+    return migrateV3ToV4({
+      tables: {
+        works: Array.isArray(rollbackSnapshot?.items) ? rollbackSnapshot.items : [],
+        user_profile: rollbackSnapshot?.profile || rollbackSnapshot?.tables?.user_profile || null,
+      },
+      metadata: rollbackSnapshot?.metadata || {},
+    });
   }
-  const v2 = migrateV1ToV2(rawData);
-  return migrateV3ToV4(migrateV2ToV3(v2));
 }
 
 export function validateReferentialIntegrity(db) {

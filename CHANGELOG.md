@@ -17,6 +17,10 @@ npm run version:major -- --name="Odin"
 
 ---
 
+## [v4.5.0 · Ymir] — 2026-11
+
+**Resumo:** Fase 4: Configuracoes em 4 abas com hash, DNA do Leitor em 8 dimensoes, exclusoes e migracao retrocompativel
+
 ## [v4.4.0 · Ymir] — 2026-11
 
 **Resumo:** Fase 3: Acervo Estante Direta, Filtros em ResponsiveSheet, Estante de Lombadas, Cor Dominante e Capas SVG Geradas

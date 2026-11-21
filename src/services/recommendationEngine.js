@@ -1,6 +1,11 @@
 import { normalizePublisherName } from '../data/brazilianPublishers.js';
 import { catalogItems } from '../data/mockData.js';
 import { normalizePreferredCriteria } from '../utils/readerPreferences.js';
+import {
+  computeDnaWeightedScore,
+  evaluateCandidateExclusion,
+  normalizeReaderDna,
+} from './dnaScoring.js';
 
 const FICTITIOUS_PEER_HANDLES = new Set([
   '@clarice_leitora',
@@ -487,6 +492,7 @@ export function buildReaderTasteProfile(items = [], profile = null) {
     allowsManga: userAllowsMangaOrHq(backlog, profile),
     readerFocus,
     preferredCriteria,
+    readerDna: normalizeReaderDna(profile?.readerDna ?? profile?.reader_dna),
     preferredAuthors,
     preferredPublishers,
     preferredCdd,
@@ -497,6 +503,10 @@ export function buildReaderTasteProfile(items = [], profile = null) {
 
 function isCandidateCompatibleWithPreferences(work, tasteProfile, sourceKind = 'discovery') {
   if (!work) return false;
+
+  if (evaluateCandidateExclusion(work, tasteProfile?.readerDna)) {
+    return false;
+  }
 
   if (!tasteProfile.allowsManga && isMangaOrHqWork(work)) {
     return false;
@@ -660,7 +670,17 @@ export function scoreCandidateForMood(item, tasteProfile, mood = '') {
     }
   }
 
-  // 8. Prioridade (hype) e disponibilidade real
+  // 8. DNA do Leitor (8 dimensões, ritmo, densidade e exclusões)
+  const dnaResult = computeDnaWeightedScore(item, tasteProfile?.readerDna);
+  if (dnaResult.excluded) {
+    return { item, score: -999, reasons: [] };
+  }
+  score += dnaResult.bonus;
+  if (dnaResult.topDimensionLabel && dnaResult.bonus >= 12) {
+    reasons.push(`alinhado ao seu DNA em ${dnaResult.topDimensionLabel}`);
+  }
+
+  // 9. Prioridade (hype) e disponibilidade real
   if (item.hype === 'very-high' || item.hype === 'urgent') score += 8;
   else if (item.hype === 'high') score += 4;
   if (!item.isWishlist && item.access !== 'Wishlist') score += 3;
@@ -695,7 +715,22 @@ export function generateOfflineRecommendations({
   }
 
   const tasteProfile = buildReaderTasteProfile(items, profile);
-  const ranked = queuedItems
+  const eligibleItems = queuedItems.filter(
+    (candidate) => !evaluateCandidateExclusion(candidate, tasteProfile.readerDna)
+  );
+  if (eligibleItems.length === 0) {
+    return {
+      ok: false,
+      mode: 'offline',
+      primaryId: null,
+      headline: 'Nenhuma obra compatível com seus filtros de exclusão',
+      reason: 'Todas as obras na estante correspondem às exclusões ativas no seu DNA.',
+      alternatives: [],
+      scoredCandidates: [],
+    };
+  }
+
+  const ranked = eligibleItems
     .map((candidate) => scoreCandidateForMood(candidate, tasteProfile, mood))
     .sort((a, b) => b.score - a.score || String(a.item.title).localeCompare(String(b.item.title), 'pt-BR'));
 
