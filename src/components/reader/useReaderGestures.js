@@ -234,7 +234,9 @@ export function createTapGestureEngine(handlers = {}) {
     clientX = 0,
     clientY = 0,
     viewportLeft = 0,
+    viewportTop = 0,
     viewportWidth = 1,
+    viewportHeight = 1,
     doc = null,
     target = null,
     timestamp = Date.now(),
@@ -290,7 +292,15 @@ export function createTapGestureEngine(handlers = {}) {
     if (centerTapTimer !== null) {
       clearCenterTapTimer();
       if (allowCenterDoubleTap) {
-        handlers.onCenterDoubleTap?.({ xRatio });
+        handlers.onCenterDoubleTap?.({
+          xRatio,
+          clientX,
+          clientY,
+          viewportLeft,
+          viewportTop,
+          viewportWidth,
+          viewportHeight,
+        });
       }
       return;
     }
@@ -469,7 +479,9 @@ export function useReaderGestures({
           clientX: e.clientX,
           clientY: e.clientY,
           viewportLeft: vRect.left,
+          viewportTop: vRect.top,
           viewportWidth: vRect.width,
+          viewportHeight: vRect.height,
           doc: typeof document !== 'undefined' ? document : null,
           target: e.target,
         });

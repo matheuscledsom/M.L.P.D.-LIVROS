@@ -16,16 +16,25 @@ export const VERSIONING_RULES = {
 };
 
 export const CODICE_RELEASE = {
-  version: '4.10.0',
+  version: '4.11.0',
   codename: 'Ymir',
-  label: 'v4.10.0 · Ymir',
+  label: 'v4.11.0 · Ymir',
   releaseType: 'minor',
   date: '2026-11',
   summary:
-    'Fase 9: Motor de Franquias em Andamento com deteccao de volumes faltantes, carrossel na Home e + Catalogar em 1 toque',
+    'Fase 10: Upgrade do Leitor Manga/CBZ com RTL, Spread duplo, Webtoon virtualizado, filtros E-Ink Sumi/Noturno e Zoom 2x no toque',
 };
 
 export const RELEASE_HISTORY = [
+  {
+    version: '4.11.0',
+    codename: 'Ymir',
+    label: 'v4.11.0 · Ymir',
+    releaseType: 'minor',
+    date: '2026-11',
+    summary: 'Fase 10: Upgrade do Leitor Manga/CBZ com RTL, Spread duplo, Webtoon virtualizado, filtros E-Ink Sumi/Noturno e Zoom 2x no toque',
+    highlights: ['Release automatizado via bump-version.mjs.'],
+  },
   {
     version: '4.10.0',
     codename: 'Ymir',

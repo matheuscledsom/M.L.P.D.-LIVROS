@@ -9,22 +9,28 @@ import {
 } from 'react';
 import { resolveReaderDomColors } from '../../utils/readerThemes';
 import {
+  computeVisibleWebtoonWindow,
+  computeZoomOriginAtPoint,
+  resolveComicVisualFilter,
+  sortComicEntriesNaturally,
+} from './comicReaderHelpers';
+import {
   scrollContainerByViewportFraction,
   useReaderGestures,
 } from './useReaderGestures';
 
+export { sortComicEntriesNaturally };
+
 const IMAGE_EXT_REGEX = /\.(jpe?g|png|webp|gif|bmp|avif)$/i;
 
-export function sortComicEntriesNaturally(names = []) {
-  return [...names].sort((a, b) =>
-    String(a).localeCompare(String(b), undefined, {
-      numeric: true,
-      sensitivity: 'base',
-    })
-  );
-}
-
-function ComicWebtoonImage({ entryName, getImageUrl, fitClass, onRegisterRef }) {
+function ComicWebtoonImage({
+  entryName,
+  getImageUrl,
+  fitClass,
+  imageFilter = 'none',
+  inWindow = true,
+  onRegisterRef,
+}) {
   const containerRef = useRef(null);
   const [src, setSrc] = useState(null);
 
@@ -34,6 +40,10 @@ function ComicWebtoonImage({ entryName, getImageUrl, fitClass, onRegisterRef }) 
   }, [entryName, onRegisterRef]);
 
   useEffect(() => {
+    if (!inWindow) {
+      setSrc(null);
+      return undefined;
+    }
     const el = containerRef.current;
     if (!el) return undefined;
     let active = true;
@@ -63,17 +73,20 @@ function ComicWebtoonImage({ entryName, getImageUrl, fitClass, onRegisterRef }) 
       active = false;
       observer.disconnect();
     };
-  }, [entryName, getImageUrl]);
+  }, [entryName, getImageUrl, inWindow]);
 
   return (
     <div
       ref={containerRef}
+      style={{ contain: 'layout paint' }}
       className="flex min-h-[260px] w-full items-center justify-center"
     >
       {src ? (
         <img
           src={src}
           alt={entryName}
+          decoding="async"
+          style={imageFilter !== 'none' ? { filter: imageFilter } : undefined}
           className={`mx-auto block select-none ${fitClass}`}
           draggable={false}
         />
@@ -115,6 +128,7 @@ export const ComicView = forwardRef(function ComicView(
   const [currentIndex, setCurrentIndex] = useState(Math.max(0, (initialPage || 1) - 1));
   const [activeUrls, setActiveUrls] = useState({});
   const [isZoomed, setIsZoomed] = useState(false);
+  const [zoomOriginCss, setZoomOriginCss] = useState('50% 50%');
 
   const revokeAllUrls = useCallback(() => {
     urlCacheRef.current.forEach((url) => URL.revokeObjectURL(url));
@@ -217,21 +231,27 @@ export const ComicView = forwardRef(function ComicView(
     };
   }, [fileBlob, revokeAllUrls]);
 
-  // Pré-carrega página(s) atual(is) + próximas 2 imagens
+  // Carrega página(s) atual(is), pré-carrega próximas 2 em idle e descarta distantes
   useEffect(() => {
     if (pages.length === 0 || settings.cbzMode === 'webtoon') return undefined;
     let cancelled = false;
+    let idleHandle = null;
+    let idleTimer = null;
 
-    const preload = async () => {
-      const indicesToLoad = [
-        currentIndex,
-        ...(settings.cbzMode === 'double' ? [currentIndex + 1] : []),
-        currentIndex + 1,
-        currentIndex + 2,
-      ].filter((idx) => idx >= 0 && idx < pages.length);
+    const currentIndices = [
+      currentIndex,
+      ...(settings.cbzMode === 'double' ? [currentIndex + 1] : []),
+    ].filter((idx) => idx >= 0 && idx < pages.length);
 
+    const dirStep = settings.cbzDirection === 'rtl' ? -1 : 1;
+    const aheadIndices = [
+      currentIndex + dirStep,
+      currentIndex + dirStep * 2,
+    ].filter((idx) => idx >= 0 && idx < pages.length);
+
+    const loadCurrent = async () => {
       const loadedMap = {};
-      for (const idx of indicesToLoad) {
+      for (const idx of currentIndices) {
         const name = pages[idx];
         const url = await getImageUrl(name);
         if (!cancelled && url) {
@@ -239,15 +259,62 @@ export const ComicView = forwardRef(function ComicView(
         }
       }
       if (!cancelled) {
-        setActiveUrls((prev) => ({ ...prev, ...loadedMap }));
+        // Limpa URLs distantes fora da janela [currentIndex - 6 .. currentIndex + 6]
+        const keepNames = new Set(
+          pages.slice(Math.max(0, currentIndex - 6), currentIndex + 7)
+        );
+        Array.from(urlCacheRef.current.keys()).forEach((cachedName) => {
+          if (!keepNames.has(cachedName)) {
+            const url = urlCacheRef.current.get(cachedName);
+            urlCacheRef.current.delete(cachedName);
+            if (url) URL.revokeObjectURL(url);
+          }
+        });
+
+        setActiveUrls((prev) => {
+          const next = {};
+          keepNames.forEach((name) => {
+            if (loadedMap[name]) next[name] = loadedMap[name];
+            else if (prev[name]) next[name] = prev[name];
+          });
+          return next;
+        });
       }
     };
 
-    preload();
+    const scheduleIdlePreload = () => {
+      const runPreload = async () => {
+        if (cancelled) return;
+        const preloadMap = {};
+        for (const idx of aheadIndices) {
+          const name = pages[idx];
+          const url = await getImageUrl(name);
+          if (!cancelled && url) preloadMap[name] = url;
+        }
+        if (!cancelled && Object.keys(preloadMap).length > 0) {
+          setActiveUrls((prev) => ({ ...prev, ...preloadMap }));
+        }
+      };
+
+      if (typeof window !== 'undefined' && typeof window.requestIdleCallback === 'function') {
+        idleHandle = window.requestIdleCallback(() => {
+          runPreload();
+        });
+      } else {
+        idleTimer = setTimeout(runPreload, 140);
+      }
+    };
+
+    loadCurrent().then(scheduleIdlePreload);
+
     return () => {
       cancelled = true;
+      if (idleHandle !== null && typeof window?.cancelIdleCallback === 'function') {
+        window.cancelIdleCallback(idleHandle);
+      }
+      if (idleTimer !== null) clearTimeout(idleTimer);
     };
-  }, [pages, currentIndex, settings.cbzMode, getImageUrl]);
+  }, [pages, currentIndex, settings.cbzMode, settings.cbzDirection, getImageUrl]);
 
   const goToIndex = useCallback(
     (nextIdx) => {
@@ -336,9 +403,26 @@ export const ComicView = forwardRef(function ComicView(
           (settings.cbzMode !== 'webtoon' && scrollContainerRef.current.scrollTop > 4))
     );
 
+  const toggleZoomAtPoint = useCallback((clientX, clientY) => {
+    if (settings.cbzMode === 'webtoon') return;
+    if (isZoomed) {
+      setIsZoomed(false);
+      return;
+    }
+    const rect = scrollContainerRef.current?.getBoundingClientRect?.() || {
+      left: 0,
+      top: 0,
+      width: 360,
+      height: 640,
+    };
+    const origin = computeZoomOriginAtPoint({ clientX, clientY, rect });
+    setZoomOriginCss(origin.originCss);
+    setIsZoomed(true);
+  }, [isZoomed, settings.cbzMode]);
+
   const gestures = useReaderGestures({
     enabled: settings.touchGesturesEnabled !== false,
-    allowCenterDoubleTap: !isZoomedOrPanned,
+    allowCenterDoubleTap: settings.cbzMode === 'webtoon' ? !isZoomedOrPanned : true,
     viewportRef: scrollContainerRef,
     onLeftTap: () => {
       if (isZoomed) return;
@@ -357,7 +441,13 @@ export const ComicView = forwardRef(function ComicView(
       }
     },
     onCenterTap,
-    onCenterDoubleTap,
+    onCenterDoubleTap: (payload) => {
+      if (settings.cbzMode !== 'webtoon' && typeof payload?.clientX === 'number') {
+        toggleZoomAtPoint(payload.clientX, payload.clientY);
+        return;
+      }
+      onCenterDoubleTap?.(payload);
+    },
     onLongPressSettings,
   });
 
@@ -383,6 +473,8 @@ export const ComicView = forwardRef(function ComicView(
       : [];
 
   const domColors = resolveReaderDomColors(activeTheme);
+  const imageFilter = resolveComicVisualFilter(settings.cbzFilter);
+  const webtoonWindow = computeVisibleWebtoonWindow(currentIndex, pages.length, 5);
 
   return (
     <div
@@ -390,9 +482,9 @@ export const ComicView = forwardRef(function ComicView(
       onScroll={handleWebtoonScroll}
       {...gestures.getContainerPointerProps()}
       onDoubleClick={(e) => {
-        if (isZoomedOrPanned) {
+        if (settings.cbzMode !== 'webtoon') {
           e.stopPropagation();
-          setIsZoomed(false);
+          toggleZoomAtPoint(e.clientX, e.clientY);
         }
       }}
       className="h-full w-full overflow-auto px-2 pt-14 pb-20 no-scrollbar"
@@ -404,20 +496,26 @@ export const ComicView = forwardRef(function ComicView(
     >
       {settings.cbzMode === 'webtoon' ? (
         <div className="mx-auto flex max-w-3xl flex-col gap-1">
-          {pages.map((entryName) => (
+          {pages.map((entryName, idx) => (
             <ComicWebtoonImage
               key={entryName}
               entryName={entryName}
               getImageUrl={getImageUrl}
               fitClass={fitClass}
+              imageFilter={imageFilter}
+              inWindow={idx >= webtoonWindow.start && idx <= webtoonWindow.end}
               onRegisterRef={registerWebtoonRef}
             />
           ))}
         </div>
       ) : (
         <div
+          style={{
+            transform: isZoomed ? 'scale(2)' : 'scale(1)',
+            transformOrigin: isZoomed ? zoomOriginCss : 'center center',
+          }}
           className={`mx-auto flex min-h-full items-center justify-center gap-1 transition-transform duration-150 ease-out ${
-            isZoomed ? 'scale-175 origin-center cursor-zoom-out' : 'cursor-pointer'
+            isZoomed ? 'cursor-zoom-out' : 'cursor-pointer'
           }`}
         >
           {spreadPages.map((name) =>
@@ -426,6 +524,8 @@ export const ComicView = forwardRef(function ComicView(
                 key={name}
                 src={activeUrls[name]}
                 alt={name}
+                decoding="async"
+                style={imageFilter !== 'none' ? { filter: imageFilter } : undefined}
                 className={`${fitClass} ${
                   spreadPages.length === 2 ? 'max-w-[49%]' : ''
                 } select-none rounded-[4px]`}

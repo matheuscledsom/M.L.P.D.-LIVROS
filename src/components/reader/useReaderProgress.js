@@ -32,6 +32,7 @@ export const DEFAULT_READER_SETTINGS = {
   cbzMode: 'single',
   cbzDirection: 'ltr',
   cbzFit: 'width',
+  cbzFilter: 'none',
   textFlow: 'scrolled',
 };
 

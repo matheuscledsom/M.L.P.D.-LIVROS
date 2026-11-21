@@ -532,6 +532,18 @@ export function ReaderSettings({
                   onChange={(val) => onUpdateSettings({ cbzFit: val })}
                 />
               </SettingRow>
+
+              <SettingRow label="Contraste e filtro visual">
+                <SegmentedTextControl
+                  value={settings.cbzFilter || 'none'}
+                  options={[
+                    { id: 'none', label: 'Original' },
+                    { id: 'sumi-eink', label: 'E-Ink Sumi' },
+                    { id: 'night-inverted', label: 'Noturno' },
+                  ]}
+                  onChange={(val) => onUpdateSettings({ cbzFilter: val })}
+                />
+              </SettingRow>
             </>
           )}
         </div>
