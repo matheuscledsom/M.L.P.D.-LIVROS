@@ -34,6 +34,7 @@ export function CoverArt({ item, className = '', showTitle = false, compact = fa
       title={item.title}
       author={item[domainConfig.cardFields.creator]}
       workType={item.workType || 'book'}
+      genre={Array.isArray(item.genres) ? item.genres[0] || '' : ''}
       badge={primaryBadge}
       className={className}
       showTitle={showTitle}

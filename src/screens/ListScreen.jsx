@@ -2,6 +2,7 @@ import {
   ArrowDown,
   ArrowUp,
   ArrowUpDown,
+  BookMarked,
   BookOpen,
   Dices,
   FolderPlus,
@@ -13,6 +14,7 @@ import {
   Palette,
   Plus,
   Search,
+  SlidersHorizontal,
   Star,
   Table2,
   X,
@@ -21,10 +23,11 @@ import { useEffect, useMemo, useState } from 'react';
 import { CollectionCreatorBar } from '../components/CollectionCreatorBar';
 import { CoverArt } from '../components/CoverArt';
 import { OfflineBookPickerModal } from '../components/OfflineBookPickerModal';
-import { OracleWidget } from '../components/OracleWidget';
-import { ReadingStreakWidget } from '../components/ReadingStreakWidget';
+import { ResponsiveSheet } from '../components/ResponsiveSheet';
 import { StatusBadge } from '../components/StatusBadge';
 import { VectorIcon } from '../components/VectorIcon';
+import { isFlagEnabled } from '../config/flags';
+import { SpineRenderer } from '../graphics/SpineRenderer';
 import {
   domainConfig,
   getStatusConfig,
@@ -54,12 +57,18 @@ const TITLE_MODES = [
   { id: 'original', label: 'Original' },
 ];
 
-const VIEW_MODES = [
-  { id: 'grid', label: 'Estante Visual', icon: LayoutGrid },
-  { id: 'detailed', label: 'Catálogo Editorial', icon: LayoutList },
-  { id: 'catalog', label: 'Fichário Bibliotecário', icon: Table2 },
-  { id: 'grouped', label: 'Agrupado', icon: FolderTree },
+const PRIMARY_VIEW_MODES = [
+  { id: 'grid', label: 'Grade', icon: LayoutGrid },
+  { id: 'detailed', label: 'Lista', icon: LayoutList },
+  { id: 'shelf', label: 'Estante', icon: BookMarked },
 ];
+
+const EXTRA_VIEW_MODES = [
+  { id: 'catalog', label: 'Fichário Bibliotecário', icon: Table2 },
+  { id: 'grouped', label: 'Agrupado por Série/Local', icon: FolderTree },
+];
+
+const VIEW_MODES = [...PRIMARY_VIEW_MODES, ...EXTRA_VIEW_MODES];
 
 function loadSavedTitleMode() {
   try {
@@ -73,6 +82,7 @@ function loadSavedTitleMode() {
 function loadSavedViewMode() {
   try {
     const val = localStorage.getItem(VIEW_MODE_STORAGE_KEY);
+    if (val === 'shelf' && !isFlagEnabled('spineShelf')) return 'grid';
     return VIEW_MODES.some((m) => m.id === val) ? val : 'grid';
   } catch {
     return 'grid';
@@ -115,6 +125,9 @@ export function ListScreen({
   const [selectedStatus, setSelectedStatus] = useState('all');
   const [selectedWorkType, setSelectedWorkType] = useState('all');
   const [selectedCollectionId, setSelectedCollectionId] = useState('all');
+  const [selectedGenre, setSelectedGenre] = useState('all');
+  const [selectedFormat, setSelectedFormat] = useState('all');
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [collectionManagerOpen, setCollectionManagerOpen] = useState(false);
   const [rouletteOpen, setRouletteOpen] = useState(false);
   const [localQuery, setLocalQuery] = useState('');
@@ -166,6 +179,33 @@ export function ListScreen({
     }
   }, [collections, selectedCollectionId]);
 
+  const availableGenres = useMemo(() => {
+    const map = new Map();
+    backlogItems.forEach((item) => {
+      if (Array.isArray(item.genres)) {
+        item.genres.forEach((g) => {
+          const clean = String(g || '').trim();
+          if (clean) map.set(clean, (map.get(clean) || 0) + 1);
+        });
+      }
+    });
+    return Array.from(map.entries())
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'pt-BR'))
+      .slice(0, 16)
+      .map(([name, count]) => ({ name, count }));
+  }, [backlogItems]);
+
+  const availableFormats = useMemo(() => {
+    const map = new Map();
+    backlogItems.forEach((item) => {
+      const fmt = String(item.format || '').trim();
+      if (fmt) map.set(fmt, (map.get(fmt) || 0) + 1);
+    });
+    return Array.from(map.entries())
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], 'pt-BR'))
+      .map(([name, count]) => ({ name, count }));
+  }, [backlogItems]);
+
   const filteredAndSortedItems = useMemo(() => {
     const byStatus =
       selectedStatus === 'all'
@@ -179,10 +219,24 @@ export function ListScreen({
 
     const byCollection = filterWorksByCollection(byType, selectedCollectionId);
 
+    const byGenre =
+      selectedGenre === 'all'
+        ? byCollection
+        : byCollection.filter(
+            (item) =>
+              Array.isArray(item.genres) &&
+              item.genres.some((g) => String(g || '').trim() === selectedGenre)
+          );
+
+    const byFormat =
+      selectedFormat === 'all'
+        ? byGenre
+        : byGenre.filter((item) => String(item.format || '').trim() === selectedFormat);
+
     const q = localQuery.trim().toLowerCase();
     const filtered = !q
-      ? byCollection
-      : byCollection.filter((item) => {
+      ? byFormat
+      : byFormat.filter((item) => {
           const inTitle = String(item.title || '').toLowerCase().includes(q);
           const inOrig = String(item.originalTitle || '').toLowerCase().includes(q);
           const inAuthor = String(item[cardFields.creator] || '').toLowerCase().includes(q);
@@ -214,11 +268,26 @@ export function ListScreen({
         return pagesB - pagesA;
       }
 
+      if (sortBy === 'title') {
+        return String(a.title || '').localeCompare(String(b.title || ''), 'pt-BR');
+      }
+
       const timeA = Date.parse(a.updatedAt || a.createdAt || '') || 0;
       const timeB = Date.parse(b.updatedAt || b.createdAt || '') || 0;
       return timeB - timeA;
     });
-  }, [backlogItems, selectedStatus, selectedWorkType, selectedCollectionId, localQuery, sortBy, cardFields.creator, cardFields.rating]);
+  }, [
+    backlogItems,
+    selectedStatus,
+    selectedWorkType,
+    selectedCollectionId,
+    selectedGenre,
+    selectedFormat,
+    localQuery,
+    sortBy,
+    cardFields.creator,
+    cardFields.rating,
+  ]);
 
   const tableSortedItems = useMemo(() => {
     const dirMul = tableSort.dir === 'asc' ? 1 : -1;
@@ -312,6 +381,80 @@ export function ListScreen({
     })),
   ];
 
+  const visiblePrimaryModes = useMemo(() => {
+    const spineEnabled = isFlagEnabled('spineShelf');
+    return PRIMARY_VIEW_MODES.filter((m) => m.id !== 'shelf' || spineEnabled);
+  }, []);
+
+  const activeFilters = useMemo(() => {
+    const chips = [];
+    if (selectedStatus !== 'all') {
+      const meta = getStatusConfig(selectedStatus);
+      chips.push({
+        id: 'status',
+        label: `Status: ${meta?.label || selectedStatus}`,
+        onClear: () => setSelectedStatus('all'),
+      });
+    }
+    if (selectedWorkType !== 'all') {
+      const wt = getWorkTypeConfig(selectedWorkType);
+      chips.push({
+        id: 'workType',
+        label: `Tipo: ${wt?.shortLabel || selectedWorkType}`,
+        onClear: () => setSelectedWorkType('all'),
+      });
+    }
+    if (selectedCollectionId !== 'all') {
+      const col = collections.find((c) => c.id === selectedCollectionId);
+      chips.push({
+        id: 'collection',
+        label: `Coleção: ${col?.name || 'Personalizada'}`,
+        onClear: () => setSelectedCollectionId('all'),
+      });
+    }
+    if (selectedGenre !== 'all') {
+      chips.push({
+        id: 'genre',
+        label: `Gênero: ${selectedGenre}`,
+        onClear: () => setSelectedGenre('all'),
+      });
+    }
+    if (selectedFormat !== 'all') {
+      chips.push({
+        id: 'format',
+        label: `Formato: ${selectedFormat}`,
+        onClear: () => setSelectedFormat('all'),
+      });
+    }
+    if (layoutMode === 'catalog' || layoutMode === 'grouped') {
+      const extraMeta = EXTRA_VIEW_MODES.find((m) => m.id === layoutMode);
+      chips.push({
+        id: 'layout',
+        label: extraMeta?.label || layoutMode,
+        onClear: () => setLayoutMode('grid'),
+      });
+    }
+    return chips;
+  }, [
+    selectedStatus,
+    selectedWorkType,
+    selectedCollectionId,
+    selectedGenre,
+    selectedFormat,
+    layoutMode,
+    collections,
+  ]);
+
+  const clearAllFilters = () => {
+    setSelectedStatus('all');
+    setSelectedWorkType('all');
+    setSelectedCollectionId('all');
+    setSelectedGenre('all');
+    setSelectedFormat('all');
+    setLocalQuery('');
+    setSortBy('recent');
+  };
+
   const countLabel =
     filteredAndSortedItems.length === 1 ? list.countSingular : list.countPlural;
 
@@ -359,270 +502,108 @@ export function ListScreen({
         </div>
       </header>
 
+      {/* Estante Direta: barra unica compacta acima do primeiro livro */}
       {backlogItems.length > 0 && (
-        <div className="flex flex-col sm:flex-row sm:items-center gap-2">
-          <div className="relative flex-1">
-            <Search
-              className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-subtle"
-              strokeWidth={1.5}
-            />
-            <input
-              type="search"
-              value={localQuery}
-              onChange={(e) => setLocalQuery(e.target.value)}
-              placeholder="Buscar no acervo (título PT-BR, título original, autor, editora...)"
-              aria-label="Buscar obras no acervo"
-              className="min-h-[40px] w-full rounded-[4px] border border-line bg-card py-1.5 pl-8 pr-8 text-xs text-ink placeholder:text-subtle focus:border-accent focus:outline-none"
-            />
-            {localQuery && (
-              <button
-                type="button"
-                onClick={() => setLocalQuery('')}
-                aria-label="Limpar filtro"
-                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-subtle hover:text-ink"
-              >
-                <X className="h-3.5 w-3.5" strokeWidth={1.5} />
-              </button>
-            )}
-          </div>
-
-          <div
-            role="tablist"
-            aria-label="Idioma de exibição dos títulos"
-            className="inline-flex shrink-0 overflow-hidden rounded-[4px] border border-line bg-card"
-          >
-            {TITLE_MODES.map((m, idx) => {
-              const active = titleMode === m.id;
-              return (
+        <div className="space-y-2">
+          <div className="flex items-center gap-2">
+            <div className="relative min-w-0 flex-1">
+              <Search
+                className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-subtle"
+                strokeWidth={1.5}
+              />
+              <input
+                type="search"
+                value={localQuery}
+                onChange={(e) => setLocalQuery(e.target.value)}
+                placeholder="Buscar título, autor, ISBN, gênero..."
+                aria-label="Buscar obras no acervo"
+                className="min-h-[44px] w-full rounded-[4px] border border-line bg-card py-1.5 pl-8 pr-8 text-xs text-ink placeholder:text-subtle focus:border-accent focus:outline-none"
+              />
+              {localQuery && (
                 <button
-                  key={m.id}
                   type="button"
-                  role="tab"
-                  aria-selected={active}
-                  onClick={() => setTitleMode(m.id)}
-                  className={`min-h-[40px] px-2.5 text-[11px] font-medium transition-colors ${
-                    idx > 0 ? 'border-l border-line' : ''
-                  } ${
-                    active
-                      ? 'bg-accent/15 text-accent'
-                      : 'text-muted hover:text-ink'
-                  }`}
+                  onClick={() => setLocalQuery('')}
+                  aria-label="Limpar busca"
+                  className="absolute right-2 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center text-subtle hover:text-ink"
                 >
-                  {m.label}
+                  <X className="h-3.5 w-3.5" strokeWidth={1.5} />
                 </button>
-              );
-            })}
-          </div>
-        </div>
-      )}
+              )}
+            </div>
 
-      {profile?.gamificationEnabled !== false && streakProps && (
-        <ReadingStreakWidget {...streakProps} />
-      )}
-
-      {backlogItems.length > 0 && (
-        <OracleWidget
-          items={items}
-          profile={profile}
-          geminiKey={geminiKey}
-          onSelectItem={onSelectItem}
-          onOpenGeminiSettings={onOpenGeminiSettings}
-        />
-      )}
-
-      <div className="flex gap-1.5 overflow-x-auto pb-0.5 no-scrollbar">
-        {filterTabs.map((tab) => {
-          const isActive = selectedStatus === tab.id;
-          return (
             <button
-              key={tab.id}
               type="button"
-              onClick={() => setSelectedStatus(tab.id)}
-              className={`inline-flex min-h-[44px] shrink-0 items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-xs font-medium transition-colors ${
-                isActive
-                  ? 'border-accent bg-accent text-accent-ink'
-                  : 'border-line bg-card text-muted hover:text-ink'
-              }`}
-            >
-              <span>{tab.label}</span>
-              <span
-                className={`text-[10px] ${
-                  isActive ? 'opacity-85' : 'text-subtle'
-                }`}
-              >
-                {tab.count}
-              </span>
-            </button>
-          );
-        })}
-      </div>
-
-      {/* Filtro por Natureza da Obra */}
-      <div className="flex gap-1.5 overflow-x-auto no-scrollbar">
-        <button
-          type="button"
-          onClick={() => setSelectedWorkType('all')}
-          className={`min-h-[36px] shrink-0 rounded-xl border px-3 py-1 text-[11px] font-medium transition-colors ${
-            selectedWorkType === 'all'
-              ? 'border-accent bg-accent/15 text-accent'
-              : 'border-line bg-card text-muted hover:text-ink'
-          }`}
-        >
-          {list.allTypesLabel}
-        </button>
-        {domainConfig.workTypes.map((type) => {
-          const isActive = selectedWorkType === type.id;
-          return (
-            <button
-              key={type.id}
-              type="button"
-              onClick={() => setSelectedWorkType(type.id)}
-              className={`inline-flex min-h-[36px] shrink-0 items-center gap-1.5 rounded-xl border px-3 py-1 text-[11px] font-medium transition-colors ${
-                isActive
+              onClick={() => setFiltersOpen(true)}
+              aria-expanded={filtersOpen}
+              aria-label="Abrir filtros e ordenação do acervo"
+              className={`relative inline-flex min-h-[44px] shrink-0 items-center gap-1.5 rounded-[4px] border px-3 py-1.5 text-xs font-medium transition-colors ${
+                activeFilters.length > 0
                   ? 'border-accent bg-accent/15 text-ink'
                   : 'border-line bg-card text-muted hover:text-ink'
               }`}
             >
-              <VectorIcon
-                name={type.icon}
-                className={`h-3.5 w-3.5 ${isActive ? 'text-accent' : 'text-subtle'}`}
-              />
-              {type.shortLabel}
+              <SlidersHorizontal className="h-3.5 w-3.5 text-accent" strokeWidth={1.5} />
+              <span className="hidden xs:inline sm:inline">Filtros</span>
+              {activeFilters.length > 0 && (
+                <span className="inline-flex h-4 min-w-[16px] items-center justify-center rounded-full bg-accent px-1 text-[10px] font-semibold tabular-nums text-accent-ink">
+                  {activeFilters.length}
+                </span>
+              )}
             </button>
-          );
-        })}
-      </div>
 
-      {/* Filtro Rápido por Prateleiras / Coleções Personalizadas */}
-      <div className="space-y-2">
-        <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar">
-          <button
-            type="button"
-            aria-pressed={selectedCollectionId === 'all'}
-            onClick={() => setSelectedCollectionId('all')}
-            className={`inline-flex min-h-[44px] shrink-0 items-center rounded-[4px] border px-3 py-1.5 text-[11px] font-medium transition-colors ${
-              selectedCollectionId === 'all'
-                ? 'border-accent bg-accent/15 text-accent'
-                : 'border-line bg-card text-muted hover:text-ink'
-            }`}
-          >
-            Todas as Coleções
-          </button>
-
-          {collections.map((col) => {
-            const isActive = selectedCollectionId === col.id;
-            const colCount = filterWorksByCollection(backlogItems, col.id).length;
-            return (
-              <div key={col.id} className="inline-flex shrink-0 items-center">
-                <button
-                  type="button"
-                  aria-pressed={isActive}
-                  onClick={() => setSelectedCollectionId(col.id)}
-                  className={`inline-flex min-h-[44px] items-center gap-1.5 border px-3 py-1.5 text-[11px] font-medium transition-colors ${
-                    onDeleteCollection ? 'rounded-l-[4px]' : 'rounded-[4px]'
-                  } ${
-                    isActive
-                      ? 'border-accent bg-accent/15 text-ink'
-                      : 'border-line bg-card text-muted hover:text-ink'
-                  }`}
-                >
-                  <span>{col.name}</span>
-                  <span className="text-[10px] tabular-nums text-subtle">
-                    {colCount}
-                  </span>
-                </button>
-                {onDeleteCollection && (
-                  <button
-                    type="button"
-                    aria-label={`Excluir coleção ${col.name}`}
-                    onClick={() => onDeleteCollection(col.id)}
-                    className="inline-flex min-h-[44px] min-w-[36px] items-center justify-center rounded-r-[4px] border border-l-0 border-line bg-card px-1.5 text-subtle transition-colors hover:text-ink"
-                  >
-                    <X className="h-3 w-3" strokeWidth={1.5} />
-                  </button>
-                )}
-              </div>
-            );
-          })}
-
-          {onCreateCollection && (
-            <button
-              type="button"
-              aria-expanded={collectionManagerOpen}
-              onClick={() => setCollectionManagerOpen((v) => !v)}
-              className="inline-flex min-h-[44px] shrink-0 items-center gap-1 rounded-[4px] border border-dashed border-line bg-app px-3 py-1.5 text-[11px] font-medium text-accent transition-colors hover:border-accent"
+            <div
+              role="group"
+              aria-label="Modo de visualização do acervo"
+              className="flex shrink-0 items-center rounded-[4px] border border-line bg-card p-0.5"
             >
-              <FolderPlus className="h-3.5 w-3.5" strokeWidth={1.5} />
-              <span>+ Nova Coleção</span>
-            </button>
+              {visiblePrimaryModes.map((mode) => {
+                const Icon = mode.icon;
+                const isActive = layoutMode === mode.id;
+                return (
+                  <button
+                    key={mode.id}
+                    type="button"
+                    onClick={() => setLayoutMode(mode.id)}
+                    aria-label={mode.label}
+                    aria-pressed={isActive}
+                    title={mode.label}
+                    className={`flex min-h-[40px] min-w-[40px] items-center justify-center rounded-[3px] transition-colors ${
+                      isActive
+                        ? 'bg-accent text-accent-ink'
+                        : 'text-subtle hover:text-ink'
+                    }`}
+                  >
+                    <Icon className="h-4 w-4" strokeWidth={1.5} />
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {activeFilters.length > 0 && (
+            <div className="flex flex-wrap items-center gap-1.5" aria-label="Filtros ativos">
+              {activeFilters.map((chip) => (
+                <button
+                  key={chip.id}
+                  type="button"
+                  onClick={chip.onClear}
+                  className="inline-flex min-h-[30px] items-center gap-1 rounded-[4px] border border-accent/40 bg-accent/10 px-2 py-0.5 text-[11px] font-medium text-ink transition-colors hover:bg-accent/20"
+                >
+                  <span>{chip.label}</span>
+                  <X className="h-3 w-3 text-accent" strokeWidth={1.5} />
+                </button>
+              ))}
+              <button
+                type="button"
+                onClick={clearAllFilters}
+                className="px-1.5 py-0.5 text-[11px] font-medium text-subtle hover:text-ink"
+              >
+                Limpar tudo
+              </button>
+            </div>
           )}
         </div>
-
-        {collectionManagerOpen && onCreateCollection && (
-          <div className="rounded-[6px] border border-line bg-card p-3">
-            <CollectionCreatorBar
-              collections={collections}
-              onCreateCollection={onCreateCollection}
-              onCreated={(created) => {
-                setSelectedCollectionId(created.id);
-                setCollectionManagerOpen(false);
-              }}
-            />
-          </div>
-        )}
-      </div>
-
-      {/* Barra de Ordenação + Alternador Segmentado de 4 Visualizações */}
-      <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-line bg-card px-2.5 py-2">
-        <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto no-scrollbar">
-          <ArrowUpDown className="h-4 w-4 shrink-0 text-accent" strokeWidth={1.5} />
-          {list.sortOptions.map((option) => {
-            const isActive = sortBy === option.id;
-            return (
-              <button
-                key={option.id}
-                type="button"
-                onClick={() => setSortBy(option.id)}
-                className={`min-h-[36px] shrink-0 rounded-lg px-2.5 py-1 text-[11px] font-medium transition-colors ${
-                  isActive
-                    ? 'bg-accent/15 text-accent'
-                    : 'text-muted hover:text-ink'
-                }`}
-              >
-                {option.label}
-              </button>
-            );
-          })}
-        </div>
-
-        <div
-          role="group"
-          aria-label="Modo de visualização do acervo"
-          className="flex shrink-0 items-center rounded-xl border border-line bg-app p-0.5"
-        >
-          {VIEW_MODES.map((mode) => {
-            const Icon = mode.icon;
-            const isActive = layoutMode === mode.id;
-            return (
-              <button
-                key={mode.id}
-                type="button"
-                onClick={() => setLayoutMode(mode.id)}
-                aria-label={mode.label}
-                aria-pressed={isActive}
-                title={mode.label}
-                className={`flex min-h-[44px] min-w-[44px] items-center justify-center rounded-lg transition-colors ${
-                  isActive
-                    ? 'bg-accent text-accent-ink'
-                    : 'text-subtle hover:text-ink'
-                }`}
-              >
-                <Icon className="h-4 w-4" strokeWidth={1.5} />
-              </button>
-            );
-          })}
-        </div>
-      </div>
+      )}
 
       {backlogItems.length === 0 ? (
         <div className="rounded-3xl border border-line bg-card px-5 py-12 text-center">
@@ -640,8 +621,23 @@ export function ListScreen({
         </div>
       ) : filteredAndSortedItems.length === 0 ? (
         <div className="rounded-2xl border border-line bg-card py-14 text-center text-xs text-subtle">
-          {list.emptyMessage}
+          <p>{list.emptyMessage}</p>
+          {activeFilters.length > 0 && (
+            <button
+              type="button"
+              onClick={clearAllFilters}
+              className="mt-3 inline-flex min-h-[44px] items-center gap-1.5 rounded-[4px] border border-line bg-app px-3 py-1.5 text-xs font-medium text-ink hover:border-accent"
+            >
+              Limpar filtros ativos
+            </button>
+          )}
         </div>
+      ) : layoutMode === 'shelf' && isFlagEnabled('spineShelf') ? (
+        <SpineRenderer
+          items={filteredAndSortedItems}
+          titleMode={titleMode}
+          onSelectItem={onSelectItem}
+        />
       ) : layoutMode === 'grid' ? (
         <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-2.5 sm:gap-3">
           {filteredAndSortedItems.map((item) => {
@@ -1212,6 +1208,318 @@ export function ListScreen({
           ))}
         </div>
       )}
+
+      <ResponsiveSheet
+        isOpen={filtersOpen}
+        onClose={() => setFiltersOpen(false)}
+        icon={SlidersHorizontal}
+        title="Filtros & Ordenação"
+        subtitle="Refine por status, tipo, coleção, gênero, formato e modo"
+        headerActions={
+          activeFilters.length > 0 ? (
+            <button
+              type="button"
+              onClick={clearAllFilters}
+              className="inline-flex min-h-[38px] items-center rounded-[4px] border border-line bg-app px-2.5 py-1 text-[11px] font-medium text-accent hover:border-accent"
+            >
+              Limpar ({activeFilters.length})
+            </button>
+          ) : null
+        }
+      >
+        <div className="space-y-5">
+          {/* Status */}
+          <div>
+            <p className="mb-2 text-xs font-medium text-muted">Status</p>
+            <div className="flex flex-wrap gap-1.5">
+              {filterTabs.map((tab) => {
+                const isActive = selectedStatus === tab.id;
+                return (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    aria-pressed={isActive}
+                    onClick={() => setSelectedStatus(tab.id)}
+                    className={`inline-flex min-h-[40px] items-center gap-1.5 rounded-[4px] border px-3 py-1 text-xs font-medium transition-colors ${
+                      isActive
+                        ? 'border-accent bg-accent text-accent-ink'
+                        : 'border-line bg-app text-muted hover:text-ink'
+                    }`}
+                  >
+                    <span>{tab.label}</span>
+                    <span className={`text-[10px] tabular-nums ${isActive ? 'opacity-85' : 'text-subtle'}`}>
+                      {tab.count}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Natureza da Obra */}
+          <div>
+            <p className="mb-2 text-xs font-medium text-muted">Natureza da Obra</p>
+            <div className="flex flex-wrap gap-1.5">
+              <button
+                type="button"
+                aria-pressed={selectedWorkType === 'all'}
+                onClick={() => setSelectedWorkType('all')}
+                className={`min-h-[40px] rounded-[4px] border px-3 py-1 text-xs font-medium transition-colors ${
+                  selectedWorkType === 'all'
+                    ? 'border-accent bg-accent/15 text-accent'
+                    : 'border-line bg-app text-muted hover:text-ink'
+                }`}
+              >
+                {list.allTypesLabel}
+              </button>
+              {domainConfig.workTypes.map((type) => {
+                const isActive = selectedWorkType === type.id;
+                return (
+                  <button
+                    key={type.id}
+                    type="button"
+                    aria-pressed={isActive}
+                    onClick={() => setSelectedWorkType(type.id)}
+                    className={`inline-flex min-h-[40px] items-center gap-1.5 rounded-[4px] border px-3 py-1 text-xs font-medium transition-colors ${
+                      isActive
+                        ? 'border-accent bg-accent/15 text-ink'
+                        : 'border-line bg-app text-muted hover:text-ink'
+                    }`}
+                  >
+                    <VectorIcon
+                      name={type.icon}
+                      className={`h-3.5 w-3.5 ${isActive ? 'text-accent' : 'text-subtle'}`}
+                    />
+                    <span>{type.shortLabel}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Colecoes Personalizadas */}
+          <div>
+            <p className="mb-2 text-xs font-medium text-muted">Coleções &amp; Prateleiras</p>
+            <div className="flex flex-wrap gap-1.5">
+              <button
+                type="button"
+                aria-pressed={selectedCollectionId === 'all'}
+                onClick={() => setSelectedCollectionId('all')}
+                className={`inline-flex min-h-[40px] items-center rounded-[4px] border px-3 py-1 text-xs font-medium transition-colors ${
+                  selectedCollectionId === 'all'
+                    ? 'border-accent bg-accent/15 text-accent'
+                    : 'border-line bg-app text-muted hover:text-ink'
+                }`}
+              >
+                Todas
+              </button>
+              {collections.map((col) => {
+                const isActive = selectedCollectionId === col.id;
+                const colCount = filterWorksByCollection(backlogItems, col.id).length;
+                return (
+                  <div key={col.id} className="inline-flex items-center">
+                    <button
+                      type="button"
+                      aria-pressed={isActive}
+                      onClick={() => setSelectedCollectionId(col.id)}
+                      className={`inline-flex min-h-[40px] items-center gap-1.5 border px-3 py-1 text-xs font-medium transition-colors ${
+                        onDeleteCollection ? 'rounded-l-[4px]' : 'rounded-[4px]'
+                      } ${
+                        isActive
+                          ? 'border-accent bg-accent/15 text-ink'
+                          : 'border-line bg-app text-muted hover:text-ink'
+                      }`}
+                    >
+                      <span>{col.name}</span>
+                      <span className="text-[10px] tabular-nums text-subtle">{colCount}</span>
+                    </button>
+                    {onDeleteCollection && (
+                      <button
+                        type="button"
+                        aria-label={`Excluir coleção ${col.name}`}
+                        onClick={() => onDeleteCollection(col.id)}
+                        className="inline-flex min-h-[40px] min-w-[36px] items-center justify-center rounded-r-[4px] border border-l-0 border-line bg-app px-1.5 text-subtle hover:text-ink"
+                      >
+                        <X className="h-3 w-3" strokeWidth={1.5} />
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+              {onCreateCollection && (
+                <button
+                  type="button"
+                  aria-expanded={collectionManagerOpen}
+                  onClick={() => setCollectionManagerOpen((v) => !v)}
+                  className="inline-flex min-h-[40px] items-center gap-1 rounded-[4px] border border-dashed border-line bg-app px-3 py-1 text-xs font-medium text-accent hover:border-accent"
+                >
+                  <FolderPlus className="h-3.5 w-3.5" strokeWidth={1.5} />
+                  <span>+ Nova Coleção</span>
+                </button>
+              )}
+            </div>
+
+            {collectionManagerOpen && onCreateCollection && (
+              <div className="mt-2.5 rounded-[6px] border border-line bg-app p-3">
+                <CollectionCreatorBar
+                  collections={collections}
+                  onCreateCollection={onCreateCollection}
+                  onCreated={(created) => {
+                    setSelectedCollectionId(created.id);
+                    setCollectionManagerOpen(false);
+                  }}
+                />
+              </div>
+            )}
+          </div>
+
+          {/* Genero */}
+          {availableGenres.length > 0 && (
+            <div>
+              <p className="mb-2 text-xs font-medium text-muted">Gênero</p>
+              <div className="flex flex-wrap gap-1.5">
+                <button
+                  type="button"
+                  aria-pressed={selectedGenre === 'all'}
+                  onClick={() => setSelectedGenre('all')}
+                  className={`min-h-[38px] rounded-[4px] border px-2.5 py-1 text-[11px] font-medium ${
+                    selectedGenre === 'all'
+                      ? 'border-accent bg-accent/15 text-accent'
+                      : 'border-line bg-app text-muted hover:text-ink'
+                  }`}
+                >
+                  Todos
+                </button>
+                {availableGenres.map((g) => (
+                  <button
+                    key={g.name}
+                    type="button"
+                    aria-pressed={selectedGenre === g.name}
+                    onClick={() => setSelectedGenre(g.name)}
+                    className={`min-h-[38px] rounded-[4px] border px-2.5 py-1 text-[11px] font-medium ${
+                      selectedGenre === g.name
+                        ? 'border-accent bg-accent/15 text-ink'
+                        : 'border-line bg-app text-muted hover:text-ink'
+                    }`}
+                  >
+                    {g.name} <span className="tabular-nums text-subtle">({g.count})</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Formato */}
+          {availableFormats.length > 0 && (
+            <div>
+              <p className="mb-2 text-xs font-medium text-muted">Formato</p>
+              <div className="flex flex-wrap gap-1.5">
+                <button
+                  type="button"
+                  aria-pressed={selectedFormat === 'all'}
+                  onClick={() => setSelectedFormat('all')}
+                  className={`min-h-[38px] rounded-[4px] border px-2.5 py-1 text-[11px] font-medium ${
+                    selectedFormat === 'all'
+                      ? 'border-accent bg-accent/15 text-accent'
+                      : 'border-line bg-app text-muted hover:text-ink'
+                  }`}
+                >
+                  Todos
+                </button>
+                {availableFormats.map((f) => (
+                  <button
+                    key={f.name}
+                    type="button"
+                    aria-pressed={selectedFormat === f.name}
+                    onClick={() => setSelectedFormat(f.name)}
+                    className={`min-h-[38px] rounded-[4px] border px-2.5 py-1 text-[11px] font-medium ${
+                      selectedFormat === f.name
+                        ? 'border-accent bg-accent/15 text-ink'
+                        : 'border-line bg-app text-muted hover:text-ink'
+                    }`}
+                  >
+                    {f.name} <span className="tabular-nums text-subtle">({f.count})</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Idioma dos titulos */}
+          <div>
+            <p className="mb-2 text-xs font-medium text-muted">Exibição de Títulos</p>
+            <div className="grid grid-cols-3 gap-1.5">
+              {TITLE_MODES.map((m) => (
+                <button
+                  key={m.id}
+                  type="button"
+                  aria-pressed={titleMode === m.id}
+                  onClick={() => setTitleMode(m.id)}
+                  className={`min-h-[40px] rounded-[4px] border px-2.5 py-1 text-xs font-medium ${
+                    titleMode === m.id
+                      ? 'border-accent bg-accent/15 text-accent'
+                      : 'border-line bg-app text-muted hover:text-ink'
+                  }`}
+                >
+                  {m.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Ordenacao */}
+          <div>
+            <p className="mb-2 text-xs font-medium text-muted">Ordenar por</p>
+            <div className="flex flex-wrap gap-1.5">
+              {list.sortOptions.map((option) => (
+                <button
+                  key={option.id}
+                  type="button"
+                  aria-pressed={sortBy === option.id}
+                  onClick={() => setSortBy(option.id)}
+                  className={`min-h-[40px] rounded-[4px] border px-3 py-1 text-xs font-medium ${
+                    sortBy === option.id
+                      ? 'border-accent bg-accent/15 text-accent'
+                      : 'border-line bg-app text-muted hover:text-ink'
+                  }`}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Visualizacoes especiais */}
+          <div>
+            <p className="mb-2 text-xs font-medium text-muted">Modos de Arquivo &amp; Agrupamento</p>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              {EXTRA_VIEW_MODES.map((mode) => {
+                const Icon = mode.icon;
+                const active = layoutMode === mode.id;
+                return (
+                  <button
+                    key={mode.id}
+                    type="button"
+                    aria-pressed={active}
+                    onClick={() => {
+                      setLayoutMode(mode.id);
+                      setFiltersOpen(false);
+                    }}
+                    className={`flex min-h-[44px] items-center gap-2 rounded-[4px] border px-3 py-2 text-left text-xs font-medium ${
+                      active
+                        ? 'border-accent bg-accent/15 text-ink'
+                        : 'border-line bg-app text-muted hover:text-ink'
+                    }`}
+                  >
+                    <Icon className="h-4 w-4 text-accent" strokeWidth={1.5} />
+                    <span>{mode.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      </ResponsiveSheet>
 
       <OfflineBookPickerModal
         isOpen={rouletteOpen}

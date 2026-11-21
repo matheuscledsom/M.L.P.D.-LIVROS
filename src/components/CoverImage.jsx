@@ -1,5 +1,7 @@
 import { BookOpen, GraduationCap, Layers } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
+import { isFlagEnabled } from '../config/flags';
+import { buildGeneratedCoverDataUri } from '../graphics/coverGenerator';
 
 const WORK_ICONS = {
   book: BookOpen,
@@ -23,6 +25,7 @@ export function CoverImage({
   title = '',
   author = '',
   workType = 'book',
+  genre = '',
   className = '',
   showTitle = false,
   compact = false,
@@ -49,6 +52,10 @@ export function CoverImage({
   const isLoaded = Boolean(currentSrc && loadedSrc === currentSrc);
 
   const FallbackIcon = WORK_ICONS[workType] || BookOpen;
+  const generatedFallbackUri = useMemo(() => {
+    if (isLoaded || !isFlagEnabled('generatedCovers')) return null;
+    return buildGeneratedCoverDataUri({ title, author, workType, genre });
+  }, [isLoaded, title, author, workType, genre]);
 
   const handleImageError = () => {
     setLoadedSrc(null);
@@ -59,12 +66,19 @@ export function CoverImage({
     <div
       className={`relative aspect-[2/3] overflow-hidden rounded-[4px] border border-line bg-elevated select-none ${className}`}
     >
-      {/* Capa tipográfica vetorial exibida quando todos os candidatos falham ou carregam */}
-      <div
-        className={`absolute inset-0 flex flex-col justify-between bg-card p-2.5 transition-opacity duration-150 ${
-          isLoaded ? 'opacity-0 pointer-events-none' : 'opacity-100'
-        }`}
-      >
+      {/* Capa gerada deterministica ou tipográfica vetorial exibida quando todos os candidatos falham ou carregam */}
+      {generatedFallbackUri && !isLoaded ? (
+        <img
+          src={generatedFallbackUri}
+          alt={title || 'Capa editorial gerada'}
+          className="absolute inset-0 h-full w-full object-cover"
+        />
+      ) : (
+        <div
+          className={`absolute inset-0 flex flex-col justify-between bg-card p-2.5 transition-opacity duration-150 ${
+            isLoaded ? 'opacity-0 pointer-events-none' : 'opacity-100'
+          }`}
+        >
         <div className="flex items-center justify-between gap-1">
           <span className="flex h-6 w-6 items-center justify-center rounded-[4px] border border-line bg-app text-muted">
             <FallbackIcon
@@ -93,7 +107,8 @@ export function CoverImage({
             <p className="line-clamp-1 text-[10px] text-muted">{author}</p>
           )}
         </div>
-      </div>
+        </div>
+      )}
 
       {currentSrc && (
         <>
