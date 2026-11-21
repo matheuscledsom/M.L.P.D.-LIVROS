@@ -667,12 +667,21 @@ export const TextView = forwardRef(function TextView(
             data-section-id={sec.id}
             data-section-index={sec.index}
             ref={(el) => {
-              if (el) sectionRefs.current.set(sec.id, el);
-              else sectionRefs.current.delete(sec.id);
+              if (el) {
+                sectionRefs.current.set(sec.id, el);
+                if (el.dataset.renderedHtml !== sec.renderedHtml) {
+                  el.dataset.renderedHtml = sec.renderedHtml;
+                  const fragment = DOMPurify.sanitize(String(sec.renderedHtml || ''), {
+                    RETURN_DOM_FRAGMENT: true,
+                  });
+                  el.replaceChildren(fragment);
+                }
+              } else {
+                sectionRefs.current.delete(sec.id);
+              }
             }}
             className="space-y-4 [&>h1]:text-2xl [&>h1]:font-bold [&>h2]:text-xl [&>h2]:font-semibold [&>h3]:text-lg [&>h3]:font-semibold [&>p]:mb-[var(--paragraph-gap)] [&>ul]:list-disc [&>ul]:pl-5 [&>ol]:list-decimal [&>ol]:pl-5 [&>blockquote]:border-l [&>blockquote]:pl-4 [&>blockquote]:italic"
             style={{ borderColor: domColors.border }}
-            dangerouslySetInnerHTML={{ __html: sec.renderedHtml }}
           />
         ))}
       </div>

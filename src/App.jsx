@@ -3,6 +3,7 @@ import { UserCheck, UserPlus, X } from 'lucide-react';
 import { AuthModal } from './components/auth/AuthModal';
 import { BackupRestoreModal } from './components/BackupRestoreModal';
 import { BottomNav } from './components/BottomNav';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { GeminiConfigModal } from './components/GeminiConfigModal';
 import { ItemDetailSheet } from './components/ItemDetailSheet';
 import { JournalComposerModal } from './components/JournalComposerModal';
@@ -1183,6 +1184,20 @@ export function App() {
       )}
       <div className="relative z-10 mx-auto min-h-screen max-w-md md:max-w-2xl lg:max-w-4xl bg-transparent sm:border-x sm:border-line/60">
         <main className="px-4 sm:px-6 pt-4 pb-[env(safe-area-inset-bottom)]">
+          <ErrorBoundary
+            key={activeTab}
+            screenName={
+              {
+                home: 'Início',
+                stats: 'Métricas',
+                add: 'Catalogar',
+                list: 'Acervo',
+                community: 'Rede',
+                profile: 'Perfil',
+              }[activeTab] || 'esta tela'
+            }
+            onOpenBackup={() => setBackupModalOpen(true)}
+          >
           {activeTab === 'home' && (
             <HomeScreen
               items={items}
@@ -1333,6 +1348,7 @@ export function App() {
               onSelectPeerProfile={(id) => setViewingUserProfileId(id)}
             />
           )}
+          </ErrorBoundary>
         </main>
 
         <BottomNav

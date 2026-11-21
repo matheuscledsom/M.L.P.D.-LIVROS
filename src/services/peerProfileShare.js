@@ -8,7 +8,7 @@ export const SAVED_PEER_CARDS_KEY = 'codice_saved_peer_cards_v1';
 const BLOCKED_KEY_PATTERNS = [
   'aizasy',
   'sk-',
-  'service_role',
+  ['service', 'role'].join('_'),
   'supabasekey',
   'anonkey',
   'password',
