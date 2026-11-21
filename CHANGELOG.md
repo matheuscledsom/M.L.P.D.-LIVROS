@@ -17,6 +17,10 @@ npm run version:major -- --name="Odin"
 
 ---
 
+## [v4.9.0 · Ymir] — 2026-11
+
+**Resumo:** Fase 8: Progresso aditivo de volumes/capitulos e ownedVolumes para mangá, light novel e comic com grade clicavel acessivel
+
 ## [v4.8.0 · Ymir] — 2026-11
 
 **Resumo:** Fase 7: Conectores AniList GraphQL e Internet Archive, backoff/8s timeout, cache 7 dias IndexedDB, dedup melhorada e Ler Gratis Agora

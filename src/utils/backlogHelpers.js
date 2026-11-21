@@ -153,13 +153,12 @@ export function calculateWorkProgress(item) {
   if (!item) return 0;
   if (item.status === 'completed') return 100;
 
-  if (item.workType === 'manga') {
-    return calculateMangaProgress(
-      item.currentChapter,
-      item.totalChapters,
-      item.currentVolume,
-      item.totalVolumes
-    );
+  if (isSerializedWork(item)) {
+    const chapCur = item.chapterCurrent ?? item.currentChapter;
+    const chapTot = item.chapterTotal ?? item.totalChapters;
+    const volCur = item.volumeCurrent ?? item.currentVolume;
+    const volTot = item.volumeTotal ?? item.totalVolumes;
+    return calculateMangaProgress(chapCur, chapTot, volCur, volTot);
   }
 
   if (item.workType === 'academic' && item.academicProgressMode === 'fichamento') {
@@ -594,4 +593,56 @@ export function getDropReasonMeta(reasonIdOrLabel) {
         r.id.toLowerCase() === clean
     ) ?? { id: reasonIdOrLabel, label: clean || String(reasonIdOrLabel), icon: 'Hourglass' }
   );
+}
+
+export const SERIALIZED_WORK_TYPES = new Set(['manga', 'light_novel', 'comic']);
+
+export function isSerializedWork(item) {
+  if (!item) return false;
+  if (SERIALIZED_WORK_TYPES.has(item.workType)) return true;
+  if (/light novel|hq|graphic novel/i.test(String(item.demographicOrigin || ''))) {
+    return true;
+  }
+  return Boolean(Number(item.totalVolumes) > 0 || Number(item.volumeTotal) > 0);
+}
+
+export function normalizeOwnedVolumes(rawOwned) {
+  if (!Array.isArray(rawOwned)) return [];
+  const nums = rawOwned
+    .map((v) => Number.parseInt(String(v), 10))
+    .filter((n) => Number.isFinite(n) && n >= 1 && n <= 9999);
+  return Array.from(new Set(nums)).sort((a, b) => a - b);
+}
+
+export function syncSeriesProgressFields(raw = {}, isCompleted = false) {
+  const cleanPos = (v) => {
+    const n = Number(v);
+    return Number.isFinite(n) && n > 0 ? Math.round(n) : null;
+  };
+  const cleanNonNeg = (v) => {
+    const n = Number(v);
+    return Number.isFinite(n) && n > 0 ? Math.round(n) : 0;
+  };
+
+  const totalVolumes = cleanPos(raw.volumeTotal ?? raw.totalVolumes);
+  const rawVolCur = cleanNonNeg(raw.volumeCurrent ?? raw.currentVolume);
+  const currentVolume = isCompleted && totalVolumes ? totalVolumes : rawVolCur;
+
+  const totalChapters = cleanPos(raw.chapterTotal ?? raw.totalChapters);
+  const rawChapCur = cleanNonNeg(raw.chapterCurrent ?? raw.currentChapter);
+  const currentChapter = isCompleted && totalChapters ? totalChapters : rawChapCur;
+
+  const ownedVolumes = normalizeOwnedVolumes(raw.ownedVolumes);
+
+  return {
+    currentVolume,
+    volumeCurrent: currentVolume,
+    totalVolumes,
+    volumeTotal: totalVolumes,
+    currentChapter,
+    chapterCurrent: currentChapter,
+    totalChapters,
+    chapterTotal: totalChapters,
+    ownedVolumes,
+  };
 }

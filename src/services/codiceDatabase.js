@@ -6,6 +6,7 @@ import {
   getTodayLocalISO,
   getVerdictForScore,
   normalizeProgressMode,
+  syncSeriesProgressFields,
 } from '../utils/backlogHelpers.js';
 import {
   normalizeFavoriteGenres,
@@ -371,12 +372,7 @@ export function migrateV2ToV3(v2Data) {
       currentPage: Math.max(0, Number(rawItem.currentPage) || 0),
       totalPages:
         Number(rawItem.totalPages) > 0 ? Number(rawItem.totalPages) : null,
-      currentVolume: Math.max(0, Number(rawItem.currentVolume) || 0),
-      totalVolumes:
-        Number(rawItem.totalVolumes) > 0 ? Number(rawItem.totalVolumes) : null,
-      currentChapter: Math.max(0, Number(rawItem.currentChapter) || 0),
-      totalChapters:
-        Number(rawItem.totalChapters) > 0 ? Number(rawItem.totalChapters) : null,
+      ...syncSeriesProgressFields(rawItem, status === 'completed'),
       demographicOrigin:
         rawItem.demographicOrigin || domainConfig.mangaOrigins[0],
       publicationStatus:
@@ -590,8 +586,11 @@ function normalizeWorkRowV4(work = {}) {
     work.progressPercent !== undefined &&
     work.progressPercent !== '';
 
+  const seriesFields = syncSeriesProgressFields(work, status === 'completed');
+
   return {
     ...work,
+    ...seriesFields,
     originalTitle: String(work.originalTitle || '').trim(),
     loanedTo: String(work.loanedTo || '').trim(),
     loanedAt: work.loanedAt || null,

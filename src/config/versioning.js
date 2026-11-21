@@ -16,16 +16,25 @@ export const VERSIONING_RULES = {
 };
 
 export const CODICE_RELEASE = {
-  version: '4.8.0',
+  version: '4.9.0',
   codename: 'Ymir',
-  label: 'v4.8.0 · Ymir',
+  label: 'v4.9.0 · Ymir',
   releaseType: 'minor',
   date: '2026-11',
   summary:
-    'Fase 7: Conectores AniList GraphQL e Internet Archive, backoff/8s timeout, cache 7 dias IndexedDB, dedup melhorada e Ler Gratis Agora',
+    'Fase 8: Progresso aditivo de volumes/capitulos e ownedVolumes para mangá, light novel e comic com grade clicavel acessivel',
 };
 
 export const RELEASE_HISTORY = [
+  {
+    version: '4.9.0',
+    codename: 'Ymir',
+    label: 'v4.9.0 · Ymir',
+    releaseType: 'minor',
+    date: '2026-11',
+    summary: 'Fase 8: Progresso aditivo de volumes/capitulos e ownedVolumes para mangá, light novel e comic com grade clicavel acessivel',
+    highlights: ['Release automatizado via bump-version.mjs.'],
+  },
   {
     version: '4.8.0',
     codename: 'Ymir',

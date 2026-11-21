@@ -22,7 +22,9 @@ import {
   createDefaultReviewCriteria,
   getTodayLocalISO,
   getVerdictForScore,
+  normalizeOwnedVolumes,
   normalizeProgressMode,
+  syncSeriesProgressFields,
 } from '../utils/backlogHelpers';
 import {
   COLLECTIONS_STORAGE_KEY,
@@ -57,7 +59,13 @@ function normalizeNullablePositiveInt(value) {
 }
 
 function normalizeWorkType(value) {
-  if (value === 'manga' || value === 'academic' || value === 'book') {
+  if (
+    value === 'manga' ||
+    value === 'academic' ||
+    value === 'book' ||
+    value === 'light_novel' ||
+    value === 'comic'
+  ) {
     return value;
   }
   return 'book';
@@ -106,15 +114,14 @@ function normalizeItem(rawItem) {
       ? calculatePercentProgress(rawItem.progressPercent)
       : null;
 
-  const totalVolumes = normalizeNullablePositiveInt(rawItem.totalVolumes);
-  const rawCurrentVolume = normalizeNonNegativeInt(rawItem.currentVolume);
-  const currentVolume =
-    isCompleted && totalVolumes ? totalVolumes : rawCurrentVolume;
-
-  const totalChapters = normalizeNullablePositiveInt(rawItem.totalChapters);
-  const rawCurrentChapter = normalizeNonNegativeInt(rawItem.currentChapter);
-  const currentChapter =
-    isCompleted && totalChapters ? totalChapters : rawCurrentChapter;
+  const seriesFields = syncSeriesProgressFields(rawItem, isCompleted);
+  const {
+    totalVolumes,
+    currentVolume,
+    totalChapters,
+    currentChapter,
+    ownedVolumes,
+  } = seriesFields;
 
   const format =
     rawItem.format ||
@@ -160,9 +167,14 @@ function normalizeItem(rawItem) {
     locCurrent,
     locTotal,
     currentVolume,
+    volumeCurrent: currentVolume,
     totalVolumes,
+    volumeTotal: totalVolumes,
     currentChapter,
+    chapterCurrent: currentChapter,
     totalChapters,
+    chapterTotal: totalChapters,
+    ownedVolumes,
     demographicOrigin:
       rawItem.demographicOrigin || domainConfig.mangaOrigins[0],
     publicationStatus:
@@ -520,17 +532,40 @@ export function useBacklog() {
               (Math.min(merged.totalPages, merged.currentPage) / merged.totalPages) * 1000
             ) / 10;
         }
-        if (Object.prototype.hasOwnProperty.call(updates, 'currentVolume')) {
-          merged.currentVolume = normalizeNonNegativeInt(updates.currentVolume);
+        if (
+          Object.prototype.hasOwnProperty.call(updates, 'currentVolume') ||
+          Object.prototype.hasOwnProperty.call(updates, 'volumeCurrent')
+        ) {
+          const v = normalizeNonNegativeInt(updates.volumeCurrent ?? updates.currentVolume);
+          merged.currentVolume = v;
+          merged.volumeCurrent = v;
         }
-        if (Object.prototype.hasOwnProperty.call(updates, 'totalVolumes')) {
-          merged.totalVolumes = normalizeNullablePositiveInt(updates.totalVolumes);
+        if (
+          Object.prototype.hasOwnProperty.call(updates, 'totalVolumes') ||
+          Object.prototype.hasOwnProperty.call(updates, 'volumeTotal')
+        ) {
+          const tv = normalizeNullablePositiveInt(updates.volumeTotal ?? updates.totalVolumes);
+          merged.totalVolumes = tv;
+          merged.volumeTotal = tv;
         }
-        if (Object.prototype.hasOwnProperty.call(updates, 'currentChapter')) {
-          merged.currentChapter = normalizeNonNegativeInt(updates.currentChapter);
+        if (
+          Object.prototype.hasOwnProperty.call(updates, 'currentChapter') ||
+          Object.prototype.hasOwnProperty.call(updates, 'chapterCurrent')
+        ) {
+          const ch = normalizeNonNegativeInt(updates.chapterCurrent ?? updates.currentChapter);
+          merged.currentChapter = ch;
+          merged.chapterCurrent = ch;
         }
-        if (Object.prototype.hasOwnProperty.call(updates, 'totalChapters')) {
-          merged.totalChapters = normalizeNullablePositiveInt(updates.totalChapters);
+        if (
+          Object.prototype.hasOwnProperty.call(updates, 'totalChapters') ||
+          Object.prototype.hasOwnProperty.call(updates, 'chapterTotal')
+        ) {
+          const tch = normalizeNullablePositiveInt(updates.chapterTotal ?? updates.totalChapters);
+          merged.totalChapters = tch;
+          merged.chapterTotal = tch;
+        }
+        if (Object.prototype.hasOwnProperty.call(updates, 'ownedVolumes')) {
+          merged.ownedVolumes = normalizeOwnedVolumes(updates.ownedVolumes);
         }
 
         if (Object.prototype.hasOwnProperty.call(updates, 'access')) {

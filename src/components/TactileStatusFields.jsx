@@ -28,6 +28,8 @@ import {
   getTodayLocalISO,
   getVerdictForScore,
   getVerdictMeta,
+  isSerializedWork,
+  normalizeOwnedVolumes,
   normalizeProgressMode,
   roundProgressPct,
 } from '../utils/backlogHelpers';
@@ -135,10 +137,10 @@ function QuickPageButtons({ item, onChange }) {
 }
 
 function QuickMangaButtons({ item, onChange }) {
-  const currentChapter = Math.max(0, Number(item.currentChapter) || 0);
-  const totalChapters = Number(item.totalChapters) || 0;
-  const currentVolume = Math.max(0, Number(item.currentVolume) || 0);
-  const totalVolumes = Number(item.totalVolumes) || 0;
+  const currentChapter = Math.max(0, Number(item.chapterCurrent ?? item.currentChapter) || 0);
+  const totalChapters = Number(item.chapterTotal ?? item.totalChapters) || 0;
+  const currentVolume = Math.max(0, Number(item.volumeCurrent ?? item.currentVolume) || 0);
+  const totalVolumes = Number(item.volumeTotal ?? item.totalVolumes) || 0;
 
   const addChapters = (inc) => {
     const nextChapter =
@@ -148,9 +150,11 @@ function QuickMangaButtons({ item, onChange }) {
     playTactileSound('page');
     onChange({
       currentChapter: nextChapter,
+      chapterCurrent: nextChapter,
       progress: calculateWorkProgress({
         ...item,
         currentChapter: nextChapter,
+        chapterCurrent: nextChapter,
       }),
     });
   };
@@ -163,21 +167,23 @@ function QuickMangaButtons({ item, onChange }) {
     playTactileSound('page');
     onChange({
       currentVolume: nextVolume,
+      volumeCurrent: nextVolume,
       progress: calculateWorkProgress({
         ...item,
         currentVolume: nextVolume,
+        volumeCurrent: nextVolume,
       }),
     });
   };
 
   return (
     <div className="flex flex-wrap gap-1.5">
-      {domainConfig.tactileOptions.quickChapters.map((inc) => (
+      {[1, 5].map((inc) => (
         <button
           key={inc}
           type="button"
           onClick={() => addChapters(inc)}
-          className="rounded-lg border border-line bg-card px-2.5 py-1 text-[11px] font-medium text-accent transition-colors hover:border-accent/50 hover:bg-accent/15"
+          className="min-h-[38px] rounded-[4px] border border-line bg-card px-2.5 py-1 text-[11px] font-medium tabular-nums text-accent transition-colors hover:border-accent hover:bg-accent/15"
         >
           +{inc} {inc === 1 ? 'Cap' : 'Caps'}
         </button>
@@ -185,10 +191,118 @@ function QuickMangaButtons({ item, onChange }) {
       <button
         type="button"
         onClick={addVolume}
-        className="rounded-lg border border-line bg-card px-2.5 py-1 text-[11px] font-medium text-accent transition-colors hover:border-accent/50 hover:bg-accent/15"
+        className="min-h-[38px] rounded-[4px] border border-line bg-card px-2.5 py-1 text-[11px] font-medium tabular-nums text-accent transition-colors hover:border-accent hover:bg-accent/15"
       >
         +1 Vol
       </button>
+    </div>
+  );
+}
+
+export function VolumeOwnershipGrid({ item, onChange }) {
+  const [expanded, setExpanded] = useState(false);
+  const owned = normalizeOwnedVolumes(item?.ownedVolumes);
+  const ownedSet = new Set(owned);
+  const volCur = Math.max(0, Number(item?.volumeCurrent ?? item?.currentVolume) || 0);
+  const volTot = Math.max(0, Number(item?.volumeTotal ?? item?.totalVolumes) || 0);
+  const maxOwned = owned.length > 0 ? Math.max(...owned) : 0;
+  const totalGridCount = Math.max(volTot, volCur, maxOwned, 12);
+  const visibleCount = expanded ? totalGridCount : Math.min(36, totalGridCount);
+
+  const toggleVolume = (volNum) => {
+    playTactileSound('page');
+    const nextOwned = ownedSet.has(volNum)
+      ? owned.filter((v) => v !== volNum)
+      : [...owned, volNum].sort((a, b) => a - b);
+    onChange?.({ ownedVolumes: nextOwned });
+  };
+
+  const markReadAsOwned = () => {
+    if (volCur <= 0) return;
+    playTactileSound('page');
+    const range = Array.from({ length: volCur }, (_, i) => i + 1);
+    onChange?.({ ownedVolumes: normalizeOwnedVolumes([...owned, ...range]) });
+  };
+
+  return (
+    <div className="rounded-[6px] border border-line bg-app p-3 space-y-2.5">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-ink">
+            Grade de Volumes (Posse &amp; Leitura)
+          </p>
+          <p className="text-[10px] tabular-nums text-muted">
+            Possui {owned.length}
+            {volTot > 0 ? ` de ${volTot}` : ''} · Lidos até Vol. {volCur}
+          </p>
+        </div>
+        {volCur > 0 && (
+          <button
+            type="button"
+            onClick={markReadAsOwned}
+            className="min-h-[34px] rounded-[4px] border border-line bg-card px-2 py-1 text-[10px] font-medium text-accent hover:border-accent"
+          >
+            Marcar Vol. 1–{volCur}
+          </button>
+        )}
+      </div>
+
+      <div
+        role="group"
+        aria-label="Grade clicável de volumes possuídos"
+        className="grid grid-cols-6 gap-1.5"
+      >
+        {Array.from({ length: visibleCount }, (_, idx) => {
+          const vol = idx + 1;
+          const isOwned = ownedSet.has(vol);
+          const isRead = volCur > 0 && vol <= volCur;
+          const stateLabel = isOwned && isRead
+            ? 'Possuído e lido'
+            : isOwned
+              ? 'Possuído'
+              : isRead
+                ? 'Lido'
+                : 'Faltante';
+
+          return (
+            <button
+              key={vol}
+              type="button"
+              aria-pressed={isOwned}
+              aria-label={`Volume ${vol}: ${stateLabel}`}
+              title={`Vol. ${vol} (${stateLabel})`}
+              onClick={() => toggleVolume(vol)}
+              className={`flex min-h-[38px] items-center justify-center gap-0.5 rounded-[4px] border px-1 text-[11px] font-semibold tabular-nums transition-colors ${
+                isOwned
+                  ? 'border-accent bg-accent text-accent-ink'
+                  : isRead
+                    ? 'border-accent/60 bg-accent/15 text-ink'
+                    : 'border-line bg-card text-muted hover:text-ink'
+              }`}
+            >
+              {isOwned ? (
+                <Check className="h-3 w-3 shrink-0" strokeWidth={2} />
+              ) : isRead ? (
+                <span aria-hidden="true" className="text-[9px]">•</span>
+              ) : null}
+              <span>V{vol}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="flex flex-wrap items-center justify-between gap-2 text-[10px] text-subtle">
+        <span>Legenda: Na coleção (destaque) · Lido (borda) · Faltante (neutro)</span>
+        {totalGridCount > 36 && (
+          <button
+            type="button"
+            onClick={() => setExpanded((v) => !v)}
+            className="font-medium text-accent hover:underline"
+          >
+            {expanded ? 'Recolher grade' : `Ver todos (${totalGridCount})`}
+          </button>
+        )}
+      </div>
     </div>
   );
 }
@@ -985,7 +1099,7 @@ export function TactileStatusFields({
           </div>
         )}
 
-        {workType === 'manga' ? (
+        {isSerializedWork(item) ? (
           <>
             <div className="grid grid-cols-2 gap-2.5">
               <div className="rounded-xl border border-line bg-app px-3 py-2">
@@ -996,37 +1110,41 @@ export function TactileStatusFields({
                   <input
                     type="number"
                     min="0"
-                    value={item.currentVolume ?? 0}
+                    value={item.volumeCurrent ?? item.currentVolume ?? 0}
                     onChange={(e) => {
                       const nextVol = Math.max(0, Number(e.target.value) || 0);
                       onChange({
                         currentVolume: nextVol,
+                        volumeCurrent: nextVol,
                         progress: calculateWorkProgress({
                           ...item,
                           currentVolume: nextVol,
+                          volumeCurrent: nextVol,
                         }),
                       });
                     }}
-                    className="w-12 bg-transparent text-sm font-semibold text-ink focus:outline-none"
+                    className="w-12 bg-transparent text-sm font-semibold tabular-nums text-ink focus:outline-none"
                   />
                   <span className="text-[11px] text-subtle">/</span>
                   <input
                     type="number"
                     min="0"
                     placeholder="—"
-                    value={item.totalVolumes ?? ''}
+                    value={item.volumeTotal ?? item.totalVolumes ?? ''}
                     onChange={(e) => {
                       const nextTotal =
                         e.target.value === '' ? null : Number(e.target.value);
                       onChange({
                         totalVolumes: nextTotal,
+                        volumeTotal: nextTotal,
                         progress: calculateWorkProgress({
                           ...item,
                           totalVolumes: nextTotal,
+                          volumeTotal: nextTotal,
                         }),
                       });
                     }}
-                    className="w-12 bg-transparent text-xs text-muted placeholder:text-subtle focus:outline-none"
+                    className="w-12 bg-transparent text-xs tabular-nums text-muted placeholder:text-subtle focus:outline-none"
                   />
                 </div>
               </div>
@@ -1039,37 +1157,41 @@ export function TactileStatusFields({
                   <input
                     type="number"
                     min="0"
-                    value={item.currentChapter ?? 0}
+                    value={item.chapterCurrent ?? item.currentChapter ?? 0}
                     onChange={(e) => {
                       const nextChap = Math.max(0, Number(e.target.value) || 0);
                       onChange({
                         currentChapter: nextChap,
+                        chapterCurrent: nextChap,
                         progress: calculateWorkProgress({
                           ...item,
                           currentChapter: nextChap,
+                          chapterCurrent: nextChap,
                         }),
                       });
                     }}
-                    className="w-12 bg-transparent text-sm font-semibold text-ink focus:outline-none"
+                    className="w-12 bg-transparent text-sm font-semibold tabular-nums text-ink focus:outline-none"
                   />
                   <span className="text-[11px] text-subtle">/</span>
                   <input
                     type="number"
                     min="0"
                     placeholder="—"
-                    value={item.totalChapters ?? ''}
+                    value={item.chapterTotal ?? item.totalChapters ?? ''}
                     onChange={(e) => {
                       const nextTotal =
                         e.target.value === '' ? null : Number(e.target.value);
                       onChange({
                         totalChapters: nextTotal,
+                        chapterTotal: nextTotal,
                         progress: calculateWorkProgress({
                           ...item,
                           totalChapters: nextTotal,
+                          chapterTotal: nextTotal,
                         }),
                       });
                     }}
-                    className="w-12 bg-transparent text-xs text-muted placeholder:text-subtle focus:outline-none"
+                    className="w-12 bg-transparent text-xs tabular-nums text-muted placeholder:text-subtle focus:outline-none"
                   />
                 </div>
               </div>
@@ -1079,6 +1201,8 @@ export function TactileStatusFields({
               <span className="text-[11px] text-muted">Somar rápido</span>
               <QuickMangaButtons item={item} onChange={onChange} />
             </div>
+
+            <VolumeOwnershipGrid item={item} onChange={onChange} />
 
             <div className="rounded-2xl border border-line bg-app p-3.5">
               <div className="mb-2 flex items-center justify-between text-xs">
