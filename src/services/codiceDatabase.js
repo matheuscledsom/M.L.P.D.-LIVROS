@@ -269,6 +269,10 @@ function buildDefaultUserProfile(profileData) {
     allowComments: rawAllowComments !== undefined ? Boolean(rawAllowComments) : true,
     allowDms: rawAllowDms !== undefined ? Boolean(rawAllowDms) : true,
     gamificationEnabled: rawGamification !== undefined ? Boolean(rawGamification) : true,
+    calmMode:
+      profileData?.calmMode !== undefined
+        ? Boolean(profileData.calmMode)
+        : Boolean(profileData?.calm_mode),
     activeTitleBadge: typeof rawTitleBadge === 'string' ? rawTitleBadge : '',
     onboardingCompleted:
       profileData?.onboardingCompleted !== undefined

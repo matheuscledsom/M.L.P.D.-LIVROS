@@ -823,9 +823,11 @@ export function ListScreen({
           <h1 className="text-xl font-semibold tracking-tight text-ink">
             {list.title}
           </h1>
-          <span className="text-xs tabular-nums text-subtle">
-            {filteredAndSortedItems.length} {countLabel}
-          </span>
+          {!profile?.calmMode && (
+            <span className="text-xs tabular-nums text-subtle">
+              {filteredAndSortedItems.length} {countLabel}
+            </span>
+          )}
         </div>
         <div className="flex flex-wrap items-center gap-1.5">
           {backlogItems.length > 0 && (

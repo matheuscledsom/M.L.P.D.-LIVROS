@@ -41,6 +41,7 @@ function getDefaultProfile() {
     allowComments: true,
     allowDms: true,
     gamificationEnabled: true,
+    calmMode: false,
     activeTitleBadge: '',
     onboardingCompleted: false,
   };
@@ -93,6 +94,12 @@ function normalizeProfileObject(rawProfile, fallback) {
         : parsed.gamification_enabled !== undefined
           ? Boolean(parsed.gamification_enabled)
           : base.gamificationEnabled,
+    calmMode:
+      parsed.calmMode !== undefined
+        ? Boolean(parsed.calmMode)
+        : parsed.calm_mode !== undefined
+          ? Boolean(parsed.calm_mode)
+          : Boolean(base.calmMode),
     activeTitleBadge:
       typeof (parsed.activeTitleBadge ?? parsed.active_title_badge) === 'string'
         ? parsed.activeTitleBadge ?? parsed.active_title_badge
@@ -215,6 +222,9 @@ export function useSocialProfile() {
       }
       if (updates.gamificationEnabled !== undefined) {
         next.gamificationEnabled = Boolean(updates.gamificationEnabled);
+      }
+      if (updates.calmMode !== undefined) {
+        next.calmMode = Boolean(updates.calmMode);
       }
       return next;
     });

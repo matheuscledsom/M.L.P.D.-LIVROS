@@ -33,6 +33,7 @@ import {
   resolveAccessibleReaderAccent,
   resolveReaderDomColors,
 } from '../../utils/readerThemes';
+import { playTactilePageChime } from '../../utils/soundEffects';
 import { AnnotationPopover } from './AnnotationPopover';
 import { ReaderSettings } from './ReaderSettings';
 import { ReaderToolbar } from './ReaderToolbar';
@@ -113,6 +114,7 @@ export function ReaderShell({
   const engineRef = useRef(null);
   const fileInputRef = useRef(null);
   const hideTimerRef = useRef(null);
+  const lastAudioPageRef = useRef(null);
 
   const [fileBlob, setFileBlob] = useState(null);
   const [fileFormat, setFileFormat] = useState(null);
@@ -173,6 +175,20 @@ export function ReaderShell({
     chapters: tocItems,
     onPersistReaderState,
   });
+
+  const handleEnginePositionChange = useCallback(
+    (nextPos) => {
+      updatePosition(nextPos);
+      if (isEngineReady && nextPos) {
+        const key = `${nextPos.cfi || ''}:${nextPos.page || ''}`;
+        if (lastAudioPageRef.current && lastAudioPageRef.current !== key) {
+          playTactilePageChime();
+        }
+        lastAudioPageRef.current = key;
+      }
+    },
+    [updatePosition, isEngineReady]
+  );
 
   const domColors = resolveReaderDomColors(activeTheme);
   const appAccent =
@@ -962,7 +978,7 @@ export function ReaderShell({
                   activeTheme={activeTheme}
                   initialPage={position.page || 1}
                   onReady={() => setIsEngineReady(true)}
-                  onPositionChange={updatePosition}
+                  onPositionChange={handleEnginePositionChange}
                   onTocReady={setTocItems}
                   onError={setErrorMsg}
                   onUpdateSettings={updateSettings}
@@ -982,7 +998,7 @@ export function ReaderShell({
                   workTotalPages={Number(work?.totalPages) || 0}
                   highlights={highlights}
                   onReady={() => setIsEngineReady(true)}
-                  onPositionChange={updatePosition}
+                  onPositionChange={handleEnginePositionChange}
                   onTocReady={setTocItems}
                   onTextSelect={setSelectionState}
                   onError={setErrorMsg}
@@ -999,7 +1015,7 @@ export function ReaderShell({
                   activeTheme={activeTheme}
                   initialPage={position.page || 1}
                   onReady={() => setIsEngineReady(true)}
-                  onPositionChange={updatePosition}
+                  onPositionChange={handleEnginePositionChange}
                   onTocReady={setTocItems}
                   onError={setErrorMsg}
                   onCenterTap={handleToggleBars}
@@ -1019,7 +1035,7 @@ export function ReaderShell({
                   workTotalPages={Number(work?.totalPages) || 0}
                   highlights={highlights}
                   onReady={() => setIsEngineReady(true)}
-                  onPositionChange={updatePosition}
+                  onPositionChange={handleEnginePositionChange}
                   onTocReady={setTocItems}
                   onTextSelect={setSelectionState}
                   onError={setErrorMsg}

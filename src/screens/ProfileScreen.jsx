@@ -21,6 +21,7 @@ import { CoverArt } from '../components/CoverArt';
 import { PostDetailModal } from '../components/PostDetailModal';
 import { ProfileEditModal } from '../components/ProfileEditModal';
 import { ProfileSettingsDrawer } from '../components/ProfileSettingsDrawer';
+import { ReaderPassportWidget } from '../components/ReaderPassportWidget';
 import { ReleaseHistoryModal } from '../components/ReleaseHistoryModal';
 import { ThemeModal } from '../components/ThemeModal';
 import { TitlesBadgesModal } from '../components/TitlesBadgesModal';
@@ -233,7 +234,8 @@ export function ProfileScreen({
     [items, selectedPost]
   );
 
-  const gamificationEnabled = profile?.gamificationEnabled !== false;
+  const calmMode = Boolean(profile?.calmMode);
+  const gamificationEnabled = profile?.gamificationEnabled !== false && !calmMode;
 
   const titleEvaluation = useMemo(
     () =>
@@ -303,9 +305,9 @@ export function ProfileScreen({
       { id: 'journal', label: 'Publicações & Diário' },
       { id: 'wall', label: `Mural (${wallPostsCount})` },
       { id: 'shelf', label: 'Estante Pública' },
-      { id: 'badges', label: 'Insígnias' },
+      { id: 'badges', label: calmMode ? 'Passaporte' : 'Insígnias' },
     ],
-    [wallPostsCount]
+    [wallPostsCount, calmMode]
   );
 
   const handleTabKeyDown = (e, idx) => {
@@ -731,10 +733,18 @@ export function ProfileScreen({
         )}
 
         {activeTab === 'badges' && (
-          <div className="px-4 sm:px-6 pt-4 space-y-3">
+          <div className="px-4 sm:px-6 pt-4 space-y-4">
+            <ReaderPassportWidget
+              items={items}
+              posts={posts}
+              streakCount={streakCount}
+            />
+
             {!gamificationEnabled ? (
-              <p className="rounded-[4px] border border-line bg-card py-8 text-center text-xs text-muted">
-                Gamificação desativada nas configurações do perfil.
+              <p className="rounded-[4px] border border-line bg-card py-6 text-center text-xs text-muted">
+                {calmMode
+                  ? 'Modo Calmo ativo: XP e contadores numéricos permanecem ocultos.'
+                  : 'Gamificação desativada nas configurações do perfil.'}
               </p>
             ) : (
               <>

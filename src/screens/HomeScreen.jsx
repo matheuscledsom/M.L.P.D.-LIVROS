@@ -74,6 +74,7 @@ export function HomeScreen({
 }) {
   const { showToast } = useToast();
   const { ui, cardFields, currentYear } = domainConfig;
+  const calmMode = Boolean(profile?.calmMode);
   const [releaseModalOpen, setReleaseModalOpen] = useState(false);
   const [rouletteOpen, setRouletteOpen] = useState(false);
   const [hubMetricMode, setHubMetricMode] = useState('percent');
@@ -247,6 +248,7 @@ export function HomeScreen({
             {ui.home.greetingPrefix}{' '}
             {profile?.displayName || profile?.handle || ui.profile.displayName}
             {profile?.gamificationEnabled !== false &&
+              !calmMode &&
               (() => {
                 const badgeText =
                   resolvedBadgeName ||
@@ -294,7 +296,7 @@ export function HomeScreen({
         )}
       </header>
 
-      {profile?.gamificationEnabled !== false && streakProps && (
+      {profile?.gamificationEnabled !== false && !calmMode && streakProps && (
         <ReadingStreakWidget {...streakProps} />
       )}
 
@@ -723,66 +725,70 @@ export function HomeScreen({
         </section>
       ) : (
         <>
-          {/* 3 Cards de Resumo */}
-          <section aria-label="Resumo rápido" className="grid grid-cols-3 gap-2.5 sm:gap-3">
-            {summaryCards.map((card) => (
-              <div
-                key={card.id}
-                className={`rounded-[6px] border bg-card p-3.5 sm:p-4 transition-colors ${
-                  card.highlight ? 'border-accent/40' : 'border-line'
-                }`}
+          {/* 3 Cards de Resumo + Meta Anual (ocultos no Modo Calmo) */}
+          {!calmMode && (
+            <>
+              <section aria-label="Resumo rápido" className="grid grid-cols-3 gap-2.5 sm:gap-3">
+                {summaryCards.map((card) => (
+                  <div
+                    key={card.id}
+                    className={`rounded-[6px] border bg-card p-3.5 sm:p-4 transition-colors ${
+                      card.highlight ? 'border-accent/40' : 'border-line'
+                    }`}
+                  >
+                    <span
+                      className={`block text-2xl font-semibold tabular-nums tracking-tight ${
+                        card.highlight ? 'text-accent' : 'text-ink'
+                      }`}
+                    >
+                      {card.value}
+                    </span>
+                    <span className="mt-1 block text-[11px] leading-tight text-muted">
+                      {card.label}
+                    </span>
+                  </div>
+                ))}
+              </section>
+
+              {/* Meta Anual com barra fina de 4px */}
+              <section
+                aria-label={ui.home.annualGoalTitle}
+                className="rounded-[6px] border border-line bg-card p-4"
               >
-                <span
-                  className={`block text-2xl font-semibold tabular-nums tracking-tight ${
-                    card.highlight ? 'text-accent' : 'text-ink'
-                  }`}
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2">
+                    <Target className="h-4 w-4 shrink-0 text-accent" strokeWidth={1.5} />
+                    <h2 className="text-xs font-semibold tracking-tight text-ink">
+                      {ui.home.annualGoalTitle}
+                    </h2>
+                  </div>
+                  <div className="flex items-baseline gap-2 text-xs tabular-nums">
+                    <span className="font-medium text-muted">
+                      <strong className="font-semibold text-ink">{completedYearCount}</strong> / {annualGoal}
+                    </span>
+                    <span className="font-semibold text-accent">{annualGoalPct}%</span>
+                  </div>
+                </div>
+
+                <div
+                  role="progressbar"
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-valuenow={annualGoalPct}
+                  aria-label={`Progresso da Meta Anual: ${annualGoalPct}%`}
+                  className="mt-3 h-[4px] w-full overflow-hidden rounded-[2px] bg-line"
                 >
-                  {card.value}
-                </span>
-                <span className="mt-1 block text-[11px] leading-tight text-muted">
-                  {card.label}
-                </span>
-              </div>
-            ))}
-          </section>
-
-          {/* Meta Anual com barra fina de 4px */}
-          <section
-            aria-label={ui.home.annualGoalTitle}
-            className="rounded-[6px] border border-line bg-card p-4"
-          >
-            <div className="flex items-center justify-between gap-3">
-              <div className="flex items-center gap-2">
-                <Target className="h-4 w-4 shrink-0 text-accent" strokeWidth={1.5} />
-                <h2 className="text-xs font-semibold tracking-tight text-ink">
-                  {ui.home.annualGoalTitle}
-                </h2>
-              </div>
-              <div className="flex items-baseline gap-2 text-xs tabular-nums">
-                <span className="font-medium text-muted">
-                  <strong className="font-semibold text-ink">{completedYearCount}</strong> / {annualGoal}
-                </span>
-                <span className="font-semibold text-accent">{annualGoalPct}%</span>
-              </div>
-            </div>
-
-            <div
-              role="progressbar"
-              aria-valuemin={0}
-              aria-valuemax={100}
-              aria-valuenow={annualGoalPct}
-              aria-label={`Progresso da Meta Anual: ${annualGoalPct}%`}
-              className="mt-3 h-[4px] w-full overflow-hidden rounded-[2px] bg-line"
-            >
-              <div
-                className="codice-goal-fill h-full"
-                style={{
-                  width: `${animatedGoalPct}%`,
-                  backgroundColor: 'var(--accent-color)',
-                }}
-              />
-            </div>
-          </section>
+                  <div
+                    className="codice-goal-fill h-full"
+                    style={{
+                      width: `${animatedGoalPct}%`,
+                      backgroundColor: 'var(--accent-color)',
+                    }}
+                  />
+                </div>
+              </section>
+            </>
+          )}
 
           <OracleWidget
             items={items}

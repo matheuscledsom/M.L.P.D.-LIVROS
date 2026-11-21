@@ -16,16 +16,25 @@ export const VERSIONING_RULES = {
 };
 
 export const CODICE_RELEASE = {
-  version: '4.14.0',
+  version: '4.15.0',
   codename: 'Ymir',
-  label: 'v4.14.0 · Ymir',
+  label: 'v4.15.0 · Ymir',
   releaseType: 'minor',
   date: '2026-11',
   summary:
-    'Ecossistema sem servidor: dicionário offline-cached, Cápsula do Tempo (Neste Dia) e 3 templates editoriais PNG',
+    'Motion FLIP, Skeletons com forma, Passaporte do Leitor SVG, 2 dias de descanso/mês, Modo Calmo e som tátil de página opt-in',
 };
 
 export const RELEASE_HISTORY = [
+  {
+    version: '4.15.0',
+    codename: 'Ymir',
+    label: 'v4.15.0 · Ymir',
+    releaseType: 'minor',
+    date: '2026-11',
+    summary: 'Motion FLIP, Skeletons com forma, Passaporte do Leitor SVG, 2 dias de descanso/mês, Modo Calmo e som tátil de página opt-in',
+    highlights: ['Release automatizado via bump-version.mjs.'],
+  },
   {
     version: '4.14.0',
     codename: 'Ymir',

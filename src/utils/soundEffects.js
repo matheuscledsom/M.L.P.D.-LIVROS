@@ -1,4 +1,5 @@
 const SOUND_STORAGE_KEY = 'mlpd_livros_sound_enabled';
+const READER_CHIME_STORAGE_KEY = 'codice_reader_chime_enabled';
 
 let sharedAudioCtx = null;
 
@@ -17,6 +18,57 @@ export function setSoundEnabled(enabled) {
     localStorage.setItem(SOUND_STORAGE_KEY, enabled ? 'true' : 'false');
   } catch {
     // Ignora erro caso storage esteja indisponível
+  }
+}
+
+export function isReaderPageChimeEnabled() {
+  try {
+    return localStorage.getItem(READER_CHIME_STORAGE_KEY) === 'true';
+  } catch {
+    return false;
+  }
+}
+
+export function setReaderPageChimeEnabled(enabled) {
+  try {
+    localStorage.setItem(READER_CHIME_STORAGE_KEY, enabled ? 'true' : 'false');
+  } catch {
+    // Ignora erro caso storage esteja indisponível
+  }
+}
+
+export function playTactilePageChime() {
+  try {
+    if (!isReaderPageChimeEnabled()) return;
+    const ctx = getAudioContext();
+    if (!ctx) return;
+
+    const now = ctx.currentTime;
+    const sampleCount = Math.floor(ctx.sampleRate * 0.045);
+    if (typeof ctx.createBuffer === 'function' && sampleCount > 0) {
+      const buffer = ctx.createBuffer(1, sampleCount, ctx.sampleRate);
+      const data = buffer.getChannelData(0);
+      for (let i = 0; i < sampleCount; i += 1) {
+        const env = Math.sin((i / sampleCount) * Math.PI);
+        data[i] = (Math.random() * 2 - 1) * env * 0.14;
+      }
+      const noise = ctx.createBufferSource();
+      noise.buffer = buffer;
+      const filter = ctx.createBiquadFilter();
+      filter.type = 'bandpass';
+      filter.frequency.setValueAtTime(1600, now);
+      filter.Q.setValueAtTime(1.4, now);
+      const gain = ctx.createGain();
+      gain.gain.setValueAtTime(0.18, now);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.045);
+      noise.connect(filter);
+      filter.connect(gain);
+      gain.connect(ctx.destination);
+      noise.start(now);
+      noise.stop(now + 0.046);
+    }
+  } catch {
+    // Blindagem caso WebAudio esteja indisponível
   }
 }
 

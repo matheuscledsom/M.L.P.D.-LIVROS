@@ -1,5 +1,11 @@
 import { X } from 'lucide-react';
+import { useState } from 'react';
 import { READER_THEMES } from '../../utils/readerThemes';
+import {
+  isReaderPageChimeEnabled,
+  playTactilePageChime,
+  setReaderPageChimeEnabled,
+} from '../../utils/soundEffects';
 import { FONT_PRESETS } from '../../utils/themeTokens';
 
 function SettingRow({ label, hint, children }) {
@@ -88,6 +94,7 @@ export function ReaderSettings({
   settings,
   onUpdateSettings,
 }) {
+  const [pageChimeOn, setPageChimeOn] = useState(isReaderPageChimeEnabled);
   if (!isOpen) return null;
 
   const isFlowTextFormat =
@@ -231,6 +238,32 @@ export function ReaderSettings({
               }}
             >
               {settings.focusRuler ? 'Ativa' : 'Desligada'}
+            </button>
+          </SettingRow>
+
+          <SettingRow label="Som tátil de página" hint="Toque sutil sintetizado (opcional)">
+            <button
+              type="button"
+              role="switch"
+              aria-checked={pageChimeOn}
+              onClick={() => {
+                const next = !pageChimeOn;
+                setPageChimeOn(next);
+                setReaderPageChimeEnabled(next);
+                if (next) playTactilePageChime();
+              }}
+              className="min-h-[44px] rounded-[4px] border px-3 text-xs font-medium transition-colors duration-150 ease-out"
+              style={{
+                borderColor: pageChimeOn
+                  ? 'var(--reader-accent)'
+                  : 'var(--reader-border)',
+                color: pageChimeOn
+                  ? 'var(--reader-accent)'
+                  : 'var(--reader-muted)',
+                touchAction: 'manipulation',
+              }}
+            >
+              {pageChimeOn ? 'Ativo' : 'Silencioso'}
             </button>
           </SettingRow>
 

@@ -5,6 +5,7 @@ import {
   Cloud,
   Cpu,
   Database,
+  Feather,
   FileSpreadsheet,
   Globe,
   HardDrive,
@@ -874,6 +875,17 @@ export function ProfileSettingsDrawer({
                     onToggle={() =>
                       onUpdateProfile?.({
                         gamificationEnabled: !gamificationEnabled,
+                      })
+                    }
+                  />
+                  <PrivacySwitchRow
+                    icon={Feather}
+                    label="Modo Calmo (Sem Contadores)"
+                    description="Oculta streaks, XP, metas numéricas e insígnias para leitura sem pressão."
+                    checked={Boolean(profile?.calmMode)}
+                    onToggle={() =>
+                      onUpdateProfile?.({
+                        calmMode: !profile?.calmMode,
                       })
                     }
                   />

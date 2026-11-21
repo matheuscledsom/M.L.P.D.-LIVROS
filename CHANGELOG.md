@@ -17,6 +17,10 @@ npm run version:major -- --name="Odin"
 
 ---
 
+## [v4.15.0 · Ymir] — 2026-11
+
+**Resumo:** Motion FLIP, Skeletons com forma, Passaporte do Leitor SVG, 2 dias de descanso/mês, Modo Calmo e som tátil de página opt-in
+
 ## [v4.14.0 · Ymir] — 2026-11
 
 **Resumo:** Ecossistema sem servidor: dicionário offline-cached, Cápsula do Tempo (Neste Dia) e 3 templates editoriais PNG

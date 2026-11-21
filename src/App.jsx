@@ -2,6 +2,7 @@ import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } fro
 import { UserCheck, UserPlus, X } from 'lucide-react';
 import { BottomNav } from './components/BottomNav';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import { SkeletonScreen } from './components/SkeletonScreen';
 import { formatExactPercent } from './components/reader/useReaderProgress';
 import { GraphicFilters } from './design/GraphicFilters';
 import { useToast } from './context/ToastContext';
@@ -274,6 +275,9 @@ export function App() {
     isPaused,
     history,
     dailyLogs,
+    restDaysRemaining,
+    isRestDayToday,
+    useRestDay,
     registerToday,
     restoreStreakBackup,
   } = useReadingStreak();
@@ -1262,11 +1266,24 @@ export function App() {
     [items, handleCopyWorkToWishlist]
   );
 
+  const handleUseRestDay = useCallback(() => {
+    const ok = useRestDay();
+    if (ok) {
+      showToast({
+        message: 'Dia de descanso gentil registrado — sua sequência está protegida.',
+        type: 'info',
+      });
+    }
+  }, [useRestDay, showToast]);
+
   const streakProps = {
     streakCount,
     loggedToday,
     isPaused,
     history,
+    restDaysRemaining,
+    isRestDayToday,
+    onUseRestDay: handleUseRestDay,
     onRegisterToday: handleRegisterToday,
   };
 
@@ -1332,11 +1349,7 @@ export function App() {
             onOpenBackup={() => setBackupModalOpen(true)}
           >
           <Suspense
-            fallback={
-              <div className="py-12 text-center text-xs text-muted">
-                Carregando...
-              </div>
-            }
+            fallback={<SkeletonScreen variant={activeTab} />}
           >
           {activeTab === 'home' && (
             <HomeScreen

@@ -10,7 +10,21 @@ const DEFAULT_STREAK = {
   lastDate: null,
   history: [],
   dailyLogs: {},
+  restDays: [],
 };
+
+function sanitizeRestDays(rawRestDays) {
+  if (!Array.isArray(rawRestDays)) return [];
+  return Array.from(
+    new Set(
+      rawRestDays
+        .map((d) => String(d || '').trim())
+        .filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d))
+    )
+  )
+    .sort()
+    .slice(-60);
+}
 
 function sanitizeDailyLogs(rawLogs) {
   if (!rawLogs || typeof rawLogs !== 'object' || Array.isArray(rawLogs)) {
@@ -49,6 +63,7 @@ function loadStreak() {
             ? mirror.streak.history.slice(-365)
             : [],
           dailyLogs: sanitizeDailyLogs(mirror.streak.dailyLogs),
+          restDays: sanitizeRestDays(mirror.streak.restDays),
         };
       }
       return DEFAULT_STREAK;
@@ -60,6 +75,7 @@ function loadStreak() {
       lastDate: typeof parsed.lastDate === 'string' ? parsed.lastDate : null,
       history: Array.isArray(parsed.history) ? parsed.history.slice(-365) : [],
       dailyLogs: sanitizeDailyLogs(parsed.dailyLogs),
+      restDays: sanitizeRestDays(parsed.restDays),
     };
   } catch {
     return DEFAULT_STREAK;
@@ -128,6 +144,7 @@ export function useReadingStreak() {
           lastDate: today,
           history: nextHistory,
           dailyLogs: prevLogs,
+          restDays: sanitizeRestDays(prev.restDays),
         };
       }
 
@@ -160,9 +177,32 @@ export function useReadingStreak() {
         lastDate: today,
         history: nextHistory,
         dailyLogs: nextLogs,
+        restDays: sanitizeRestDays(prev.restDays),
       };
     });
   }, []);
+
+  const useRestDay = useCallback(() => {
+    const today = getTodayLocalISO();
+    setTodayIso(today);
+    const state = getStreakState(streakData, today);
+    const restList = sanitizeRestDays(streakData.restDays);
+    if (state.loggedToday || restList.includes(today)) return false;
+    const monthPrefix = today.slice(0, 7);
+    const usedThisMonth = restList.filter((d) => d.startsWith(monthPrefix)).length;
+    if (usedThisMonth >= 2) return false;
+
+    setStreakData((prev) => {
+      const prevRest = sanitizeRestDays(prev.restDays);
+      if (prevRest.includes(today)) return prev;
+      return {
+        ...prev,
+        lastDate: today,
+        restDays: [...prevRest, today].slice(-60),
+      };
+    });
+    return true;
+  }, [streakData]);
 
   const restoreStreakBackup = useCallback((savedStreak) => {
     if (!savedStreak || typeof savedStreak !== 'object') return;
@@ -171,10 +211,16 @@ export function useReadingStreak() {
       lastDate: typeof savedStreak.lastDate === 'string' ? savedStreak.lastDate : null,
       history: Array.isArray(savedStreak.history) ? savedStreak.history.slice(-365) : [],
       dailyLogs: sanitizeDailyLogs(savedStreak.dailyLogs),
+      restDays: sanitizeRestDays(savedStreak.restDays),
     });
   }, []);
 
   const state = getStreakState(streakData, todayIso);
+  const restDays = sanitizeRestDays(streakData.restDays);
+  const currentMonthKey = todayIso.slice(0, 7);
+  const restDaysUsedThisMonth = restDays.filter((d) => d.startsWith(currentMonthKey)).length;
+  const restDaysRemaining = Math.max(0, 2 - restDaysUsedThisMonth);
+  const isRestDayToday = restDays.includes(todayIso);
 
   return {
     streakData,
@@ -184,6 +230,10 @@ export function useReadingStreak() {
     isPaused: state.isPaused,
     history: streakData.history,
     dailyLogs: streakData.dailyLogs || {},
+    restDays,
+    restDaysRemaining,
+    isRestDayToday,
+    useRestDay,
     registerToday,
     restoreStreakBackup,
   };
