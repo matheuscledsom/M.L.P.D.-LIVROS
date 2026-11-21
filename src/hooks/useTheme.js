@@ -8,57 +8,50 @@ import {
   getContrastForAccent,
   normalizeHex,
 } from '../utils/themeTokens';
+import {
+  DEFAULT_THEME_STATE,
+  PASTEL_SUBPALETTES,
+  SPECIAL_THEMES,
+  THEME_STORAGE_KEY,
+  parseThemeStorage,
+  resolveSpecialThemeConfig,
+} from '../data/themePresets';
 
 export {
   EDITORIAL_PRESETS,
   FONT_PRESETS,
+  PASTEL_SUBPALETTES,
+  SPECIAL_THEMES,
   TEXTURE_OPTIONS,
   THEME_MODES,
 };
 
-const THEME_STORAGE_KEY = 'mlpd_livros_theme';
-
-const DEFAULT_THEME = {
-  mode: 'oled',
-  font: 'inter',
-  texture: 'clean',
-  presetId: null,
-  customBgColor: null,
-  customCardColor: null,
-  customAccentColor: '#8B5CF6',
-};
+const SPECIAL_EXTRA_VARS = [
+  '--pastel-base',
+  '--pastel-card-1',
+  '--pastel-card-2',
+  '--pastel-card-3',
+  '--pastel-card-4',
+  '--pastel-card-5',
+  '--pastel-pill-bg',
+  '--pastel-pill-active',
+  '--xp-header-blue',
+  '--xp-header-highlight',
+  '--xp-confirm-green',
+  '--xp-confirm-deep',
+  '--win7-glass',
+  '--win7-glass-elevated',
+  '--aero-cyan',
+  '--aero-green',
+  '--aero-green-deep',
+];
 
 function loadSavedTheme() {
   try {
     const raw = localStorage.getItem(THEME_STORAGE_KEY);
-    if (!raw) return DEFAULT_THEME;
-    const parsed = JSON.parse(raw);
-
-    const mode = THEME_MODES.some((m) => m.id === parsed?.mode)
-      ? parsed.mode
-      : 'oled';
-    const font = FONT_PRESETS.some((f) => f.id === parsed?.font)
-      ? parsed.font
-      : 'inter';
-    const texture = TEXTURE_OPTIONS.some((t) => t.id === parsed?.texture)
-      ? parsed.texture
-      : 'clean';
-    const presetId = EDITORIAL_PRESETS.some((p) => p.id === parsed?.presetId)
-      ? parsed.presetId
-      : null;
-
-    return {
-      mode,
-      font,
-      texture,
-      presetId,
-      customBgColor: normalizeHex(parsed?.customBgColor),
-      customCardColor: normalizeHex(parsed?.customCardColor),
-      customAccentColor:
-        normalizeHex(parsed?.customAccentColor) || '#8B5CF6',
-    };
+    return parseThemeStorage(raw);
   } catch {
-    return DEFAULT_THEME;
+    return DEFAULT_THEME_STATE;
   }
 }
 
@@ -70,19 +63,45 @@ export function useTheme() {
   const fontConfig =
     FONT_PRESETS.find((f) => f.id === theme.font) ?? FONT_PRESETS[0];
 
-  const surface = theme.customBgColor
-    ? buildSurfaceVarsFromBg(theme.customBgColor, theme.customCardColor)
-    : { isLight: modeConfig.isLight, vars: modeConfig.vars };
+  const specialConfig = theme.specialThemeId
+    ? resolveSpecialThemeConfig(
+        theme.specialThemeId,
+        theme.pastelSubpaletteId,
+        theme.pastelCustomColor
+      )
+    : null;
+
+  const surface = specialConfig
+    ? { isLight: specialConfig.isLight, vars: specialConfig.vars }
+    : theme.customBgColor
+      ? buildSurfaceVarsFromBg(theme.customBgColor, theme.customCardColor)
+      : { isLight: modeConfig.isLight, vars: modeConfig.vars };
 
   const activeBgColor = surface.vars['--bg-app'];
-  const activeAccentColor = normalizeHex(theme.customAccentColor) || '#8B5CF6';
-  const accentContrast = getContrastForAccent(activeAccentColor);
+  const activeAccentColor = specialConfig
+    ? specialConfig.accentColor
+    : normalizeHex(theme.customAccentColor) || '#8B5CF6';
+  const accentContrast = specialConfig
+    ? specialConfig.accentContrast
+    : getContrastForAccent(activeAccentColor);
 
   useEffect(() => {
     const root = document.documentElement;
+    SPECIAL_EXTRA_VARS.forEach((prop) => {
+      if (!(prop in surface.vars)) {
+        root.style.removeProperty(prop);
+      }
+    });
+
     Object.entries(surface.vars).forEach(([key, value]) => {
       root.style.setProperty(key, value);
     });
+
+    if (specialConfig?.styleAttr) {
+      root.setAttribute('data-theme-style', specialConfig.styleAttr);
+    } else {
+      root.removeAttribute('data-theme-style');
+    }
 
     root.style.setProperty('--accent-color', activeAccentColor);
     root.style.setProperty('--accent-contrast', accentContrast);
@@ -99,13 +118,22 @@ export function useTheme() {
     } catch {
       // Ignora erro de persistência
     }
-  }, [theme, surface, activeBgColor, activeAccentColor, accentContrast, fontConfig]);
+  }, [
+    theme,
+    surface,
+    specialConfig,
+    activeBgColor,
+    activeAccentColor,
+    accentContrast,
+    fontConfig,
+  ]);
 
   const setMode = (mode) =>
     setTheme((prev) => ({
       ...prev,
       mode,
       presetId: null,
+      specialThemeId: null,
       customBgColor: null,
       customCardColor: null,
     }));
@@ -128,9 +156,43 @@ export function useTheme() {
     setTheme((prev) => ({
       ...prev,
       presetId: preset.id,
+      specialThemeId: null,
       customBgColor: preset.bg,
       customCardColor: preset.card,
       customAccentColor: preset.accent,
+    }));
+  };
+
+  const applySpecialTheme = (specialThemeId) => {
+    const special = SPECIAL_THEMES.find((item) => item.id === specialThemeId);
+    if (!special) return;
+    setTheme((prev) => ({
+      ...prev,
+      specialThemeId: special.id,
+      presetId: null,
+    }));
+  };
+
+  const selectPastelSubpalette = (subpaletteId) => {
+    const found = PASTEL_SUBPALETTES.find((item) => item.id === subpaletteId);
+    if (!found) return;
+    setTheme((prev) => ({
+      ...prev,
+      specialThemeId: 'pastel-glass',
+      presetId: null,
+      pastelSubpaletteId: found.id,
+      pastelCustomColor: null,
+    }));
+  };
+
+  const setPastelCustomColor = (hex) => {
+    const valid = normalizeHex(hex);
+    if (!valid) return;
+    setTheme((prev) => ({
+      ...prev,
+      specialThemeId: 'pastel-glass',
+      presetId: null,
+      pastelCustomColor: valid,
     }));
   };
 
@@ -140,6 +202,7 @@ export function useTheme() {
     setTheme((prev) => ({
       ...prev,
       presetId: null,
+      specialThemeId: null,
       customBgColor: valid,
       customCardColor: null,
     }));
@@ -151,6 +214,7 @@ export function useTheme() {
     setTheme((prev) => ({
       ...prev,
       presetId: null,
+      specialThemeId: null,
       customAccentColor: valid,
     }));
   };
@@ -161,6 +225,9 @@ export function useTheme() {
       mode: 'oled',
       texture: 'clean',
       presetId: null,
+      specialThemeId: null,
+      pastelSubpaletteId: 'lavender-rose',
+      pastelCustomColor: null,
       customBgColor: null,
       customCardColor: null,
       customAccentColor: '#8B5CF6',
@@ -171,13 +238,23 @@ export function useTheme() {
     font: theme.font,
     texture: theme.texture,
     presetId: theme.presetId,
+    specialThemeId: theme.specialThemeId,
+    pastelSubpaletteId: theme.pastelSubpaletteId,
+    pastelCustomColor:
+      theme.pastelCustomColor ||
+      PASTEL_SUBPALETTES.find((p) => p.id === theme.pastelSubpaletteId)
+        ?.baseColor ||
+      '#C084FC',
     bgColor: activeBgColor,
     accentColor: activeAccentColor,
-    hasCustomBg: Boolean(theme.customBgColor),
+    hasCustomBg: Boolean(theme.customBgColor) && !theme.specialThemeId,
     setMode,
     setFont,
     setTexture,
     applyPreset,
+    applySpecialTheme,
+    selectPastelSubpalette,
+    setPastelCustomColor,
     setCustomBgColor,
     setCustomAccentColor,
     resetCustomColors,

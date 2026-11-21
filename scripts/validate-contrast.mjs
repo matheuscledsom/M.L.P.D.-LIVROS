@@ -4,6 +4,11 @@ import {
   resolveReaderThemePalette,
 } from '../src/utils/readerThemes.js';
 import {
+  PASTEL_SUBPALETTES,
+  SPECIAL_THEMES,
+  buildPastelGlassTheme,
+} from '../src/data/themePresets.js';
+import {
   EDITORIAL_PRESETS,
   THEME_MODES,
   buildSurfaceVarsFromBg,
@@ -65,6 +70,34 @@ EDITORIAL_PRESETS.forEach((preset) => {
   checkThemeEntry(`Preset:${preset.id}`, surface.vars, preset.accent);
 });
 
+SPECIAL_THEMES.forEach((special) => {
+  checkThemeEntry(`Especial:${special.id}`, special.vars, special.accent);
+});
+
+PASTEL_SUBPALETTES.forEach((sub) => {
+  const built = buildPastelGlassTheme(sub.id);
+  checkThemeEntry(`PastelSub:${sub.id}`, built.vars, built.accentColor);
+  built.cards.forEach((cardHex, index) => {
+    checkThemeEntry(
+      `PastelSub:${sub.id}:Card${index + 1}`,
+      { ...built.vars, '--bg-card': cardHex },
+      built.accentColor
+    );
+  });
+});
+
+['#FFB3C6', '#38BDF8', '#FACC15', '#22C55E', '#0F172A'].forEach((sampleHex) => {
+  const built = buildPastelGlassTheme('lavender-rose', sampleHex);
+  checkThemeEntry(`PastelCustom:${sampleHex}`, built.vars, built.accentColor);
+  built.cards.forEach((cardHex, index) => {
+    checkThemeEntry(
+      `PastelCustom:${sampleHex}:Card${index + 1}`,
+      { ...built.vars, '--bg-card': cardHex },
+      built.accentColor
+    );
+  });
+});
+
 const READER_VARIANTS = [
   resolveReaderThemePalette('white'),
   resolveReaderThemePalette('grey'),
@@ -112,5 +145,5 @@ if (failures.length > 0) {
 }
 
 console.log(
-  `Contraste WCAG 2.2 AA aprovado em ${THEME_MODES.length} modos base, ${EDITORIAL_PRESETS.length} presets e ${READER_THEMES.length} atmosferas do leitor.`
+  `Contraste WCAG 2.2 AA aprovado em ${THEME_MODES.length} modos base, ${EDITORIAL_PRESETS.length} presets, ${SPECIAL_THEMES.length} estilos especiais (+ ${PASTEL_SUBPALETTES.length} sub-paletas Pastel) e ${READER_THEMES.length} atmosferas do leitor.`
 );

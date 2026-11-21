@@ -53,7 +53,7 @@ export function getContrastRatio(hexA, hexB) {
   return (lighter + 0.05) / (darker + 0.05);
 }
 
-function ensureMinimumContrast(candidateHex, targetSurfaces, isLightBg, minRatio) {
+export function ensureMinimumContrast(candidateHex, targetSurfaces, isLightBg, minRatio) {
   const extreme = isLightBg ? '#09090B' : '#FFFFFF';
   let current = normalizeHex(candidateHex) || extreme;
   const worstRatio = () =>

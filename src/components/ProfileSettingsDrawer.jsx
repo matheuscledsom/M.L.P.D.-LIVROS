@@ -34,6 +34,8 @@ import {
   normalizePreferredCriteria,
   toggleCriterionInList,
 } from '../utils/readerPreferences';
+import { SPECIAL_THEMES } from '../data/themePresets';
+import { PastelPaletteCustomizer } from './ThemeModal';
 
 const VISIBILITY_OPTIONS = [
   {
@@ -104,6 +106,7 @@ export function ProfileSettingsDrawer({
   onOpenAuthModal,
   onUpdateProfile,
   onOpenThemeStudio,
+  themeProps = null,
   onReopenOnboarding,
   onOpenGeminiSettings,
   onExportBackup,
@@ -590,10 +593,31 @@ export function ProfileSettingsDrawer({
               >
                 <span className="inline-flex items-center gap-2.5">
                   <Palette className="h-4 w-4 text-accent" strokeWidth={1.5} />
-                  <span>Temas E-Ink, Fontes &amp; Atmosferas</span>
+                  <span>
+                    Temas E-Ink, Fontes &amp; Atmosferas
+                    {themeProps?.specialThemeId && (
+                      <span className="ml-1.5 text-[10px] font-normal text-subtle">
+                        (
+                        {SPECIAL_THEMES.find(
+                          (item) => item.id === themeProps.specialThemeId
+                        )?.label || themeProps.specialThemeId}
+                        )
+                      </span>
+                    )}
+                  </span>
                 </span>
                 <span className="text-[11px] text-accent">Abrir</span>
               </button>
+              {themeProps?.specialThemeId === 'pastel-glass' && (
+                <div className="p-3">
+                  <PastelPaletteCustomizer
+                    pastelSubpaletteId={themeProps.pastelSubpaletteId}
+                    pastelCustomColor={themeProps.pastelCustomColor}
+                    onSelectPastelSubpalette={themeProps.onSelectPastelSubpalette}
+                    onChangePastelColor={themeProps.onChangePastelColor}
+                  />
+                </div>
+              )}
               <button
                 type="button"
                 onClick={onToggleSound}

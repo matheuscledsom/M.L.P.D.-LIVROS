@@ -889,6 +889,7 @@ export function ProfileScreen({
         onOpenAuthModal={onOpenAuthModal}
         onUpdateProfile={onUpdateProfile}
         onOpenThemeStudio={() => setThemeModalOpen(true)}
+        themeProps={themeProps}
         onReopenOnboarding={onReopenOnboarding}
         onOpenGeminiSettings={onOpenGeminiSettings}
         onExportBackup={onExportBackup}

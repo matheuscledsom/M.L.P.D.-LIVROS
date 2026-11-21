@@ -2,9 +2,81 @@ import { Check, Layers, Palette, RotateCcw, Sparkles, Type, X } from 'lucide-rea
 import {
   EDITORIAL_PRESETS,
   FONT_PRESETS,
+  PASTEL_SUBPALETTES,
+  SPECIAL_THEMES,
   TEXTURE_OPTIONS,
   THEME_MODES,
 } from '../hooks/useTheme';
+
+export function PastelPaletteCustomizer({
+  pastelSubpaletteId = 'lavender-rose',
+  pastelCustomColor = '#C084FC',
+  onSelectPastelSubpalette,
+  onChangePastelColor,
+}) {
+  return (
+    <div className="mt-3 space-y-2.5 rounded-xl border border-line bg-app p-3">
+      <div className="flex items-center justify-between gap-2">
+        <span className="inline-flex items-center gap-1.5 text-xs font-medium text-ink">
+          <Sparkles className="h-3.5 w-3.5 text-accent" strokeWidth={1.5} />
+          Customização de Paleta Pastel
+        </span>
+        <span className="text-[10px] text-subtle">Tempo real</span>
+      </div>
+
+      <div className="grid grid-cols-2 gap-2">
+        {PASTEL_SUBPALETTES.map((sub) => {
+          const isSubActive =
+            pastelSubpaletteId === sub.id &&
+            String(pastelCustomColor || '').toUpperCase() ===
+              sub.baseColor.toUpperCase();
+          return (
+            <button
+              key={sub.id}
+              type="button"
+              aria-pressed={isSubActive}
+              onClick={() => onSelectPastelSubpalette?.(sub.id)}
+              className={`flex min-h-[44px] items-center justify-between gap-2 rounded-xl border px-2.5 py-2 text-left text-[11px] font-medium transition-colors ${
+                isSubActive
+                  ? 'border-accent bg-accent/15 text-ink'
+                  : 'border-line bg-card text-muted hover:text-ink'
+              }`}
+            >
+              <span className="min-w-0 flex-1 truncate">{sub.label}</span>
+              <span className="flex shrink-0 items-center -space-x-1" aria-hidden="true">
+                {sub.cards.slice(0, 3).map((tone) => (
+                  <span
+                    key={tone}
+                    className="h-3.5 w-3.5 rounded-full border border-black/15"
+                    style={{ backgroundColor: tone }}
+                  />
+                ))}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
+      <label className="flex min-h-[44px] cursor-pointer items-center justify-between gap-2 rounded-xl border border-line bg-card px-3 py-2 transition-colors hover:border-accent/50">
+        <div className="min-w-0">
+          <span className="block text-[11px] font-medium text-ink">
+            Cor Pastel Livre
+          </span>
+          <span className="block font-mono text-[10px] tabular-nums text-subtle">
+            {pastelCustomColor}
+          </span>
+        </div>
+        <input
+          type="color"
+          value={pastelCustomColor}
+          onChange={(e) => onChangePastelColor?.(e.target.value)}
+          aria-label="Selecionar cor livre da paleta pastel"
+          className="h-7 w-7 shrink-0 cursor-pointer overflow-hidden rounded-full border border-line bg-transparent p-0"
+        />
+      </label>
+    </div>
+  );
+}
 
 export function ThemeModal({
   isOpen,
@@ -13,6 +85,9 @@ export function ThemeModal({
   font,
   texture = 'clean',
   presetId,
+  specialThemeId = null,
+  pastelSubpaletteId = 'lavender-rose',
+  pastelCustomColor = '#C084FC',
   bgColor,
   accentColor,
   hasCustomBg,
@@ -20,6 +95,9 @@ export function ThemeModal({
   onSelectFont,
   onSelectTexture,
   onApplyPreset,
+  onApplySpecialTheme,
+  onSelectPastelSubpalette,
+  onChangePastelColor,
   onChangeBgColor,
   onChangeAccentColor,
   onResetTheme,
@@ -105,6 +183,63 @@ export function ThemeModal({
           </div>
         </div>
 
+        {/* 6 Estilos Visuais Especiais */}
+        <div className="mt-5">
+          <div className="mb-2.5 flex items-center justify-between gap-2">
+            <p className="flex items-center gap-1.5 text-xs font-medium text-muted">
+              <Sparkles className="h-3.5 w-3.5 text-accent" strokeWidth={1.5} />
+              Estilos Especiais &amp; Vidro
+            </p>
+            <span className="text-[10px] text-subtle">6 estilos completos</span>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            {SPECIAL_THEMES.map((special) => {
+              const isSelected = specialThemeId === special.id;
+              return (
+                <button
+                  key={special.id}
+                  type="button"
+                  aria-pressed={isSelected}
+                  onClick={() => onApplySpecialTheme?.(special.id)}
+                  className={`flex min-h-[48px] items-center gap-2.5 rounded-xl border px-3 py-2 text-left transition-colors ${
+                    isSelected
+                      ? 'border-accent bg-accent/15 text-ink'
+                      : 'border-line bg-app text-muted hover:text-ink'
+                  }`}
+                >
+                  <span
+                    aria-hidden="true"
+                    className="h-6 w-6 shrink-0 rounded-full border border-black/20"
+                    style={{
+                      background: `linear-gradient(135deg, ${special.previewBg} 52%, ${special.previewAccent} 52%)`,
+                    }}
+                  />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-[11px] font-semibold text-ink">
+                      {special.label}
+                    </span>
+                    <span className="block truncate text-[10px] text-subtle">
+                      {special.subtitle}
+                    </span>
+                  </span>
+                  {isSelected && (
+                    <Check className="h-3.5 w-3.5 shrink-0 text-accent" strokeWidth={1.5} />
+                  )}
+                </button>
+              );
+            })}
+          </div>
+
+          {specialThemeId === 'pastel-glass' && (
+            <PastelPaletteCustomizer
+              pastelSubpaletteId={pastelSubpaletteId}
+              pastelCustomColor={pastelCustomColor}
+              onSelectPastelSubpalette={onSelectPastelSubpalette}
+              onChangePastelColor={onChangePastelColor}
+            />
+          )}
+        </div>
+
         {/* 3 Atmosferas Base */}
         <div className="mt-5">
           <p className="mb-2.5 text-xs font-medium text-muted">
@@ -112,7 +247,8 @@ export function ThemeModal({
           </p>
           <div className="grid grid-cols-3 gap-2">
             {THEME_MODES.map((m) => {
-              const isSelected = !hasCustomBg && !presetId && mode === m.id;
+              const isSelected =
+                !specialThemeId && !hasCustomBg && !presetId && mode === m.id;
               return (
                 <button
                   key={m.id}
