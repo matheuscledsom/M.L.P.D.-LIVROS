@@ -1,4 +1,8 @@
 import { buildPublicProfileLink, domainConfig } from '../config/domainConfig.js';
+import {
+  normalizeFavoriteGenres,
+  normalizePreferredCriteria,
+} from '../utils/readerPreferences.js';
 import { createUuid } from './codiceDatabase.js';
 import { evaluateReaderTitles } from './readerTitlesEngine.js';
 
@@ -99,6 +103,11 @@ export function normalizeFrontendProfile(rawProfile = {}) {
   const rawLinkLabel = rawProfile.linkLabel ?? rawProfile.link_label;
   const rawLinkUrl = rawProfile.linkUrl ?? rawProfile.link_url;
 
+  const preferredCriteria = normalizePreferredCriteria(
+    rawProfile.preferredCriteria ?? rawProfile.preferred_criteria,
+    rawProfile.preferredCriterion ?? rawProfile.preferred_criterion
+  );
+
   return {
     id: rawProfile.id || createUuid(),
     email: typeof rawProfile.email === 'string' ? rawProfile.email.trim().toLowerCase() : '',
@@ -121,13 +130,13 @@ export function normalizeFrontendProfile(rawProfile = {}) {
     ),
     preferredFormat:
       rawProfile.preferredFormat ?? rawProfile.preferred_format ?? 'Livro Físico',
-    preferredCriterion:
-      rawProfile.preferredCriterion ?? rawProfile.preferred_criterion ?? 'Enredo e Ritmo',
+    preferredCriteria,
+    preferredCriterion: preferredCriteria.join(', '),
     preferredAtmosphere:
       rawProfile.preferredAtmosphere ?? rawProfile.preferred_atmosphere ?? 'Tinta OLED',
-    favoriteGenres: Array.isArray(rawProfile.favoriteGenres ?? rawProfile.favorite_genres)
-      ? rawProfile.favoriteGenres ?? rawProfile.favorite_genres
-      : [],
+    favoriteGenres: normalizeFavoriteGenres(
+      rawProfile.favoriteGenres ?? rawProfile.favorite_genres
+    ),
     privacyLevel: normalizePrivacyLevel(
       rawProfile.privacyLevel ?? rawProfile.privacy_level
     ),
@@ -2085,7 +2094,7 @@ export async function searchReaderProfiles(query = '', { viewerId = null } = {})
         String(profile.bio || '').toLowerCase().includes(q)
       );
     })
-    .map(({ profile, workspace }) => {
+    .map(({ profile, workspace, isDirectorySeed }) => {
       const rel = follows.find(
         (f) => f.followerId === resolvedViewerId && f.followingId === profile.id
       );
@@ -2101,6 +2110,7 @@ export async function searchReaderProfiles(query = '', { viewerId = null } = {})
 
       return {
         ...profile,
+        isDirectorySeed: Boolean(isDirectorySeed),
         resolvedBadgeName: badgeName,
         worksCount: (workspace.items || []).filter((i) => i.inBacklog !== false).length,
         readingCount,

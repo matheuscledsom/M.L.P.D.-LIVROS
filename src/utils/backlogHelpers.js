@@ -476,14 +476,17 @@ export function getDisplayTitles(item, mode = 'bilingual') {
 export function buildContinueReadingHub(items = [], storedReaderBooks = []) {
   const activeStatuses = new Set(['playing', 'reading']);
   const storedByWorkId = new Map();
+  const storedByBookId = new Map();
 
   for (const sb of Array.isArray(storedReaderBooks) ? storedReaderBooks : []) {
-    if (!sb || !sb.workId) continue;
-    storedByWorkId.set(String(sb.workId), sb);
+    if (!sb) continue;
+    if (sb.workId) storedByWorkId.set(String(sb.workId), sb);
+    if (sb.bookId) storedByBookId.set(String(sb.bookId), sb);
   }
 
   const unified = [];
   const consumedWorkIds = new Set();
+  const consumedBookIds = new Set();
 
   for (const item of Array.isArray(items) ? items : []) {
     if (!item || item.inBacklog === false || !activeStatuses.has(item.status)) {
@@ -491,7 +494,11 @@ export function buildContinueReadingHub(items = [], storedReaderBooks = []) {
     }
     const workId = String(item.id);
     consumedWorkIds.add(workId);
-    const storedBook = storedByWorkId.get(workId) || null;
+    const storedBook =
+      storedByWorkId.get(workId) ||
+      (item.readerBookId ? storedByBookId.get(String(item.readerBookId)) : null) ||
+      null;
+    if (storedBook?.bookId) consumedBookIds.add(String(storedBook.bookId));
     const readerPos = item.readerState?.position || null;
     const pct =
       readerPos && typeof readerPos.progressPct === 'number'
@@ -535,6 +542,7 @@ export function buildContinueReadingHub(items = [], storedReaderBooks = []) {
   for (const sb of Array.isArray(storedReaderBooks) ? storedReaderBooks : []) {
     if (!sb) continue;
     if (sb.workId && consumedWorkIds.has(String(sb.workId))) continue;
+    if (sb.bookId && consumedBookIds.has(String(sb.bookId))) continue;
     if (sb.linkedWork && sb.linkedWork.status === 'completed') continue;
 
     const linkedWork = sb.linkedWork || null;

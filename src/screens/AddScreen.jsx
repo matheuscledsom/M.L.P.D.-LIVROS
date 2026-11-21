@@ -2,6 +2,7 @@ import { AlertCircle, Barcode, Check, FileText, PenLine, Plus, RefreshCw, Search
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CoverArt } from '../components/CoverArt';
 import { LibraryCatalogSection } from '../components/LibraryCatalogSection';
+import { PublisherAutocomplete } from '../components/PublisherAutocomplete';
 import { SmartCatalogButton } from '../components/SmartCatalogButton';
 import { TactileStatusFields } from '../components/TactileStatusFields';
 import { TechnicalAtmosphereSection } from '../components/TechnicalAtmosphereSection';
@@ -35,6 +36,8 @@ import {
   getVerdictForScore,
 } from '../utils/backlogHelpers';
 import { suggestLibraryClassification } from '../utils/catalogingClassification';
+import { buildPrefilledCatalogDraft } from '../utils/genreMapper';
+import { GENRE_OPTIONS } from '../utils/readerPreferences';
 
 const MANUAL_PALETTES = [
   ['#1E1B4B', '#8B5CF6', '#38BDF8'],
@@ -485,22 +488,23 @@ export function AddScreen({
       ...item,
       workType: defaultWorkType,
     });
+    const prefilled = buildPrefilledCatalogDraft(item, {
+      defaultWorkType,
+      defaultFormat,
+      classification,
+    });
 
     setDraftItem(
       buildDraftWithStatus(
         {
-          ...item,
-          workType: defaultWorkType,
-          format: defaultFormat,
+          ...prefilled,
           currentPage: 0,
-          totalPages: item.totalPages ?? null,
           currentVolume: 0,
           totalVolumes: item.totalVolumes ?? null,
           currentChapter: 0,
           totalChapters: item.totalChapters ?? null,
           demographicOrigin: item.demographicOrigin || 'Mangá',
           publicationStatus: item.publicationStatus || 'Em lançamento',
-          originalTitle: item.originalTitle || '',
           originCountry: item.originCountry || '',
           openAccessUrl: item.openAccessUrl || '',
           isOpenAccess: Boolean(item.isOpenAccess),
@@ -509,16 +513,10 @@ export function AddScreen({
           isPublicDomain: Boolean(item.isPublicDomain),
           coverCandidates: item.coverCandidates || item.coverSources || [],
           coverSources: item.coverSources || item.coverCandidates || [],
-          publisher: normalizePublisherName(item.publisher || ''),
-          isbn: item.isbn || '',
           doi: item.doi || '',
           issn: item.issn || '',
-          cdu_cdd: item.cdu_cdd || classification.cdu_cdd,
-          cutter: item.cutter || classification.cutter,
-          callNumber: item.callNumber || classification.callNumber,
           edition: item.edition || '',
           publicationPlace: item.publicationPlace || '',
-          language: item.language || '',
           advisor: item.advisor || '',
           seriesName: item.seriesName || '',
           seriesIndex: item.seriesIndex || '',
@@ -617,7 +615,53 @@ export function AddScreen({
 
   const handleConfirmAdd = () => {
     if (!draftItem) return;
-    onAddItem(draftItem);
+    const cleanTitle = String(draftItem.title || '').trim();
+    if (!cleanTitle) return;
+
+    const cleanPrimaryGenre = String(draftItem.primaryGenre || '').trim();
+    const parsedSubgenres = String(draftItem.subgenresText || '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter((s) => s && s.toLowerCase() !== cleanPrimaryGenre.toLowerCase());
+    const combinedGenres = Array.from(
+      new Set([cleanPrimaryGenre, ...parsedSubgenres].filter(Boolean))
+    );
+    const parsedYear =
+      draftItem.releaseYear !== '' &&
+      draftItem.releaseYear !== null &&
+      draftItem.releaseYear !== undefined
+        ? Number(draftItem.releaseYear) || null
+        : null;
+    const parsedPages =
+      draftItem.totalPages !== '' &&
+      draftItem.totalPages !== null &&
+      draftItem.totalPages !== undefined &&
+      Number(draftItem.totalPages) > 0
+        ? Math.round(Number(draftItem.totalPages))
+        : null;
+    const cleanAuthor = String(draftItem.author || '').trim();
+    const { subgenresText, ...restDraft } = draftItem;
+
+    onAddItem({
+      ...restDraft,
+      title: cleanTitle,
+      originalTitle: String(draftItem.originalTitle || '').trim(),
+      author: cleanAuthor,
+      authors: cleanAuthor
+        ? cleanAuthor.split(/[;,]/).map((s) => s.trim()).filter(Boolean)
+        : [],
+      primaryGenre: cleanPrimaryGenre,
+      subgenres: parsedSubgenres,
+      genres: combinedGenres.length > 0 ? combinedGenres : draftItem.genres || [],
+      releaseYear: parsedYear,
+      year: parsedYear,
+      publicationYear: parsedYear,
+      publisher: normalizePublisherName(draftItem.publisher || ''),
+      totalPages: parsedPages,
+      isbn: String(draftItem.isbn || '').trim(),
+      language: String(draftItem.language || '').trim(),
+      synopsis: String(draftItem.synopsis || '').trim(),
+    });
     setDraftItem(null);
   };
 
@@ -1072,14 +1116,14 @@ export function AddScreen({
 
       {draftItem && (
         <div
-          className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 backdrop-blur-xs"
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/70"
           onClick={() => setDraftItem(null)}
         >
           <div
-            className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-t-3xl border-x border-t border-line bg-card p-5 pb-8 shadow-2xl no-scrollbar"
+            className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-t-[6px] border-x border-t border-line bg-card p-5 pb-8 no-scrollbar"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-line" />
+            <div className="mx-auto mb-4 h-1 w-10 rounded-[2px] bg-line" />
 
             <div className="flex items-center gap-3">
               <CoverArt
@@ -1116,9 +1160,9 @@ export function AddScreen({
                 type="button"
                 onClick={() => setDraftItem(null)}
                 aria-label={add.drawerCancelLabel}
-                className="rounded-full p-1 text-muted hover:bg-elevated hover:text-ink"
+                className="flex min-h-[44px] min-w-[44px] shrink-0 items-center justify-center rounded-[4px] border border-line text-muted hover:text-ink"
               >
-                <X className="h-4 w-4" />
+                <X className="h-4 w-4" strokeWidth={1.5} />
               </button>
             </div>
 
@@ -1144,7 +1188,20 @@ export function AddScreen({
                 item={draftItem}
                 geminiKey={geminiKey}
                 onApplyFields={(updates) =>
-                  setDraftItem((prev) => ({ ...prev, ...updates }))
+                  setDraftItem((prev) => {
+                    const next = { ...prev, ...updates };
+                    if (Array.isArray(updates.genres) && updates.genres.length > 0) {
+                      next.primaryGenre = prev.primaryGenre || updates.genres[0] || '';
+                      const nextSubs = updates.genres.filter(
+                        (g) => g.toLowerCase() !== String(next.primaryGenre || '').toLowerCase()
+                      );
+                      if (!prev.subgenresText && nextSubs.length > 0) {
+                        next.subgenres = nextSubs;
+                        next.subgenresText = nextSubs.join(', ');
+                      }
+                    }
+                    return next;
+                  })
                 }
                 onOpenGeminiSettings={() => {
                   setDraftItem(null);
@@ -1153,20 +1210,234 @@ export function AddScreen({
               />
             </div>
 
-            <label className="mt-3 block">
-              <span className="mb-1 block text-[11px] font-medium text-muted">
-                Sinopse (sem spoilers)
-              </span>
-              <textarea
-                rows={2}
-                value={draftItem.synopsis || ''}
-                onChange={(e) =>
-                  setDraftItem((prev) => ({ ...prev, synopsis: e.target.value }))
-                }
-                placeholder="Sinopse breve ou premissa sem spoilers..."
-                className="w-full resize-none rounded-xl border border-line bg-app px-3 py-2 text-xs leading-relaxed text-ink placeholder:text-subtle focus:border-accent focus:outline-none"
-              />
-            </label>
+            <div className="mt-4 space-y-3 rounded-[6px] border border-line bg-app p-3.5">
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-muted">
+                Dados da Edição (editáveis antes de salvar)
+              </p>
+
+              <datalist id="codice-primary-genres">
+                {[
+                  'Fantasia',
+                  'Computação & Tecnologia',
+                  'Ficção Científica',
+                  'Literatura Clássica',
+                  'Romance',
+                  'Suspense & Thriller',
+                  'Terror & Gótico',
+                  'Filosofia',
+                  'História',
+                  'Psicologia',
+                  'Acadêmico & Pesquisa',
+                  'Biografias & Memórias',
+                  'Poesia',
+                  'Não-Ficção',
+                  'Mangás & HQs',
+                  ...GENRE_OPTIONS,
+                ].map((g) => (
+                  <option key={g} value={g} />
+                ))}
+              </datalist>
+
+              <label className="block">
+                <span className="mb-1 block text-[11px] font-medium text-muted">
+                  Título
+                </span>
+                <input
+                  type="text"
+                  value={draftItem.title || ''}
+                  onChange={(e) =>
+                    setDraftItem((prev) => ({ ...prev, title: e.target.value }))
+                  }
+                  placeholder="Título principal da sua edição"
+                  className="min-h-[44px] w-full rounded-[4px] border border-line bg-card px-3 py-2 text-xs font-medium text-ink placeholder:text-subtle focus:border-accent focus:outline-none"
+                />
+              </label>
+
+              <label className="block">
+                <span className="mb-1 block text-[11px] font-medium text-muted">
+                  Título Original
+                </span>
+                <input
+                  type="text"
+                  value={draftItem.originalTitle || ''}
+                  onChange={(e) =>
+                    setDraftItem((prev) => ({
+                      ...prev,
+                      originalTitle: e.target.value,
+                    }))
+                  }
+                  placeholder="Título no idioma original (opcional)"
+                  className="min-h-[44px] w-full rounded-[4px] border border-line bg-card px-3 py-2 text-xs italic text-ink placeholder:not-italic placeholder:text-subtle focus:border-accent focus:outline-none"
+                />
+              </label>
+
+              <label className="block">
+                <span className="mb-1 block text-[11px] font-medium text-muted">
+                  Autores
+                </span>
+                <input
+                  type="text"
+                  value={draftItem.author || ''}
+                  onChange={(e) =>
+                    setDraftItem((prev) => ({ ...prev, author: e.target.value }))
+                  }
+                  placeholder="Ex: Patrick Rothfuss"
+                  className="min-h-[44px] w-full rounded-[4px] border border-line bg-card px-3 py-2 text-xs text-ink placeholder:text-subtle focus:border-accent focus:outline-none"
+                />
+              </label>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                <label className="block">
+                  <span className="mb-1 block text-[11px] font-medium text-muted">
+                    Gênero Principal
+                  </span>
+                  <input
+                    type="text"
+                    list="codice-primary-genres"
+                    value={draftItem.primaryGenre || ''}
+                    onChange={(e) =>
+                      setDraftItem((prev) => ({
+                        ...prev,
+                        primaryGenre: e.target.value,
+                      }))
+                    }
+                    placeholder="Ex: Fantasia"
+                    className="min-h-[44px] w-full rounded-[4px] border border-line bg-card px-3 py-2 text-xs text-ink placeholder:text-subtle focus:border-accent focus:outline-none"
+                  />
+                </label>
+
+                <label className="block">
+                  <span className="mb-1 block text-[11px] font-medium text-muted">
+                    Subgênero(s)
+                  </span>
+                  <input
+                    type="text"
+                    value={draftItem.subgenresText || ''}
+                    onChange={(e) =>
+                      setDraftItem((prev) => ({
+                        ...prev,
+                        subgenresText: e.target.value,
+                      }))
+                    }
+                    placeholder="Ex: Fantasia Épica"
+                    className="min-h-[44px] w-full rounded-[4px] border border-line bg-card px-3 py-2 text-xs text-ink placeholder:text-subtle focus:border-accent focus:outline-none"
+                  />
+                </label>
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+                <label className="block">
+                  <span className="mb-1 block text-[11px] font-medium text-muted">
+                    Ano
+                  </span>
+                  <input
+                    type="number"
+                    value={draftItem.releaseYear ?? ''}
+                    onChange={(e) =>
+                      setDraftItem((prev) => ({
+                        ...prev,
+                        releaseYear:
+                          e.target.value === '' ? null : Number(e.target.value),
+                      }))
+                    }
+                    placeholder="Ex: 2009"
+                    className="min-h-[44px] w-full rounded-[4px] border border-line bg-card px-3 py-2 text-xs tabular-nums text-ink placeholder:text-subtle focus:border-accent focus:outline-none"
+                  />
+                </label>
+
+                <label className="block">
+                  <span className="mb-1 block text-[11px] font-medium text-muted">
+                    Total de Páginas
+                  </span>
+                  <input
+                    type="number"
+                    min="0"
+                    value={draftItem.totalPages ?? ''}
+                    onChange={(e) => {
+                      const val =
+                        e.target.value === '' ? null : Number(e.target.value);
+                      setDraftItem((prev) => ({
+                        ...prev,
+                        totalPages: val,
+                        progress: calculateWorkProgress({
+                          ...prev,
+                          totalPages: val,
+                        }),
+                      }));
+                    }}
+                    placeholder="Ex: 656"
+                    className="min-h-[44px] w-full rounded-[4px] border border-line bg-card px-3 py-2 text-xs tabular-nums text-ink placeholder:text-subtle focus:border-accent focus:outline-none"
+                  />
+                </label>
+
+                <label className="col-span-2 sm:col-span-1 block">
+                  <span className="mb-1 block text-[11px] font-medium text-muted">
+                    Idioma
+                  </span>
+                  <input
+                    type="text"
+                    value={draftItem.language || ''}
+                    onChange={(e) =>
+                      setDraftItem((prev) => ({
+                        ...prev,
+                        language: e.target.value,
+                      }))
+                    }
+                    placeholder="Ex: Português"
+                    className="min-h-[44px] w-full rounded-[4px] border border-line bg-card px-3 py-2 text-xs text-ink placeholder:text-subtle focus:border-accent focus:outline-none"
+                  />
+                </label>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                <PublisherAutocomplete
+                  value={draftItem.publisher || ''}
+                  onChange={(nextPub) =>
+                    setDraftItem((prev) => ({ ...prev, publisher: nextPub }))
+                  }
+                  label="Editora"
+                  placeholder="Ex: Arqueiro / Sextante"
+                  category={
+                    draftItem.workType === 'manga'
+                      ? 'hq'
+                      : draftItem.workType === 'academic'
+                        ? 'academico'
+                        : 'all'
+                  }
+                  inputClassName="min-h-[44px] w-full rounded-[4px] border border-line bg-card px-3 py-2 text-xs text-ink placeholder:text-subtle focus:border-accent focus:outline-none"
+                />
+
+                <label className="block">
+                  <span className="mb-1 block text-[10px] font-medium text-subtle">
+                    ISBN
+                  </span>
+                  <input
+                    type="text"
+                    value={draftItem.isbn || ''}
+                    onChange={(e) =>
+                      setDraftItem((prev) => ({ ...prev, isbn: e.target.value }))
+                    }
+                    placeholder="Ex: 9788599296493"
+                    className="min-h-[44px] w-full rounded-[4px] border border-line bg-card px-3 py-2 text-xs tabular-nums text-ink placeholder:text-subtle focus:border-accent focus:outline-none"
+                  />
+                </label>
+              </div>
+
+              <label className="block">
+                <span className="mb-1 block text-[11px] font-medium text-muted">
+                  Sinopse (sem spoilers)
+                </span>
+                <textarea
+                  rows={3}
+                  value={draftItem.synopsis || ''}
+                  onChange={(e) =>
+                    setDraftItem((prev) => ({ ...prev, synopsis: e.target.value }))
+                  }
+                  placeholder="Sinopse breve ou premissa sem spoilers..."
+                  className="w-full resize-y rounded-[4px] border border-line bg-card px-3 py-2 text-xs leading-relaxed text-ink placeholder:text-subtle focus:border-accent focus:outline-none"
+                />
+              </label>
+            </div>
 
             <div className="mt-4">
               <p className="mb-2 text-xs font-medium text-muted">
@@ -1225,7 +1496,7 @@ export function AddScreen({
             <button
               type="button"
               onClick={handleConfirmAdd}
-              className="mt-6 w-full rounded-2xl bg-accent py-3 text-sm font-semibold text-accent-ink transition-opacity hover:opacity-90"
+              className="mt-6 min-h-[44px] w-full rounded-[4px] bg-accent py-3 text-sm font-semibold text-accent-ink transition-opacity hover:opacity-90"
             >
               {add.drawerSaveLabel}
             </button>
@@ -1235,12 +1506,12 @@ export function AddScreen({
 
       {manualOpen && manualDraft && (
         <div
-          className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 backdrop-blur-xs"
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/70"
           onClick={() => setManualOpen(false)}
         >
           <form
             onSubmit={handleSaveManual}
-            className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-t-3xl border-x border-t border-line bg-card p-5 pb-8 shadow-2xl no-scrollbar"
+            className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-t-[6px] border-x border-t border-line bg-card p-5 pb-8 no-scrollbar"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-line" />

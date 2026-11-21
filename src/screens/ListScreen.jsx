@@ -551,7 +551,8 @@ export function ListScreen({
               Boolean(onOpenReader) &&
               (item.status === 'playing' ||
                 item.status === 'reading' ||
-                storedReaderWorkIds.includes(String(item.id)));
+                storedReaderWorkIds.includes(String(item.id)) ||
+                (item.readerBookId && storedReaderWorkIds.includes(String(item.readerBookId))));
 
             return (
               <div key={item.id} className="group flex flex-col text-left">
@@ -650,7 +651,8 @@ export function ListScreen({
               Boolean(onOpenReader) &&
               (item.status === 'playing' ||
                 item.status === 'reading' ||
-                storedReaderWorkIds.includes(String(item.id)));
+                storedReaderWorkIds.includes(String(item.id)) ||
+                (item.readerBookId && storedReaderWorkIds.includes(String(item.readerBookId))));
 
             return (
               <div

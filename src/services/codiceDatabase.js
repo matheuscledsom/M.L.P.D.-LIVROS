@@ -7,6 +7,10 @@ import {
   getVerdictForScore,
   normalizeProgressMode,
 } from '../utils/backlogHelpers.js';
+import {
+  normalizeFavoriteGenres,
+  normalizePreferredCriteria,
+} from '../utils/readerPreferences.js';
 
 export const CODICE_SCHEMA_VERSION = '4.0-codice-sql';
 export const CODICE_V3_SCHEMA_VERSION = '3.0-codice-sql';
@@ -228,6 +232,11 @@ function buildDefaultUserProfile(profileData) {
   const rawTitleBadge =
     profileData?.activeTitleBadge ?? profileData?.active_title_badge;
 
+  const preferredCriteria = normalizePreferredCriteria(
+    profileData?.preferredCriteria ?? profileData?.preferred_criteria,
+    profileData?.preferredCriterion ?? profileData?.preferred_criterion
+  );
+
   return {
     id: profileData?.id || deterministicUuid('user_profile:primary'),
     displayName: profileData?.displayName ?? profileData?.display_name ?? profile.displayName,
@@ -247,11 +256,10 @@ function buildDefaultUserProfile(profileData) {
       Number(profileData?.annualGoal ?? profileData?.annual_goal) || 12
     ),
     preferredFormat: profileData?.preferredFormat || 'Livro Físico',
-    preferredCriterion: profileData?.preferredCriterion || 'Enredo e Ritmo',
+    preferredCriteria,
+    preferredCriterion: preferredCriteria.join(', '),
     preferredAtmosphere: profileData?.preferredAtmosphere || 'Tinta OLED',
-    favoriteGenres: Array.isArray(profileData?.favoriteGenres)
-      ? profileData.favoriteGenres
-      : [],
+    favoriteGenres: normalizeFavoriteGenres(profileData?.favoriteGenres),
     privacyLevel: normalizePrivacyLevel(rawPrivacy),
     allowWallPosts: rawAllowWall !== undefined ? Boolean(rawAllowWall) : true,
     allowComments: rawAllowComments !== undefined ? Boolean(rawAllowComments) : true,
@@ -382,6 +390,9 @@ export function migrateV2ToV3(v2Data) {
       abntReference: String(rawItem.abntReference || '').trim(),
       synopsis: String(rawItem.synopsis || '').trim(),
       genres: Array.isArray(rawItem.genres) ? rawItem.genres : [],
+      primaryGenre: String(rawItem.primaryGenre || '').trim(),
+      subgenres: Array.isArray(rawItem.subgenres) ? rawItem.subgenres : [],
+      readerBookId: rawItem.readerBookId ? String(rawItem.readerBookId) : null,
       atmosphere: Array.isArray(rawItem.atmosphere) ? rawItem.atmosphere : [],
       tropes: Array.isArray(rawItem.tropes) ? rawItem.tropes : [],
       progress: calculateWorkProgress(rawItem),

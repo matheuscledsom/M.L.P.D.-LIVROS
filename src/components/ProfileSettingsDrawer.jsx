@@ -1,6 +1,7 @@
 import {
   BookMarked,
   BookOpen,
+  Check,
   Cloud,
   Database,
   FileSpreadsheet,
@@ -13,6 +14,7 @@ import {
   PenLine,
   Settings,
   Shield,
+  SlidersHorizontal,
   Sparkles,
   Upload,
   Users,
@@ -21,9 +23,17 @@ import {
   X,
   Zap,
 } from 'lucide-react';
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { domainConfig } from '../config/domainConfig';
 import { CODICE_RELEASE } from '../config/versioning';
+import {
+  CRITERION_OPTIONS,
+  FOCUS_OPTIONS_META,
+  GENRE_OPTIONS,
+  normalizeFavoriteGenres,
+  normalizePreferredCriteria,
+  toggleCriterionInList,
+} from '../utils/readerPreferences';
 
 const VISIBILITY_OPTIONS = [
   {
@@ -105,6 +115,7 @@ export function ProfileSettingsDrawer({
 }) {
   const drawerRef = useRef(null);
   const closeBtnRef = useRef(null);
+  const [prefsExpanded, setPrefsExpanded] = useState(true);
   const { ui } = domainConfig;
   const { profile: profileCfg } = ui;
 
@@ -114,6 +125,27 @@ export function ProfileSettingsDrawer({
   const activeVisibilityMeta =
     VISIBILITY_OPTIONS.find((opt) => opt.id === privacyLevel) ||
     VISIBILITY_OPTIONS[0];
+  const selectedCriteria = normalizePreferredCriteria(
+    profile?.preferredCriteria ?? profile?.preferred_criteria,
+    profile?.preferredCriterion ?? profile?.preferred_criterion
+  );
+  const selectedGenres = normalizeFavoriteGenres(profile?.favoriteGenres);
+  const selectedFocus = profile?.readerFocus || 'Leitor Casual';
+
+  const handleToggleCriterion = (criterion) => {
+    const next = toggleCriterionInList(selectedCriteria, criterion);
+    onUpdateProfile?.({
+      preferredCriteria: next,
+      preferredCriterion: next.join(', '),
+    });
+  };
+
+  const handleToggleGenre = (genre) => {
+    const next = selectedGenres.includes(genre)
+      ? selectedGenres.filter((g) => g !== genre)
+      : [...selectedGenres, genre];
+    onUpdateProfile?.({ favoriteGenres: next });
+  };
 
   useEffect(() => {
     if (!isOpen) return undefined;
@@ -329,7 +361,130 @@ export function ProfileSettingsDrawer({
             </div>
           </section>
 
-          {/* 3. Provedor de IA */}
+          {/* 3. Preferências de Leitura & Gêneros */}
+          <section className="space-y-3 p-4">
+            <button
+              type="button"
+              onClick={() => setPrefsExpanded((prev) => !prev)}
+              aria-expanded={prefsExpanded}
+              className="flex min-h-[44px] w-full items-center justify-between gap-2 text-left"
+            >
+              <span className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-ink">
+                <SlidersHorizontal className="h-4 w-4 text-accent" strokeWidth={1.5} />
+                <span>Preferências de Leitura &amp; Gêneros</span>
+              </span>
+              <span
+                className="text-[11px] tabular-nums"
+                style={{ color: 'var(--text-secondary)' }}
+              >
+                {selectedGenres.length} gêneros · {selectedCriteria.length} critérios
+              </span>
+            </button>
+
+            {prefsExpanded && (
+              <div className="space-y-3.5 pt-1">
+                <div>
+                  <p className="mb-1.5 text-[11px] font-medium text-muted">
+                    Foco principal
+                  </p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {FOCUS_OPTIONS_META.map((opt) => {
+                      const isSelected = selectedFocus === opt.id;
+                      return (
+                        <button
+                          key={opt.id}
+                          type="button"
+                          aria-pressed={isSelected}
+                          onClick={() => onUpdateProfile?.({ readerFocus: opt.id })}
+                          className={`inline-flex min-h-[44px] items-center gap-1.5 rounded-[4px] border px-2.5 py-1.5 text-left text-[11px] font-medium transition-colors ${
+                            isSelected
+                              ? 'border-accent bg-accent/15 text-ink'
+                              : 'border-line bg-app hover:text-ink'
+                          }`}
+                          style={!isSelected ? { color: 'var(--text-secondary)' } : undefined}
+                        >
+                          {isSelected && (
+                            <Check className="h-3.5 w-3.5 shrink-0 text-accent" strokeWidth={1.5} />
+                          )}
+                          <span>{opt.id}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div>
+                  <div className="mb-1.5 flex items-baseline justify-between gap-2">
+                    <p className="text-[11px] font-medium text-muted">
+                      Critérios que você mais valoriza
+                    </p>
+                    <span
+                      className="text-[10px]"
+                      style={{ color: 'var(--text-secondary)' }}
+                    >
+                      1 ou mais
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    {CRITERION_OPTIONS.map((criterion) => {
+                      const isSelected = selectedCriteria.includes(criterion);
+                      return (
+                        <button
+                          key={criterion}
+                          type="button"
+                          aria-pressed={isSelected}
+                          onClick={() => handleToggleCriterion(criterion)}
+                          className={`flex min-h-[44px] items-center gap-1.5 rounded-[4px] border px-2.5 py-1.5 text-left text-[11px] font-medium transition-colors ${
+                            isSelected
+                              ? 'border-accent bg-accent/15 text-ink'
+                              : 'border-line bg-app hover:text-ink'
+                          }`}
+                          style={!isSelected ? { color: 'var(--text-secondary)' } : undefined}
+                        >
+                          {isSelected && (
+                            <Check className="h-3.5 w-3.5 shrink-0 text-accent" strokeWidth={1.5} />
+                          )}
+                          <span className="leading-snug">{criterion}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div>
+                  <p className="mb-1.5 text-[11px] font-medium text-muted">
+                    Gêneros Favoritos (filtra as indicações da Home)
+                  </p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {GENRE_OPTIONS.map((genre) => {
+                      const isSelected = selectedGenres.includes(genre);
+                      return (
+                        <button
+                          key={genre}
+                          type="button"
+                          aria-pressed={isSelected}
+                          onClick={() => handleToggleGenre(genre)}
+                          className={`inline-flex min-h-[44px] items-center gap-1.5 rounded-[4px] border px-2.5 py-1.5 text-[11px] font-medium transition-colors ${
+                            isSelected
+                              ? 'border-accent bg-accent/15 text-ink'
+                              : 'border-line bg-app hover:text-ink'
+                          }`}
+                          style={!isSelected ? { color: 'var(--text-secondary)' } : undefined}
+                        >
+                          {isSelected && (
+                            <Check className="h-3.5 w-3.5 shrink-0 text-accent" strokeWidth={1.5} />
+                          )}
+                          <span>{genre}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            )}
+          </section>
+
+          {/* 4. Provedor de IA */}
           <section className="space-y-2.5 p-4">
             <div className="flex items-center justify-between gap-2">
               <span className="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-ink">

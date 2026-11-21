@@ -120,6 +120,7 @@ export function buildSurfaceVarsFromBg(bgHex, cardHexOverride = null) {
       '--border-subtle': border,
       '--text-primary': textPrimary,
       '--text-muted': textMuted,
+      '--text-secondary': textMuted,
       '--text-subtle': textSubtle,
     },
   };

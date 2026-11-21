@@ -36,9 +36,11 @@ export function ItemDetailSheet({
   geminiKey = '',
   viewerId = null,
   hasStoredFile = false,
+  storedFileMeta = null,
   onClose,
   onUpdateItem,
   onRemoveItem,
+  onRemoveStoredFile,
   onOpenJournal,
   onOpenReader,
   onOpenGeminiSettings,
@@ -51,12 +53,14 @@ export function ItemDetailSheet({
   const [shareNote, setShareNote] = useState('');
   const [sharePeers, setSharePeers] = useState([]);
   const [sendingPeerId, setSendingPeerId] = useState(null);
+  const [confirmRemoveFile, setConfirmRemoveFile] = useState(false);
   const progressSectionRef = useRef(null);
 
   useEffect(() => {
     setActiveSheetTab('catalog');
     setShareOpen(false);
     setShareNote('');
+    setConfirmRemoveFile(false);
   }, [item?.id]);
 
   useEffect(() => {
@@ -131,14 +135,14 @@ export function ItemDetailSheet({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 backdrop-blur-xs"
+      className="fixed inset-0 z-50 flex items-end justify-center bg-black/70"
       onClick={onClose}
     >
       <div
-        className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-t-3xl border-x border-t border-line bg-card p-5 pb-8 shadow-2xl no-scrollbar"
+        className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-t-[6px] border-x border-t border-line bg-card p-5 pb-8 no-scrollbar"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-line" />
+        <div className="mx-auto mb-4 h-1 w-10 rounded-[2px] bg-line" />
 
         <div className="flex gap-4">
           <CoverArt item={item} compact className="h-30 w-20 shrink-0 rounded-xl" />
@@ -263,6 +267,85 @@ export function ItemDetailSheet({
             <span>Atualizar Progresso</span>
           </button>
         </div>
+
+        {hasStoredFile && (
+          <div className="mt-2.5 rounded-[6px] border border-line bg-app p-3 space-y-2.5">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex min-w-0 items-center gap-2">
+                <FileText className="h-4 w-4 shrink-0 text-accent" strokeWidth={1.5} />
+                <div className="min-w-0">
+                  <p className="text-xs font-semibold text-ink">
+                    Arquivo Digital Offline
+                  </p>
+                  <p
+                    className="truncate text-[11px] tabular-nums"
+                    style={{ color: 'var(--text-secondary)' }}
+                  >
+                    {[
+                      storedFileMeta?.format ? storedFileMeta.format.toUpperCase() : 'Offline',
+                      storedFileMeta?.fileName,
+                      storedFileMeta?.sizeLabel,
+                    ]
+                      .filter(Boolean)
+                      .join(' · ')}
+                  </p>
+                </div>
+              </div>
+
+              {!confirmRemoveFile && (
+                <button
+                  type="button"
+                  onClick={() => setConfirmRemoveFile(true)}
+                  aria-expanded={confirmRemoveFile}
+                  className="inline-flex min-h-[44px] shrink-0 items-center gap-1.5 rounded-[4px] border border-line bg-card px-2.5 py-1.5 text-xs font-medium transition-colors hover:border-rose-500/40 hover:text-rose-400"
+                  style={{ color: 'var(--text-secondary)' }}
+                >
+                  <Trash2 className="h-4 w-4" strokeWidth={1.5} />
+                  <span>Excluir arquivo</span>
+                </button>
+              )}
+            </div>
+
+            {confirmRemoveFile && (
+              <div className="space-y-2 border-t border-line pt-2.5">
+                <p className="text-[11px] font-medium text-ink">
+                  Confirmar exclusão: escolha o que deseja remover
+                </p>
+                <div className="flex flex-col gap-1.5">
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      await onRemoveStoredFile?.(item, storedFileMeta);
+                      setConfirmRemoveFile(false);
+                    }}
+                    className="flex min-h-[44px] w-full items-center justify-center rounded-[4px] border border-rose-500/50 bg-rose-500/15 px-3 py-2 text-xs font-semibold text-rose-400"
+                  >
+                    Confirmar exclusão · Remover só o arquivo PDF/EPUB
+                  </button>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onRemoveItem(item.id);
+                        onClose();
+                      }}
+                      className="flex min-h-[44px] items-center justify-center rounded-[4px] border border-line bg-card px-2.5 py-2 text-xs font-medium text-rose-400 hover:border-rose-500/40"
+                    >
+                      Excluir obra inteira
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setConfirmRemoveFile(false)}
+                      className="flex min-h-[44px] items-center justify-center rounded-[4px] border border-line bg-card px-2.5 py-2 text-xs text-muted hover:text-ink"
+                    >
+                      Cancelar
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Ação Social: Indicar Livro para colega ou mural/feed */}
         <div className="mt-2">

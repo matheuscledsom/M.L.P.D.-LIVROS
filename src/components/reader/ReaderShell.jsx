@@ -301,10 +301,15 @@ export function ReaderShell({
       setIsLoadingFile(true);
       setErrorMsg('');
       try {
-        const record = await getBookFileRecord(targetBookId);
+        let resolvedBookId = targetBookId;
+        let record = await getBookFileRecord(resolvedBookId);
+        if (!record && work?.readerBookId && work.readerBookId !== targetBookId) {
+          resolvedBookId = work.readerBookId;
+          record = await getBookFileRecord(resolvedBookId);
+        }
         if (cancelled) return;
         if (record) {
-          await markStoredBookOpened(targetBookId);
+          await markStoredBookOpened(resolvedBookId);
           const blob = await resolveStoredFileBlob(record);
           if (cancelled) return;
           if (blob) {

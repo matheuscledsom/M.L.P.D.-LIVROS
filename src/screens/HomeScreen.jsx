@@ -8,6 +8,7 @@ import {
   Sparkles,
   Star,
   Target,
+  Trash2,
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { CoverArt } from '../components/CoverArt';
@@ -41,6 +42,7 @@ export function HomeScreen({
   onSelectItem,
   onOpenReader,
   onOpenStoredBook,
+  onRemoveStoredBook,
   onOpenQuickReader,
   onOpenDigitalShelf,
   onAddToWishlist,
@@ -52,6 +54,7 @@ export function HomeScreen({
   const { ui, cardFields, currentYear } = domainConfig;
   const [releaseModalOpen, setReleaseModalOpen] = useState(false);
   const [hubMetricMode, setHubMetricMode] = useState('percent');
+  const [confirmRemoveBookId, setConfirmRemoveBookId] = useState(null);
   const quickReadInputRef = useRef(null);
 
   const handleQuickFileSelected = async (event) => {
@@ -449,11 +452,48 @@ export function HomeScreen({
                           <button
                             type="button"
                             onClick={() => onSelectItem(featuredHub.work)}
-                            className="inline-flex min-h-[40px] items-center rounded-[4px] border border-line bg-app px-3 py-1.5 text-xs font-medium text-muted transition-colors hover:border-accent hover:text-ink"
+                            className="inline-flex min-h-[44px] items-center rounded-[4px] border border-line bg-app px-3 py-1.5 text-xs font-medium text-muted transition-colors hover:border-accent hover:text-ink"
                           >
                             Ficha
                           </button>
                         )}
+                        {!featuredHub.work &&
+                          featuredHub.storedBook?.bookId &&
+                          onRemoveStoredBook &&
+                          (confirmRemoveBookId === featuredHub.storedBook.bookId ? (
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  await onRemoveStoredBook(featuredHub.storedBook.bookId);
+                                  setConfirmRemoveBookId(null);
+                                }}
+                                className="inline-flex min-h-[44px] items-center rounded-[4px] border border-rose-500/50 bg-rose-500/15 px-3 py-1.5 text-xs font-semibold text-rose-400"
+                              >
+                                Confirmar exclusão
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setConfirmRemoveBookId(null)}
+                                className="inline-flex min-h-[44px] items-center rounded-[4px] border border-line bg-app px-2.5 py-1.5 text-xs text-muted hover:text-ink"
+                              >
+                                Cancelar
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setConfirmRemoveBookId(featuredHub.storedBook.bookId)
+                              }
+                              aria-label={`Excluir arquivo ${featuredHub.title}`}
+                              className="inline-flex min-h-[44px] items-center gap-1.5 rounded-[4px] border border-line bg-app px-3 py-1.5 text-xs font-medium transition-colors hover:border-rose-500/40 hover:text-rose-400"
+                              style={{ color: 'var(--text-secondary)' }}
+                            >
+                              <Trash2 className="h-4 w-4" strokeWidth={1.5} />
+                              <span>Excluir arquivo</span>
+                            </button>
+                          ))}
                         <button
                           type="button"
                           onClick={() => openHubEntry(featuredHub)}
@@ -474,62 +514,111 @@ export function HomeScreen({
                 {otherHubEntries.map((entry) => {
                   const workMeta = getWorkTypeConfig(entry.workType);
                   const cardTitles = getDisplayTitles(entry, 'bilingual');
+                  const isStandaloneDigital =
+                    !entry.work && Boolean(entry.storedBook?.bookId) && Boolean(onRemoveStoredBook);
+                  const isConfirmingEntry =
+                    isStandaloneDigital &&
+                    confirmRemoveBookId === entry.storedBook.bookId;
+
                   return (
-                    <button
+                    <div
                       key={entry.id}
-                      type="button"
-                      onClick={() => openHubEntry(entry)}
-                      className="group w-40 sm:w-44 shrink-0 snap-start rounded-[6px] border border-line bg-card p-2.5 text-left transition-colors hover:border-accent/50"
+                      className="group flex w-44 shrink-0 snap-start flex-col justify-between rounded-[6px] border border-line bg-card p-2.5 text-left transition-colors hover:border-accent/50"
                     >
-                      <div className="relative">
-                        <CoverArt
-                          item={
-                            entry.work || {
-                              title: entry.title,
-                              author: entry.author,
-                              format: entry.format,
-                              workType: entry.workType,
+                      <button
+                        type="button"
+                        onClick={() => openHubEntry(entry)}
+                        className="w-full text-left focus:outline-none"
+                      >
+                        <div className="relative">
+                          <CoverArt
+                            item={
+                              entry.work || {
+                                title: entry.title,
+                                author: entry.author,
+                                format: entry.format,
+                                workType: entry.workType,
+                              }
                             }
-                          }
-                          compact
-                          className="w-full rounded-[4px]"
-                        />
-                        <span
-                          title={workMeta.label}
-                          className="absolute left-2 top-2 flex h-6 w-6 items-center justify-center rounded-[4px] border border-line bg-app/90 text-accent"
-                        >
-                          <VectorIcon name={workMeta.icon} className="h-3.5 w-3.5" />
-                        </span>
-                      </div>
-                      <div className="mt-2.5 space-y-1.5">
-                        <p className="truncate text-xs font-semibold text-ink transition-colors group-hover:text-accent">
-                          {cardTitles.primary}
-                        </p>
-                        {cardTitles.secondary && (
-                          <p
-                            className="truncate text-[10px] italic"
-                            style={{ color: 'var(--text-secondary)' }}
-                          >
-                            {cardTitles.secondary}
-                          </p>
-                        )}
-                        <div className="flex items-center justify-between gap-2 text-[11px] tabular-nums text-muted">
-                          <span className="truncate">
-                            {entry.author || workMeta.shortLabel}
-                          </span>
-                          <span className="shrink-0">{entry.metricLabel}</span>
-                        </div>
-                        <div className="h-[2px] w-full overflow-hidden rounded-[2px] bg-line">
-                          <div
-                            className="h-full transition-all duration-150"
-                            style={{
-                              width: `${Math.min(100, entry.progressPct)}%`,
-                              backgroundColor: 'var(--accent-color)',
-                            }}
+                            compact
+                            className="w-full rounded-[4px]"
                           />
+                          <span
+                            title={workMeta.label}
+                            className="absolute left-2 top-2 flex h-6 w-6 items-center justify-center rounded-[4px] border border-line bg-app/90 text-accent"
+                          >
+                            <VectorIcon name={workMeta.icon} className="h-3.5 w-3.5" />
+                          </span>
                         </div>
-                      </div>
-                    </button>
+                        <div className="mt-2.5 space-y-1.5">
+                          <p className="truncate text-xs font-semibold text-ink transition-colors group-hover:text-accent">
+                            {cardTitles.primary}
+                          </p>
+                          {cardTitles.secondary && (
+                            <p
+                              className="truncate text-[10px] italic"
+                              style={{ color: 'var(--text-secondary)' }}
+                            >
+                              {cardTitles.secondary}
+                            </p>
+                          )}
+                          <div className="flex items-center justify-between gap-2 text-[11px] tabular-nums text-muted">
+                            <span className="truncate">
+                              {entry.author || workMeta.shortLabel}
+                            </span>
+                            <span className="shrink-0">{entry.metricLabel}</span>
+                          </div>
+                          <div className="h-[2px] w-full overflow-hidden rounded-[2px] bg-line">
+                            <div
+                              className="h-full transition-all duration-150"
+                              style={{
+                                width: `${Math.min(100, entry.progressPct)}%`,
+                                backgroundColor: 'var(--accent-color)',
+                              }}
+                            />
+                          </div>
+                        </div>
+                      </button>
+
+                      {isStandaloneDigital && (
+                        <div className="mt-2 border-t border-line pt-2">
+                          {isConfirmingEntry ? (
+                            <div className="space-y-1">
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  await onRemoveStoredBook(entry.storedBook.bookId);
+                                  setConfirmRemoveBookId(null);
+                                }}
+                                className="flex min-h-[44px] w-full items-center justify-center rounded-[4px] border border-rose-500/50 bg-rose-500/15 px-2 py-1.5 text-[11px] font-semibold text-rose-400"
+                              >
+                                Confirmar exclusão
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setConfirmRemoveBookId(null)}
+                                className="flex min-h-[44px] w-full items-center justify-center rounded-[4px] border border-line bg-app px-2 py-1 text-[11px] text-muted hover:text-ink"
+                              >
+                                Cancelar
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setConfirmRemoveBookId(entry.storedBook.bookId)
+                              }
+                              aria-label={`Excluir arquivo ${entry.title}`}
+                              className="flex min-h-[44px] w-full items-center justify-center gap-1.5 rounded-[4px] border border-line bg-app px-2 py-1.5 text-[11px] font-medium transition-colors hover:border-rose-500/40 hover:text-rose-400"
+                              style={{ color: 'var(--text-secondary)' }}
+                            >
+                              <Trash2 className="h-3.5 w-3.5" strokeWidth={1.5} />
+                              <span>Excluir arquivo</span>
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </div>
                   );
                 })}
               </div>
@@ -635,6 +724,7 @@ export function HomeScreen({
             viewerId={viewerId}
             onAddToWishlist={onAddToWishlist}
             onSelectItem={onSelectItem}
+            onNavigateAdd={onNavigateAdd}
           />
 
           {/* Vitrine "Destaques & Últimas Leituras" */}
@@ -747,6 +837,7 @@ export function HomeScreen({
           viewerId={viewerId}
           onAddToWishlist={onAddToWishlist}
           onSelectItem={onSelectItem}
+          onNavigateAdd={onNavigateAdd}
         />
       )}
 

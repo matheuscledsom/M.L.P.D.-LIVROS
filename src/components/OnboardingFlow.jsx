@@ -30,6 +30,13 @@ import {
 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { domainConfig } from '../config/domainConfig';
+import {
+  CRITERION_OPTIONS,
+  GENRE_OPTIONS,
+  normalizeFavoriteGenres,
+  normalizePreferredCriteria,
+  toggleCriterionInList,
+} from '../utils/readerPreferences';
 
 const FOCUS_OPTIONS = [
   { id: 'Leitor Casual', icon: BookOpen },
@@ -48,39 +55,11 @@ const FORMAT_OPTIONS = [
   { id: 'Audiobook', icon: Headphones },
 ];
 
-const CRITERION_OPTIONS = [
-  'Enredo e Ritmo',
-  'Personagens e Profundidade',
-  'Escrita e Imersão',
-  'Impacto e Conhecimento',
-];
-
 const ATMOSPHERE_OPTIONS = [
   { id: 'Papel Pergaminho', mode: 'parchment', bg: '#FAF8F5', accent: '#8B5CF6', icon: Sun },
   { id: 'Biblioteca Noturna', mode: 'night_library', bg: '#121316', accent: '#8B5CF6', icon: Moon },
   { id: 'Tinta OLED', mode: 'oled', bg: '#000000', accent: '#8B5CF6', icon: Sparkles },
   { id: 'Dark Academia', preset: 'dark-academia', bg: '#161310', accent: '#C89B54', icon: Palette },
-];
-
-const GENRE_OPTIONS = [
-  'Fantasia Épica',
-  'Ficção Científica',
-  'Suspense e Thriller',
-  'Terror e Gótico',
-  'Romance',
-  'Clássicos',
-  'Filosofia',
-  'História',
-  'Psicologia',
-  'Tecnologia e Computação',
-  'Acadêmico e TCC',
-  'Mangá (Shonen / Seinen)',
-  'Manhwa / Webtoon',
-  'Light Novel',
-  'HQ / Graphic Novel',
-  'Biografias',
-  'Poesia',
-  'Não-Ficção',
 ];
 
 const TUTORIAL_AREAS = [
@@ -135,7 +114,7 @@ export function OnboardingFlow({
   const [readerFocus, setReaderFocus] = useState('Leitor Casual');
   const [annualGoal, setAnnualGoal] = useState(12);
   const [preferredFormat, setPreferredFormat] = useState('Livro Físico');
-  const [preferredCriterion, setPreferredCriterion] = useState('Enredo e Ritmo');
+  const [preferredCriteria, setPreferredCriteria] = useState(['Enredo e Ritmo']);
   const [preferredAtmosphere, setPreferredAtmosphere] = useState('Tinta OLED');
   const [favoriteGenres, setFavoriteGenres] = useState([]);
   const [draftGeminiKey, setDraftGeminiKey] = useState('');
@@ -161,17 +140,16 @@ export function OnboardingFlow({
     setReaderFocus(currentProfile?.readerFocus || 'Leitor Casual');
     setAnnualGoal(Number(currentProfile?.annualGoal) || 12);
     setPreferredFormat(currentProfile?.preferredFormat || 'Livro Físico');
-    setPreferredCriterion(
-      currentProfile?.preferredCriterion || 'Enredo e Ritmo'
+    setPreferredCriteria(
+      normalizePreferredCriteria(
+        currentProfile?.preferredCriteria ?? currentProfile?.preferred_criteria,
+        currentProfile?.preferredCriterion ?? currentProfile?.preferred_criterion
+      )
     );
     setPreferredAtmosphere(
       currentProfile?.preferredAtmosphere || 'Tinta OLED'
     );
-    setFavoriteGenres(
-      Array.isArray(currentProfile?.favoriteGenres)
-        ? currentProfile.favoriteGenres
-        : []
-    );
+    setFavoriteGenres(normalizeFavoriteGenres(currentProfile?.favoriteGenres));
     setDraftGeminiKey(currentKey || '');
     setShowKey(false);
     setBackupError('');
@@ -210,6 +188,10 @@ export function OnboardingFlow({
     );
   };
 
+  const toggleCriterion = (criterion) => {
+    setPreferredCriteria((prev) => toggleCriterionInList(prev, criterion));
+  };
+
   const handleRestoreFile = async (event) => {
     const file = event.target.files?.[0];
     event.target.value = '';
@@ -243,7 +225,8 @@ export function OnboardingFlow({
       readerFocus,
       annualGoal: Math.max(1, Number(annualGoal) || 12),
       preferredFormat,
-      preferredCriterion,
+      preferredCriteria,
+      preferredCriterion: preferredCriteria.join(', '),
       preferredAtmosphere,
       favoriteGenres,
       onboardingCompleted: true,
@@ -483,24 +466,37 @@ export function OnboardingFlow({
               </div>
 
               <div>
-                <p className="mb-2 text-xs font-medium text-muted">
-                  4. Critério que você mais valoriza
-                </p>
+                <div className="mb-2 flex flex-wrap items-baseline justify-between gap-1.5">
+                  <p className="text-xs font-medium text-muted">
+                    4. Critério que você mais valoriza
+                  </p>
+                  <span
+                    className="text-[11px]"
+                    style={{ color: 'var(--text-secondary)' }}
+                  >
+                    Selecione um ou mais critérios
+                  </span>
+                </div>
                 <div className="grid grid-cols-2 gap-2">
                   {CRITERION_OPTIONS.map((criterion) => {
-                    const isSelected = preferredCriterion === criterion;
+                    const isSelected = preferredCriteria.includes(criterion);
                     return (
                       <button
                         key={criterion}
                         type="button"
-                        onClick={() => setPreferredCriterion(criterion)}
-                        className={`rounded-xl border px-3 py-2 text-left text-[11px] font-medium transition-colors ${
+                        aria-pressed={isSelected}
+                        onClick={() => toggleCriterion(criterion)}
+                        className={`flex min-h-[44px] items-center gap-2 rounded-[4px] border px-3 py-2 text-left text-[11px] font-medium transition-colors ${
                           isSelected
                             ? 'border-accent bg-accent/15 text-ink'
-                            : 'border-line bg-card text-muted hover:text-ink'
+                            : 'border-line bg-card hover:text-ink'
                         }`}
+                        style={!isSelected ? { color: 'var(--text-secondary)' } : undefined}
                       >
-                        {criterion}
+                        {isSelected && (
+                          <Check className="h-3.5 w-3.5 shrink-0 text-accent" strokeWidth={1.5} />
+                        )}
+                        <span className="leading-snug">{criterion}</span>
                       </button>
                     );
                   })}
@@ -527,11 +523,14 @@ export function OnboardingFlow({
                         }`}
                       >
                         <span
-                          className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-white/20"
-                          style={{
-                            background: `linear-gradient(135deg, ${opt.bg} 55%, ${opt.accent} 55%)`,
-                          }}
-                        />
+                          className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-line"
+                          style={{ backgroundColor: opt.bg }}
+                        >
+                          <span
+                            className="h-2 w-2 rounded-full"
+                            style={{ backgroundColor: opt.accent }}
+                          />
+                        </span>
                         <span className="flex-1 truncate">{opt.id}</span>
                         <Icon
                           className={`h-3 w-3 shrink-0 ${
@@ -565,14 +564,16 @@ export function OnboardingFlow({
                     <button
                       key={genre}
                       type="button"
+                      aria-pressed={isSelected}
                       onClick={() => toggleGenre(genre)}
-                      className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-2 text-xs font-medium transition-colors ${
+                      className={`inline-flex min-h-[44px] items-center gap-1.5 rounded-[4px] border px-3 py-2 text-xs font-medium transition-colors ${
                         isSelected
                           ? 'border-accent bg-accent/15 text-ink'
-                          : 'border-line bg-card text-muted hover:text-ink'
+                          : 'border-line bg-card hover:text-ink'
                       }`}
+                      style={!isSelected ? { color: 'var(--text-secondary)' } : undefined}
                     >
-                      {isSelected && <Check className="h-3 w-3 text-accent" />}
+                      {isSelected && <Check className="h-3.5 w-3.5 text-accent" strokeWidth={1.5} />}
                       {genre}
                     </button>
                   );

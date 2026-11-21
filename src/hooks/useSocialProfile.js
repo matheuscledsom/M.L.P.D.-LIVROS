@@ -1,5 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
 import { buildPublicProfileLink, domainConfig } from '../config/domainConfig';
+import {
+  normalizeFavoriteGenres,
+  normalizePreferredCriteria,
+} from '../utils/readerPreferences';
 
 const PROFILE_KEY = domainConfig.profileStorageKey;
 const POSTS_KEY = domainConfig.postsStorageKey;
@@ -28,6 +32,7 @@ function getDefaultProfile() {
     readerFocus: 'Leitor Casual',
     annualGoal: 12,
     preferredFormat: 'Livro Físico',
+    preferredCriteria: ['Enredo e Ritmo'],
     preferredCriterion: 'Enredo e Ritmo',
     preferredAtmosphere: 'Tinta OLED',
     favoriteGenres: [],
@@ -44,6 +49,11 @@ function getDefaultProfile() {
 function normalizeProfileObject(rawProfile, fallback) {
   const base = fallback || getDefaultProfile();
   const parsed = rawProfile && typeof rawProfile === 'object' ? rawProfile : {};
+  const preferredCriteria = normalizePreferredCriteria(
+    parsed.preferredCriteria ?? parsed.preferred_criteria,
+    parsed.preferredCriterion ?? parsed.preferred_criterion,
+    base.preferredCriteria
+  );
   const merged = {
     ...base,
     ...parsed,
@@ -51,9 +61,11 @@ function normalizeProfileObject(rawProfile, fallback) {
       1,
       Number(parsed.annualGoal ?? parsed.annual_goal) || base.annualGoal
     ),
-    favoriteGenres: Array.isArray(parsed.favoriteGenres)
-      ? parsed.favoriteGenres
-      : [],
+    preferredCriteria,
+    preferredCriterion: preferredCriteria.join(', '),
+    favoriteGenres: normalizeFavoriteGenres(
+      parsed.favoriteGenres ?? parsed.favorite_genres ?? base.favoriteGenres
+    ),
     privacyLevel: normalizePrivacyLevel(
       parsed.privacyLevel ?? parsed.privacy_level ?? base.privacyLevel
     ),
@@ -171,6 +183,21 @@ export function useSocialProfile() {
       }
       if (updates.annualGoal !== undefined) {
         next.annualGoal = Math.max(1, Number(updates.annualGoal) || 12);
+      }
+      if (
+        updates.preferredCriteria !== undefined ||
+        updates.preferredCriterion !== undefined
+      ) {
+        const normalizedCriteria = normalizePreferredCriteria(
+          updates.preferredCriteria,
+          updates.preferredCriterion,
+          prev.preferredCriteria
+        );
+        next.preferredCriteria = normalizedCriteria;
+        next.preferredCriterion = normalizedCriteria.join(', ');
+      }
+      if (updates.favoriteGenres !== undefined) {
+        next.favoriteGenres = normalizeFavoriteGenres(updates.favoriteGenres);
       }
       if (updates.privacyLevel !== undefined || updates.privacy_level !== undefined) {
         next.privacyLevel = normalizePrivacyLevel(

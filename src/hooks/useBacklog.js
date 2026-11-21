@@ -130,6 +130,18 @@ function normalizeItem(rawItem) {
         ? [rawItem.coverUrl]
         : [],
     genres: Array.isArray(rawItem.genres) ? rawItem.genres : [],
+    primaryGenre:
+      typeof rawItem.primaryGenre === 'string' && rawItem.primaryGenre.trim()
+        ? rawItem.primaryGenre.trim()
+        : Array.isArray(rawItem.genres) && rawItem.genres[0]
+          ? String(rawItem.genres[0])
+          : '',
+    subgenres: Array.isArray(rawItem.subgenres)
+      ? rawItem.subgenres.filter(Boolean)
+      : Array.isArray(rawItem.genres) && rawItem.genres.length > 1
+        ? rawItem.genres.slice(1).filter(Boolean)
+        : [],
+    readerBookId: rawItem.readerBookId ? String(rawItem.readerBookId) : null,
     currentPage,
     totalPages,
     progressMode,

@@ -1,3 +1,4 @@
+import { domainConfig } from '../config/domainConfig.js';
 import { detectBookFileFormat } from '../utils/fileFormatDetector.js';
 
 const DB_NAME = 'codice_reader_files_v1';
@@ -486,9 +487,161 @@ export async function deleteBookFile(workId) {
   }
 }
 
-export async function removeStoredReaderBook(bookId) {
-  if (!bookId) return false;
-  await deleteBookFile(bookId);
+export function computeTotalStoredBytes(entries = []) {
+  return (Array.isArray(entries) ? entries : []).reduce(
+    (sum, entry) => sum + Math.max(0, Number(entry?.sizeBytes ?? entry?.size) || 0),
+    0
+  );
+}
+
+export function sortStoredReaderBooks(entries = [], sortBy = 'recent') {
+  const list = Array.isArray(entries) ? [...entries] : [];
+  if (sortBy === 'progress') {
+    return list.sort((a, b) => {
+      const diff = (Number(b?.progressPct) || 0) - (Number(a?.progressPct) || 0);
+      if (diff !== 0) return diff;
+      const da = a?.lastOpenedAt || a?.savedAt || '';
+      const db = b?.lastOpenedAt || b?.savedAt || '';
+      return db.localeCompare(da);
+    });
+  }
+  if (sortBy === 'title') {
+    return list.sort((a, b) =>
+      String(a?.title || a?.fileName || '').localeCompare(
+        String(b?.title || b?.fileName || ''),
+        'pt-BR',
+        { sensitivity: 'base' }
+      )
+    );
+  }
+  return list.sort((a, b) => {
+    const da = a?.lastOpenedAt || a?.savedAt || '';
+    const db = b?.lastOpenedAt || b?.savedAt || '';
+    return db.localeCompare(da);
+  });
+}
+
+function clearWorkReaderReferenceInLocalStorage(targetKeys) {
+  try {
+    if (typeof localStorage === 'undefined') return [];
+    const raw = localStorage.getItem(domainConfig.storageKey);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    let changed = false;
+    const extraKeys = [];
+    const next = parsed.map((work) => {
+      if (!work || typeof work !== 'object') return work;
+      const wId = work.id ? String(work.id) : '';
+      const rId = work.readerBookId ? String(work.readerBookId) : '';
+      if (targetKeys.has(wId) || (rId && targetKeys.has(rId))) {
+        if (wId) extraKeys.push(wId);
+        if (rId) extraKeys.push(rId);
+        changed = true;
+        return {
+          ...work,
+          readerBookId: null,
+          hasDigitalFile: false,
+        };
+      }
+      return work;
+    });
+    if (changed) {
+      localStorage.setItem(domainConfig.storageKey, JSON.stringify(next));
+    }
+    return extraKeys;
+  } catch {
+    return [];
+  }
+}
+
+function clearLegacyReaderLocalKeys(keys) {
+  try {
+    if (typeof localStorage === 'undefined') return;
+    for (const k of keys) {
+      localStorage.removeItem(`codice_reader_state_${k}`);
+      localStorage.removeItem(`codice_epub_locations_${k}`);
+    }
+  } catch {
+    // Ignora falha de storage
+  }
+}
+
+export async function removeStoredReaderBook(bookId, options = {}) {
+  const key = String(bookId || '').trim();
+  if (!key) return false;
+
+  const targetKeys = new Set([key]);
+  const worksList = Array.isArray(options?.works) ? options.works : [];
+  const matchedWorks = [];
+
+  for (const w of worksList) {
+    if (!w || typeof w !== 'object') continue;
+    const wId = w.id ? String(w.id) : '';
+    const rId = w.readerBookId ? String(w.readerBookId) : '';
+    if (wId === key || (rId && rId === key)) {
+      matchedWorks.push(w);
+      if (wId) targetKeys.add(wId);
+      if (rId) targetKeys.add(rId);
+    }
+  }
+
+  const lsExtraKeys = clearWorkReaderReferenceInLocalStorage(targetKeys);
+  lsExtraKeys.forEach((k) => targetKeys.add(k));
+
+  if (!hasIndexedDb()) {
+    for (const k of targetKeys) {
+      memoryStore.delete(k);
+    }
+  } else {
+    try {
+      const db = await openReaderDb();
+      await new Promise((resolve) => {
+        const tx = db.transaction(STORE_NAME, 'readwrite');
+        const store = tx.objectStore(STORE_NAME);
+        for (const k of targetKeys) {
+          store.delete(k);
+        }
+        tx.oncomplete = () => {
+          db.close();
+          resolve();
+        };
+        tx.onerror = () => {
+          db.close();
+          resolve();
+        };
+      });
+    } catch {
+      // Ignora se indisponível
+    }
+  }
+
+  clearLegacyReaderLocalKeys(targetKeys);
+
+  if (typeof options?.onUpdateWork === 'function') {
+    for (const w of matchedWorks) {
+      if (w?.id && (w.readerBookId || w.hasDigitalFile)) {
+        options.onUpdateWork(w.id, { readerBookId: null, hasDigitalFile: false });
+      }
+    }
+  }
+
+  try {
+    if (
+      typeof window !== 'undefined' &&
+      typeof window.dispatchEvent === 'function' &&
+      typeof CustomEvent === 'function'
+    ) {
+      window.dispatchEvent(
+        new CustomEvent('codice:reader-storage-changed', {
+          detail: { bookId: key, removedKeys: Array.from(targetKeys), action: 'removed' },
+        })
+      );
+    }
+  } catch {
+    // Ambiente sem DOM/CustomEvent
+  }
+
   return true;
 }
 
@@ -518,17 +671,21 @@ export async function listStoredBookIds() {
 
 export async function listStoredReaderBooks(works = []) {
   const records = await getAllStoredRecordsRaw();
-  const workMap = new Map(
-    (Array.isArray(works) ? works : [])
-      .filter((w) => w?.id)
-      .map((w) => [String(w.id), w])
-  );
+  const workMap = new Map();
+  const workByReaderBookId = new Map();
+  for (const w of Array.isArray(works) ? works : []) {
+    if (!w?.id) continue;
+    workMap.set(String(w.id), w);
+    if (w.readerBookId) {
+      workByReaderBookId.set(String(w.readerBookId), w);
+    }
+  }
 
   return records
     .filter((rec) => rec && (rec.blob || rec.fileHandle || Number(rec.size) > 0))
     .map((rec) => {
       const key = String(rec.workId || '');
-      const matchedWork = workMap.get(key) || null;
+      const matchedWork = workMap.get(key) || workByReaderBookId.get(key) || null;
       const pos = rec.readerState?.position || null;
       const rawPct =
         pos && Number(pos.progressPct) > 0

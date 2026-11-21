@@ -6,6 +6,7 @@ import {
 } from '../services/aiProvider';
 import { generateOfflineRecommendations } from '../services/recommendationEngine';
 import { getDisplayTitles } from '../utils/backlogHelpers';
+import { formatPreferredCriteriaText } from '../utils/readerPreferences';
 import {
   AiPrivacyNoticeBanner,
   useExternalAiNotice,
@@ -76,7 +77,7 @@ export function OracleWidget({
         completedItems,
         favoriteGenres: profile?.favoriteGenres || [],
         readerFocus: profile?.readerFocus || '',
-        preferredCriterion: profile?.preferredCriterion || '',
+        preferredCriterion: formatPreferredCriteriaText(profile),
         overrideKeys: geminiKey ? { gemini: geminiKey } : null,
       });
       const providerLabel =

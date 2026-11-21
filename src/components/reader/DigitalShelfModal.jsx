@@ -1,4 +1,5 @@
 import {
+  ArrowUpDown,
   BookOpen,
   FilePlus2,
   Link2,
@@ -9,19 +10,27 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useToast } from '../../context/ToastContext';
 import {
+  computeTotalStoredBytes,
   importBatchReaderFiles,
   linkStoredReaderBookToWork,
   listStoredReaderBooks,
   removeStoredReaderBook,
+  sortStoredReaderBooks,
 } from '../../services/readerStorage';
 import { CoverArt } from '../CoverArt';
 
 const FORMAT_FILTERS = [
+  { id: 'all', label: 'Todos' },
   { id: 'epub', label: 'EPUB' },
   { id: 'pdf', label: 'PDF' },
   { id: 'cbz', label: 'CBZ' },
   { id: 'text', label: 'TXT/MD' },
-  { id: 'all', label: 'Todos' },
+];
+
+const SORT_OPTIONS = [
+  { id: 'recent', label: 'Última leitura' },
+  { id: 'progress', label: 'Maior progresso %' },
+  { id: 'title', label: 'Nome A–Z' },
 ];
 
 function formatLastOpened(iso) {
@@ -32,6 +41,11 @@ function formatLastOpened(iso) {
     day: '2-digit',
     month: 'short',
   });
+}
+
+function formatTotalMb(totalBytes = 0) {
+  const mb = Math.max(0, Number(totalBytes) || 0) / (1024 * 1024);
+  return `${mb.toFixed(mb > 0 && mb < 0.1 ? 2 : 1)} MB`;
 }
 
 function matchesFormatFilter(entryFormat, filterId) {
@@ -48,6 +62,7 @@ export function DigitalShelfModal({
   works = [],
   onOpenStoredBook,
   onSyncLinkedWork,
+  onRemoveStoredBook,
   onShelfMutated,
 }) {
   const { showToast } = useToast();
@@ -56,8 +71,9 @@ export function DigitalShelfModal({
   const [entries, setEntries] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
-  const [activeFilter, setActiveFilter] = useState('epub');
+  const [activeFilter, setActiveFilter] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
+  const [sortBy, setSortBy] = useState('recent');
   const [linkingBookId, setLinkingBookId] = useState(null);
   const [linkWorkQuery, setLinkWorkQuery] = useState('');
   const [confirmRemoveId, setConfirmRemoveId] = useState(null);
@@ -85,6 +101,19 @@ export function DigitalShelfModal({
     refreshShelf();
   }, [isOpen, refreshShelf]);
 
+  useEffect(() => {
+    if (!isOpen || typeof window === 'undefined') return undefined;
+    const handleStorageEvent = () => {
+      refreshShelf();
+    };
+    window.addEventListener('codice:reader-storage-changed', handleStorageEvent);
+    return () =>
+      window.removeEventListener(
+        'codice:reader-storage-changed',
+        handleStorageEvent
+      );
+  }, [isOpen, refreshShelf]);
+
   const countsByFilter = useMemo(() => {
     const counts = { epub: 0, pdf: 0, cbz: 0, text: 0, all: entries.length };
     for (const item of entries) {
@@ -96,18 +125,25 @@ export function DigitalShelfModal({
     return counts;
   }, [entries]);
 
+  const totalStorageBytes = useMemo(
+    () => computeTotalStoredBytes(entries),
+    [entries]
+  );
+
   const filteredEntries = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
-    return entries.filter((entry) => {
+    const filtered = entries.filter((entry) => {
       if (!matchesFormatFilter(entry.format, activeFilter)) return false;
       if (!q) return true;
       return (
         entry.title.toLowerCase().includes(q) ||
         entry.fileName.toLowerCase().includes(q) ||
-        entry.author.toLowerCase().includes(q)
+        entry.author.toLowerCase().includes(q) ||
+        entry.format.toLowerCase().includes(q)
       );
     });
-  }, [entries, activeFilter, searchQuery]);
+    return sortStoredReaderBooks(filtered, sortBy);
+  }, [entries, activeFilter, searchQuery, sortBy]);
 
   const linkableWorks = useMemo(() => {
     const q = linkWorkQuery.trim().toLowerCase();
@@ -136,14 +172,6 @@ export function DigitalShelfModal({
       onShelfMutated?.();
 
       if (imported.length > 0) {
-        const hasEpub = imported.some((r) => r.format === 'epub');
-        if (!hasEpub && imported[0]?.format) {
-          setActiveFilter(
-            imported[0].format === 'txt' || imported[0].format === 'markdown'
-              ? 'text'
-              : imported[0].format
-          );
-        }
         showToast({
           message:
             imported.length === 1
@@ -169,11 +197,15 @@ export function DigitalShelfModal({
   };
 
   const handleRemoveEntry = async (bookId) => {
-    await removeStoredReaderBook(bookId);
+    if (onRemoveStoredBook) {
+      await onRemoveStoredBook(bookId);
+    } else {
+      await removeStoredReaderBook(bookId, { works });
+      showToast({ message: 'Arquivo removido do armazenamento local.', type: 'info' });
+    }
     setConfirmRemoveId(null);
     await refreshShelf();
     onShelfMutated?.();
-    showToast({ message: 'Arquivo removido do armazenamento local.', type: 'info' });
   };
 
   const handleConfirmLinkWork = async (entry, targetWork) => {
@@ -208,14 +240,18 @@ export function DigitalShelfModal({
         onClick={(e) => e.stopPropagation()}
         className="flex max-h-[90vh] w-full max-w-2xl flex-col rounded-t-[6px] sm:rounded-[6px] border border-line bg-card text-ink"
       >
-        <div className="flex items-center justify-between gap-3 border-b border-line px-5 py-4">
+        <div className="flex items-center justify-between gap-3 border-b border-line px-4 sm:px-5 py-4">
           <div className="min-w-0">
             <h2 className="text-base font-semibold tracking-tight text-ink">
-              Meus EPUBs e Arquivos Offline
+              Biblioteca Digital Offline
             </h2>
-            <p className="mt-0.5 text-xs text-muted tabular-nums">
+            <p
+              className="mt-0.5 text-xs tabular-nums"
+              style={{ color: 'var(--text-secondary)' }}
+            >
               {entries.length}{' '}
-              {entries.length === 1 ? 'arquivo em IndexedDB' : 'arquivos em IndexedDB'}
+              {entries.length === 1 ? 'arquivo' : 'arquivos'} ·{' '}
+              {formatTotalMb(totalStorageBytes)} ocupados no navegador
             </p>
           </div>
 
@@ -227,7 +263,7 @@ export function DigitalShelfModal({
               className="inline-flex min-h-[44px] items-center gap-1.5 rounded-[4px] border border-accent bg-accent/15 px-3 py-2 text-xs font-semibold text-accent transition-opacity hover:opacity-90 disabled:opacity-50"
             >
               <FilePlus2 className="h-4 w-4" strokeWidth={1.5} />
-              <span>{isImporting ? 'Importando...' : 'Adicionar EPUBs'}</span>
+              <span>{isImporting ? 'Importando...' : 'Adicionar arquivos'}</span>
             </button>
 
             <button
@@ -241,7 +277,7 @@ export function DigitalShelfModal({
           </div>
         </div>
 
-        <div className="space-y-3 border-b border-line px-5 py-3">
+        <div className="space-y-2.5 border-b border-line px-4 sm:px-5 py-3">
           <div className="flex flex-wrap items-center gap-1.5">
             {FORMAT_FILTERS.map((tab) => {
               const active = activeFilter === tab.id;
@@ -250,14 +286,15 @@ export function DigitalShelfModal({
                   key={tab.id}
                   type="button"
                   onClick={() => setActiveFilter(tab.id)}
-                  className={`inline-flex min-h-[38px] items-center gap-1.5 rounded-[4px] border px-2.5 py-1 text-xs font-medium transition-colors ${
+                  className={`inline-flex min-h-[44px] items-center gap-1.5 rounded-[4px] border px-2.5 py-1 text-xs font-medium transition-colors ${
                     active
                       ? 'border-accent bg-accent/15 text-accent'
-                      : 'border-line bg-app text-muted hover:text-ink'
+                      : 'border-line bg-app hover:text-ink'
                   }`}
+                  style={!active ? { color: 'var(--text-secondary)' } : undefined}
                 >
                   <span>{tab.label}</span>
-                  <span className="text-[11px] tabular-nums opacity-75">
+                  <span className="text-[11px] tabular-nums opacity-80">
                     {countsByFilter[tab.id] || 0}
                   </span>
                 </button>
@@ -265,23 +302,54 @@ export function DigitalShelfModal({
             })}
           </div>
 
-          <label className="relative block">
-            <Search
-              className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted"
-              strokeWidth={1.5}
-            />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Buscar por título ou nome do arquivo..."
-              aria-label="Filtrar arquivos salvos"
-              className="w-full rounded-[4px] border border-line bg-app py-2 pl-9 pr-3 text-xs text-ink placeholder:text-subtle focus:border-accent focus:outline-none"
-            />
-          </label>
+          <div className="flex flex-col sm:flex-row gap-2">
+            <label className="relative flex-1 block">
+              <Search
+                className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted"
+                strokeWidth={1.5}
+              />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Buscar por nome do arquivo ou título..."
+                aria-label="Buscar na biblioteca digital"
+                className="min-h-[44px] w-full rounded-[4px] border border-line bg-app py-2 pl-9 pr-9 text-xs text-ink placeholder:text-subtle focus:border-accent focus:outline-none"
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery('')}
+                  aria-label="Limpar busca da biblioteca digital"
+                  className="absolute right-1 top-1/2 flex min-h-[36px] min-w-[36px] -translate-y-1/2 items-center justify-center rounded-[4px] text-subtle hover:text-ink"
+                >
+                  <X className="h-3.5 w-3.5" strokeWidth={1.5} />
+                </button>
+              )}
+            </label>
+
+            <label className="relative flex shrink-0 items-center">
+              <ArrowUpDown
+                className="pointer-events-none absolute left-2.5 h-3.5 w-3.5 text-muted"
+                strokeWidth={1.5}
+              />
+              <select
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value)}
+                aria-label="Ordenar biblioteca digital"
+                className="min-h-[44px] w-full sm:w-auto rounded-[4px] border border-line bg-app pl-8 pr-3 py-2 text-xs font-medium text-ink focus:border-accent focus:outline-none"
+              >
+                {SORT_OPTIONS.map((opt) => (
+                  <option key={opt.id} value={opt.id}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-2.5 no-scrollbar">
+        <div className="flex-1 overflow-y-auto px-4 sm:px-5 py-4 space-y-2.5 no-scrollbar">
           {isLoading ? (
             <div className="space-y-2.5" aria-busy="true">
               {[1, 2, 3].map((k) => (
@@ -299,12 +367,12 @@ export function DigitalShelfModal({
               />
               <div>
                 <p className="text-sm font-medium text-ink">
-                  {activeFilter === 'epub'
-                    ? 'Nenhum EPUB salvo localmente ainda'
+                  {entries.length === 0
+                    ? 'Nenhum arquivo salvo localmente ainda'
                     : 'Nenhum arquivo encontrado neste filtro'}
                 </p>
                 <p className="mt-1 text-xs text-muted">
-                  Adicione EPUBs, PDFs ou CBZs em lote ou abra arquivos pelo Leitor Rápido para lê-los offline em qualquer momento.
+                  Adicione PDFs, EPUBs, CBZs ou TXT/Markdown para lê-los offline e acompanhar o espaço usado no navegador.
                 </p>
               </div>
               <div className="flex flex-wrap items-center justify-center gap-2 pt-1">
@@ -314,7 +382,7 @@ export function DigitalShelfModal({
                   className="inline-flex min-h-[44px] items-center gap-1.5 rounded-[4px] border border-accent px-3.5 py-2 text-xs font-medium text-accent"
                 >
                   <FilePlus2 className="h-4 w-4" strokeWidth={1.5} />
-                  <span>Adicionar EPUBs</span>
+                  <span>Adicionar arquivos</span>
                 </button>
                 {activeFilter !== 'all' && entries.length > 0 && (
                   <button
@@ -393,7 +461,7 @@ export function DigitalShelfModal({
                             onClose?.();
                             onOpenStoredBook?.(entry);
                           }}
-                          className="inline-flex min-h-[40px] items-center gap-1.5 rounded-[4px] border border-accent bg-accent px-3 py-1.5 text-xs font-semibold text-accent-ink transition-opacity hover:opacity-90"
+                          className="inline-flex min-h-[44px] items-center gap-1.5 rounded-[4px] border border-accent bg-accent px-3 py-1.5 text-xs font-semibold text-accent-ink transition-opacity hover:opacity-90"
                         >
                           <BookOpen className="h-3.5 w-3.5" strokeWidth={1.5} />
                           <span>Abrir</span>
@@ -406,7 +474,7 @@ export function DigitalShelfModal({
                               setLinkingBookId(isLinking ? null : entry.bookId);
                               setLinkWorkQuery('');
                             }}
-                            className="inline-flex min-h-[40px] items-center gap-1.5 rounded-[4px] border border-line bg-card px-2.5 py-1.5 text-xs font-medium text-muted transition-colors hover:border-accent hover:text-ink"
+                            className="inline-flex min-h-[44px] items-center gap-1.5 rounded-[4px] border border-line bg-card px-2.5 py-1.5 text-xs font-medium text-muted transition-colors hover:border-accent hover:text-ink"
                           >
                             <Link2 className="h-3.5 w-3.5" strokeWidth={1.5} />
                             <span>Vincular a obra</span>
@@ -414,18 +482,18 @@ export function DigitalShelfModal({
                         )}
 
                         {isConfirmingRemove ? (
-                          <div className="ml-auto flex items-center gap-1.5">
+                          <div className="ml-auto flex flex-wrap items-center gap-1.5">
                             <button
                               type="button"
                               onClick={() => handleRemoveEntry(entry.bookId)}
-                              className="min-h-[40px] rounded-[4px] border border-rose-500/50 bg-rose-500/15 px-2.5 py-1.5 text-[11px] font-semibold text-rose-400"
+                              className="min-h-[44px] rounded-[4px] border border-rose-500/50 bg-rose-500/15 px-3 py-1.5 text-xs font-semibold text-rose-400"
                             >
                               Confirmar exclusão
                             </button>
                             <button
                               type="button"
                               onClick={() => setConfirmRemoveId(null)}
-                              className="min-h-[40px] rounded-[4px] border border-line px-2.5 py-1.5 text-[11px] text-muted"
+                              className="min-h-[44px] rounded-[4px] border border-line px-2.5 py-1.5 text-xs text-muted hover:text-ink"
                             >
                               Cancelar
                             </button>
@@ -434,11 +502,12 @@ export function DigitalShelfModal({
                           <button
                             type="button"
                             onClick={() => setConfirmRemoveId(entry.bookId)}
-                            aria-label={`Remover ${entry.title} do armazenamento offline`}
-                            title="Remover arquivo offline"
-                            className="ml-auto inline-flex min-h-[40px] min-w-[40px] items-center justify-center rounded-[4px] border border-line bg-card text-muted transition-colors hover:border-rose-500/40 hover:text-rose-400"
+                            aria-label={`Excluir arquivo ${entry.title}`}
+                            className="ml-auto inline-flex min-h-[44px] items-center gap-1.5 rounded-[4px] border border-line bg-card px-2.5 py-1.5 text-xs font-medium transition-colors hover:border-rose-500/40 hover:text-rose-400"
+                            style={{ color: 'var(--text-secondary)' }}
                           >
                             <Trash2 className="h-4 w-4" strokeWidth={1.5} />
+                            <span>Excluir arquivo</span>
                           </button>
                         )}
                       </div>
@@ -452,7 +521,7 @@ export function DigitalShelfModal({
                             <button
                               type="button"
                               onClick={() => setLinkingBookId(null)}
-                              className="text-[11px] text-muted hover:text-ink"
+                              className="min-h-[36px] px-2 text-[11px] text-muted hover:text-ink"
                             >
                               Fechar
                             </button>
@@ -462,7 +531,7 @@ export function DigitalShelfModal({
                             value={linkWorkQuery}
                             onChange={(e) => setLinkWorkQuery(e.target.value)}
                             placeholder="Filtrar obras da biblioteca..."
-                            className="w-full rounded-[4px] border border-line bg-app px-2.5 py-1.5 text-xs text-ink placeholder:text-subtle focus:border-accent focus:outline-none"
+                            className="min-h-[44px] w-full rounded-[4px] border border-line bg-app px-2.5 py-1.5 text-xs text-ink placeholder:text-subtle focus:border-accent focus:outline-none"
                           />
                           {linkableWorks.length === 0 ? (
                             <p className="text-[11px] text-muted">
@@ -475,7 +544,7 @@ export function DigitalShelfModal({
                                   key={w.id}
                                   type="button"
                                   onClick={() => handleConfirmLinkWork(entry, w)}
-                                  className="flex min-h-[38px] w-full items-center justify-between gap-2 rounded-[4px] border border-line bg-app px-2.5 py-1.5 text-left text-xs transition-colors hover:border-accent"
+                                  className="flex min-h-[44px] w-full items-center justify-between gap-2 rounded-[4px] border border-line bg-app px-2.5 py-1.5 text-left text-xs transition-colors hover:border-accent"
                                 >
                                   <span className="truncate font-medium text-ink">
                                     {w.title}

@@ -1,5 +1,11 @@
 import { normalizePublisherName } from '../data/brazilianPublishers.js';
 import { catalogItems, initialItems } from '../data/mockData.js';
+import {
+  mapCategoriesToGenreAndSubgenres,
+  normalizeLanguageLabel,
+} from '../utils/genreMapper.js';
+
+export { mapCategoriesToGenreAndSubgenres, normalizeLanguageLabel };
 
 const GOOGLE_BOOKS_BASE_URL = 'https://www.googleapis.com/books/v1/volumes';
 const APPLE_BOOKS_BASE_URL = 'https://itunes.apple.com/search';
@@ -439,7 +445,7 @@ function mapGoogleBook(volume, defaultWorkType = 'book', isbnFallback = '') {
     typeof volumeInfo.pageCount === 'number' && volumeInfo.pageCount > 0
       ? volumeInfo.pageCount
       : null;
-  const genres = Array.isArray(volumeInfo.categories)
+  const rawCategories = Array.isArray(volumeInfo.categories)
     ? volumeInfo.categories.filter(Boolean)
     : [];
   const publisher = normalizePublisherName(volumeInfo.publisher || '');
@@ -448,13 +454,18 @@ function mapGoogleBook(volume, defaultWorkType = 'book', isbnFallback = '') {
   const releaseYear = extractReleaseYear(volumeInfo.publishedDate);
   const authors = toAuthorsList(volumeInfo.authors);
   const synopsis = stripXmlTags(volumeInfo.description || '');
+  const mappedGenres = mapCategoriesToGenreAndSubgenres(rawCategories, {
+    workType: defaultWorkType,
+    title,
+    synopsis,
+  });
 
   return {
     id: `gb-${googleVolumeId}`,
     googleVolumeId,
     title,
     originalTitle: !isPt && rawLang ? title : '',
-    language: volumeInfo.language || '',
+    language: normalizeLanguageLabel(volumeInfo.language || ''),
     author,
     authors,
     coverUrl: coverCandidates[0] || null,
@@ -473,7 +484,11 @@ function mapGoogleBook(volume, defaultWorkType = 'book', isbnFallback = '') {
     doi: '',
     issn: '',
     synopsis,
-    genres,
+    rawCategories,
+    primaryGenre: mappedGenres.primaryGenre,
+    subgenres: mappedGenres.subgenres,
+    subgenre: mappedGenres.subgenre,
+    genres: mappedGenres.genres,
     workType: defaultWorkType,
     source: 'googleBooks',
     sourceLabel: 'Google Books',
@@ -504,10 +519,16 @@ export function mapAppleBook(entry, defaultWorkType = 'book') {
   const rawGenres = Array.isArray(entry.genres) ? entry.genres.filter(Boolean) : [];
   const filteredGenres = rawGenres
     .filter((g) => !/^(livros|books|ebooks?)$/i.test(String(g).trim()))
-    .slice(0, 3);
-  const genres = filteredGenres.length ? filteredGenres : rawGenres.slice(0, 3);
+    .slice(0, 4);
+  const rawCategories = filteredGenres.length ? filteredGenres : rawGenres.slice(0, 4);
   const synopsis = stripXmlTags(entry.description || '');
-  const language = String(entry.language || '').trim();
+  const language = normalizeLanguageLabel(entry.language || '');
+  const resolvedWorkType = defaultWorkType === 'academic' ? 'academic' : 'book';
+  const mappedGenres = mapCategoriesToGenreAndSubgenres(rawCategories, {
+    workType: resolvedWorkType,
+    title,
+    synopsis,
+  });
 
   return {
     id: `ab-${entry.trackId || normalizeText(title)}`,
@@ -526,14 +547,18 @@ export function mapAppleBook(entry, defaultWorkType = 'book') {
     releaseYear,
     year: releaseYear,
     totalPages: null,
-    publisher: '',
+    publisher: normalizePublisherName(entry.publisher || ''),
     institution: '',
     isbn,
     doi: '',
     issn: '',
     synopsis,
-    genres,
-    workType: defaultWorkType === 'academic' ? 'academic' : 'book',
+    rawCategories,
+    primaryGenre: mappedGenres.primaryGenre,
+    subgenres: mappedGenres.subgenres,
+    subgenre: mappedGenres.subgenre,
+    genres: mappedGenres.genres,
+    workType: resolvedWorkType,
     source: 'appleBooks',
     sourceLabel: 'Apple Books',
     monogram: getMonogram(title),
@@ -566,8 +591,8 @@ function mapOpenLibraryDoc(doc, defaultWorkType = 'book', isbnFallback = '') {
   const rawPublisher =
     Array.isArray(doc?.publisher) && doc.publisher.length ? doc.publisher[0] : '';
   const publisher = normalizePublisherName(rawPublisher);
-  const genres = Array.isArray(doc?.subject)
-    ? doc.subject.filter(Boolean).slice(0, 3)
+  const rawCategories = Array.isArray(doc?.subject)
+    ? doc.subject.filter(Boolean).slice(0, 5)
     : [];
   const langs = Array.isArray(doc?.language) ? doc.language : [];
   const hasPor = langs.some((l) => /^por$/i.test(l) || /^pt/i.test(l));
@@ -575,12 +600,17 @@ function mapOpenLibraryDoc(doc, defaultWorkType = 'book', isbnFallback = '') {
     ? doc.first_sentence[0]
     : doc?.first_sentence;
   const synopsis = stripXmlTags(rawFirstSentence || doc?.subtitle || '');
+  const mappedGenres = mapCategoriesToGenreAndSubgenres(rawCategories, {
+    workType: defaultWorkType,
+    title,
+    synopsis,
+  });
 
   return {
     id: `ol-${rawKey}`,
     title,
     originalTitle: !hasPor && langs.length > 0 ? title : '',
-    language: langs[0] || '',
+    language: normalizeLanguageLabel(langs[0] || ''),
     author,
     authors: toAuthorsList(doc?.author_name),
     coverUrl: coverCandidates[0] || null,
@@ -599,7 +629,11 @@ function mapOpenLibraryDoc(doc, defaultWorkType = 'book', isbnFallback = '') {
     doi: '',
     issn: '',
     synopsis,
-    genres,
+    rawCategories,
+    primaryGenre: mappedGenres.primaryGenre,
+    subgenres: mappedGenres.subgenres,
+    subgenre: mappedGenres.subgenre,
+    genres: mappedGenres.genres,
     workType: defaultWorkType,
     source: 'openLibrary',
     sourceLabel: 'Open Library',
@@ -651,7 +685,7 @@ export function mapJikanManga(entry) {
 
   const coverCandidates = buildCoverCascade({ jikanUrls: jikanCoverUrls });
 
-  const genres = Array.from(
+  const rawCategories = Array.from(
     new Set(
       [
         ...(entry?.genres || []),
@@ -661,9 +695,17 @@ export function mapJikanManga(entry) {
         .map((g) => g?.name)
         .filter(Boolean)
     )
-  ).slice(0, 4);
+  ).slice(0, 5);
 
   const releaseYear = extractReleaseYear(entry?.published?.from);
+  const demographicOrigin = mapJikanOrigin(entry?.type);
+  const synopsis = stripXmlTags(entry?.synopsis || '');
+  const mappedGenres = mapCategoriesToGenreAndSubgenres(rawCategories, {
+    workType: 'manga',
+    title,
+    synopsis,
+    demographicOrigin,
+  });
 
   return {
     id: `jikan-${entry?.mal_id || normalizeText(title)}`,
@@ -693,14 +735,18 @@ export function mapJikanManga(entry) {
         : null,
     totalPages: null,
     mangaType: entry?.type || 'Manga',
-    demographicOrigin: mapJikanOrigin(entry?.type),
+    demographicOrigin,
     publicationStatus:
       entry?.status === 'Finished' ? 'Completo' : 'Em lançamento',
     isbn: '',
     doi: '',
     issn: '',
-    synopsis: stripXmlTags(entry?.synopsis || ''),
-    genres,
+    synopsis,
+    rawCategories,
+    primaryGenre: mappedGenres.primaryGenre,
+    subgenres: mappedGenres.subgenres,
+    subgenre: mappedGenres.subgenre,
+    genres: mappedGenres.genres,
     workType: 'manga',
     source: 'jikan',
     sourceLabel: 'Jikan',
@@ -749,16 +795,22 @@ function mapCrossRefWork(entry) {
   const institution = containerTitle || publisher;
 
   const subjects = Array.isArray(entry?.subject)
-    ? entry.subject.filter(Boolean).slice(0, 3)
+    ? entry.subject.filter(Boolean).slice(0, 4)
     : [];
-  const genres = subjects.length ? subjects : ['Artigo / Pesquisa'];
+  const rawCategories = subjects.length ? subjects : ['Artigo / Pesquisa'];
   const coverCandidates = buildCoverCascade({ isbn });
+  const synopsis = stripXmlTags(entry?.abstract || '');
+  const mappedGenres = mapCategoriesToGenreAndSubgenres(rawCategories, {
+    workType: 'academic',
+    title,
+    synopsis,
+  });
 
   return {
     id: `cr-${doi || normalizeText(title)}`,
     title,
     originalTitle: entry?.language && entry.language !== 'pt' ? title : '',
-    language: entry?.language || '',
+    language: normalizeLanguageLabel(entry?.language || ''),
     author,
     authors: toAuthorsList(author),
     coverUrl: coverCandidates[0] || null,
@@ -776,8 +828,12 @@ function mapCrossRefWork(entry) {
     isbn,
     doi,
     issn,
-    synopsis: stripXmlTags(entry?.abstract || ''),
-    genres,
+    synopsis,
+    rawCategories,
+    primaryGenre: mappedGenres.primaryGenre,
+    subgenres: mappedGenres.subgenres,
+    subgenre: mappedGenres.subgenre,
+    genres: mappedGenres.genres,
     workType: 'academic',
     source: 'academic',
     sourceLabel: 'CrossRef',
@@ -827,16 +883,20 @@ export function mapOpenAlexWork(entry) {
     entry.primary_topic?.display_name,
     ...(Array.isArray(entry.concepts) ? entry.concepts.map((c) => c?.display_name) : []),
   ].filter(Boolean);
-  const genres = Array.from(new Set(topicCandidates)).slice(0, 3);
-  if (genres.length === 0) genres.push('Pesquisa / Artigo');
+  const rawCategories = Array.from(new Set(topicCandidates)).slice(0, 4);
+  if (rawCategories.length === 0) rawCategories.push('Pesquisa / Artigo');
 
   const rawLang = String(entry.language || '').toLowerCase();
+  const mappedGenres = mapCategoriesToGenreAndSubgenres(rawCategories, {
+    workType: 'academic',
+    title,
+  });
 
   return {
     id: `oa-${doi || rawShortId || normalizeText(title)}`,
     title,
     originalTitle: rawLang && rawLang !== 'pt' ? title : '',
-    language: entry.language || '',
+    language: normalizeLanguageLabel(entry.language || ''),
     author,
     authors: toAuthorsList(author),
     coverUrl: null,
@@ -860,7 +920,11 @@ export function mapOpenAlexWork(entry) {
     openAccessUrl,
     isOpenAccess,
     synopsis: '',
-    genres,
+    rawCategories,
+    primaryGenre: mappedGenres.primaryGenre,
+    subgenres: mappedGenres.subgenres,
+    subgenre: mappedGenres.subgenre,
+    genres: mappedGenres.genres,
     workType: 'academic',
     source: 'academic',
     sourceLabel: 'OpenAlex',
@@ -897,19 +961,23 @@ export function mapGutendexBook(entry, defaultWorkType = 'book') {
   const coverUrl = cleanCoverUrl(formats['image/jpeg'] || null);
   const coverCandidates = coverUrl ? [coverUrl] : [];
 
-  const genres = Array.from(
+  const rawCategories = Array.from(
     new Set(
       [...(entry.subjects || []), ...(entry.bookshelves || [])]
         .map((s) => String(s).replace(/^Category:\s*/i, '').trim())
         .filter(Boolean)
     )
-  ).slice(0, 3);
+  ).slice(0, 4);
+  const mappedGenres = mapCategoriesToGenreAndSubgenres(
+    rawCategories.length ? rawCategories : ['Clássico em Domínio Público'],
+    { workType: defaultWorkType, title }
+  );
 
   return {
     id: `gut-${entry.id || normalizeText(title)}`,
     title,
     originalTitle: !hasPt && langs.length > 0 ? title : '',
-    language: langs.join(', '),
+    language: langs.map(normalizeLanguageLabel).filter(Boolean).join(', '),
     author,
     authors: toAuthorsList(author),
     coverUrl: coverCandidates[0] || null,
@@ -931,7 +999,11 @@ export function mapGutendexBook(entry, defaultWorkType = 'book') {
     freeEpubUrl,
     isPublicDomain: true,
     downloadCount: Number(entry.download_count) || 0,
-    genres: genres.length ? genres : ['Clássico em Domínio Público'],
+    rawCategories,
+    primaryGenre: mappedGenres.primaryGenre,
+    subgenres: mappedGenres.subgenres,
+    subgenre: mappedGenres.subgenre,
+    genres: mappedGenres.genres,
     workType: defaultWorkType,
     source: 'gutendex',
     sourceLabel: 'Gutendex',
@@ -1009,7 +1081,7 @@ export function mapWikidataEntityToWork(entity, defaultWorkType = 'book') {
     originalTitle: originalCandidate,
     ptTitle: ptLabel,
     enTitle: enLabel,
-    language: ptLabel ? 'pt-br' : enLabel ? 'en' : '',
+    language: ptLabel ? 'Português' : enLabel ? 'Inglês' : '',
     originCountry,
     author: '',
     authors: [],
@@ -1262,6 +1334,25 @@ export function mergeTwoResults(primary, secondary) {
       ''
   ).trim();
   const mergedReleaseYear = winner.releaseYear || loser.releaseYear || null;
+  const combinedRawCategories = Array.from(
+    new Set([
+      ...(Array.isArray(winner.rawCategories) ? winner.rawCategories : []),
+      ...(Array.isArray(loser.rawCategories) ? loser.rawCategories : []),
+      ...(Array.isArray(winner.genres) ? winner.genres : []),
+      ...(Array.isArray(loser.genres) ? loser.genres : []),
+    ].filter(Boolean))
+  );
+  const mappedMergedGenres = mapCategoriesToGenreAndSubgenres(combinedRawCategories, {
+    workType: winner.workType || loser.workType || 'book',
+    title: winner.title || loser.title || '',
+    synopsis: mergedSynopsis,
+    demographicOrigin: winner.demographicOrigin || loser.demographicOrigin || '',
+  });
+  const mergedGenres = mappedMergedGenres.genres.length
+    ? mappedMergedGenres.genres
+    : winner.genres?.length
+      ? winner.genres
+      : loser.genres || [];
 
   return {
     ...winner,
@@ -1276,7 +1367,7 @@ export function mergeTwoResults(primary, secondary) {
       Array.isArray(winner.authors) && winner.authors.length
         ? winner.authors
         : loser.authors || [],
-    language: winner.language || loser.language || '',
+    language: normalizeLanguageLabel(winner.language || loser.language || ''),
     synopsis: mergedSynopsis,
     isbn,
     doi,
@@ -1297,7 +1388,25 @@ export function mergeTwoResults(primary, secondary) {
     freeEpubUrl: winner.freeEpubUrl || loser.freeEpubUrl || '',
     isPublicDomain: Boolean(winner.isPublicDomain || loser.isPublicDomain),
     originCountry: winner.originCountry || loser.originCountry || '',
-    genres: winner.genres?.length ? winner.genres : loser.genres || [],
+    rawCategories: combinedRawCategories,
+    primaryGenre:
+      mappedMergedGenres.primaryGenre ||
+      winner.primaryGenre ||
+      loser.primaryGenre ||
+      mergedGenres[0] ||
+      '',
+    subgenres:
+      mappedMergedGenres.subgenres.length > 0
+        ? mappedMergedGenres.subgenres
+        : winner.subgenres?.length
+          ? winner.subgenres
+          : loser.subgenres || [],
+    subgenre:
+      mappedMergedGenres.subgenre ||
+      winner.subgenre ||
+      loser.subgenre ||
+      '',
+    genres: mergedGenres,
     googleCoverUrl,
     openLibIdCover,
     jikanCoverUrls,

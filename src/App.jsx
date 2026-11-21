@@ -43,9 +43,9 @@ import {
 } from './services/codiceDatabase';
 import { evaluateReaderTitles } from './services/readerTitlesEngine';
 import {
-  deleteBookFile,
   listStoredBookIds,
   listStoredReaderBooks,
+  removeStoredReaderBook,
 } from './services/readerStorage';
 import { AddScreen } from './screens/AddScreen';
 import { HomeScreen } from './screens/HomeScreen';
@@ -267,6 +267,18 @@ export function App() {
     [items, selectedItemId]
   );
 
+  const selectedStoredBook = useMemo(() => {
+    if (!selectedItem) return null;
+    return (
+      storedReaderBooks.find(
+        (b) =>
+          b.workId === selectedItem.id ||
+          b.bookId === selectedItem.id ||
+          (selectedItem.readerBookId && b.bookId === selectedItem.readerBookId)
+      ) ?? null
+    );
+  }, [selectedItem, storedReaderBooks]);
+
   const readerWork = useMemo(
     () => items.find((item) => item.id === readerSession.workId) ?? null,
     [items, readerSession.workId]
@@ -284,6 +296,17 @@ export function App() {
   useEffect(() => {
     refreshStoredBookIds();
   }, [readerSession.open, refreshStoredBookIds]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    const handleStorageChanged = () => refreshStoredBookIds();
+    window.addEventListener('codice:reader-storage-changed', handleStorageChanged);
+    return () =>
+      window.removeEventListener(
+        'codice:reader-storage-changed',
+        handleStorageChanged
+      );
+  }, [refreshStoredBookIds]);
 
   const handleOpenReaderForWork = useCallback((work, file = null) => {
     if (!work) return;
@@ -523,9 +546,34 @@ export function App() {
     }
   };
 
+  const handleRemoveStoredBook = useCallback(
+    async (bookId) => {
+      if (!bookId) return false;
+      const ok = await removeStoredReaderBook(bookId, {
+        works: items,
+        onUpdateWork: updateItem,
+      });
+      refreshStoredBookIds();
+      if (ok) {
+        showToast({
+          message: 'Arquivo removido do armazenamento local.',
+          type: 'info',
+        });
+      }
+      return ok;
+    },
+    [items, updateItem, refreshStoredBookIds, showToast]
+  );
+
   const handleRemoveItem = (id) => {
+    const target = items.find((entry) => entry.id === id);
     removeItem(id);
-    deleteBookFile(id);
+    removeStoredReaderBook(id).then(() => refreshStoredBookIds()).catch(() => {});
+    if (target?.readerBookId && target.readerBookId !== id) {
+      removeStoredReaderBook(target.readerBookId)
+        .then(() => refreshStoredBookIds())
+        .catch(() => {});
+    }
     showToast({ message: 'Obra removida do acervo', type: 'info' });
   };
 
@@ -947,6 +995,7 @@ export function App() {
               onSelectItem={handleSelectOrAddFromRecommendation}
               onOpenReader={handleOpenReaderForWork}
               onOpenStoredBook={handleOpenStoredBook}
+              onRemoveStoredBook={handleRemoveStoredBook}
               onOpenQuickReader={handleOpenQuickReader}
               onOpenDigitalShelf={() => setDigitalShelfOpen(true)}
               onAddToWishlist={handleCopyWorkToWishlist}
@@ -1065,11 +1114,21 @@ export function App() {
           geminiKey={geminiKey}
           viewerId={activeViewerId}
           hasStoredFile={Boolean(
-            selectedItem && storedReaderWorkIds.includes(selectedItem.id)
+            selectedItem &&
+              (selectedStoredBook ||
+                storedReaderWorkIds.includes(selectedItem.id) ||
+                (selectedItem.readerBookId &&
+                  storedReaderWorkIds.includes(selectedItem.readerBookId)))
           )}
+          storedFileMeta={selectedStoredBook}
           onClose={() => setSelectedItemId(null)}
           onUpdateItem={handleUpdateItem}
           onRemoveItem={handleRemoveItem}
+          onRemoveStoredFile={(work, meta) =>
+            handleRemoveStoredBook(
+              meta?.bookId || work?.readerBookId || work?.id
+            )
+          }
           onOpenJournal={handleOpenJournalComposer}
           onOpenReader={handleOpenReaderForWork}
           onOpenGeminiSettings={() => setGeminiModalOpen(true)}
@@ -1171,6 +1230,7 @@ export function App() {
           onClose={() => setDigitalShelfOpen(false)}
           works={items}
           onOpenStoredBook={handleOpenStoredBook}
+          onRemoveStoredBook={handleRemoveStoredBook}
           onSyncLinkedWork={(targetWork, extractedPosition) => {
             if (extractedPosition) {
               handleSyncWorkProgress(targetWork, extractedPosition);
