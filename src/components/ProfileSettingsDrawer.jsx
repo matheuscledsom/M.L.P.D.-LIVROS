@@ -9,6 +9,7 @@ import {
   FileSpreadsheet,
   Globe,
   HardDrive,
+  Keyboard,
   Lock,
   MessageSquare,
   MessagesSquare,
@@ -138,6 +139,8 @@ export function ProfileSettingsDrawer({
   onExportBibtex,
   onImportBackupClick,
   onOpenBackupModal,
+  onOpenImportCatalog,
+  onOpenShortcuts,
   aiPanelSlot = null,
 }) {
   const drawerRef = useRef(null);
@@ -962,6 +965,32 @@ export function ProfileSettingsDrawer({
                         : profileCfg.backup.importLabel}
                     </span>
                   </button>
+                  {onOpenImportCatalog && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onClose?.();
+                        onOpenImportCatalog();
+                      }}
+                      className="flex min-h-[44px] w-full items-center gap-2.5 px-3 py-2 text-left text-xs font-medium text-ink hover:bg-card"
+                    >
+                      <FileSpreadsheet className="h-4 w-4 shrink-0 text-accent" strokeWidth={1.5} />
+                      <span>Importar CSV (Goodreads / StoryGraph / Calibre / Lista)</span>
+                    </button>
+                  )}
+                  {onOpenShortcuts && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onClose?.();
+                        onOpenShortcuts();
+                      }}
+                      className="flex min-h-[44px] w-full items-center gap-2.5 px-3 py-2 text-left text-xs font-medium text-ink hover:bg-card"
+                    >
+                      <Keyboard className="h-4 w-4 shrink-0 text-accent" strokeWidth={1.5} />
+                      <span>Atalhos de Teclado (?)</span>
+                    </button>
+                  )}
                 </div>
               </section>
 

@@ -24,6 +24,7 @@ import {
   getVerdictForScore,
   normalizeOwnedVolumes,
   normalizeProgressMode,
+  normalizeTagsList,
   syncSeriesProgressFields,
 } from '../utils/backlogHelpers';
 import {
@@ -210,6 +211,8 @@ function normalizeItem(rawItem) {
       typeof rawItem.originalTitle === 'string' ? rawItem.originalTitle : '',
     loanedTo: typeof rawItem.loanedTo === 'string' ? rawItem.loanedTo : '',
     loanedAt: rawItem.loanedAt || null,
+    wantToReread: Boolean(rawItem.wantToReread),
+    tags: normalizeTagsList(rawItem.tags),
     recommended:
       rawItem.recommended !== undefined ? Boolean(rawItem.recommended) : false,
     readerState: rawItem.readerState || null,
@@ -471,6 +474,28 @@ export function useBacklog() {
 
       return [prepared, ...prev];
     });
+  }, []);
+
+  const batchAddItems = useCallback((records = []) => {
+    const nowIso = new Date().toISOString();
+    const preparedList = (Array.isArray(records) ? records : [])
+      .filter((r) => r && r.title)
+      .map((rec) => {
+        const status = rec.status || domainConfig.ui.add.defaultNewStatus;
+        return applyStatusTransitionDefaults(
+          normalizeItem({
+            ...rec,
+            inBacklog: true,
+            createdAt: rec.createdAt || nowIso,
+            updatedAt: nowIso,
+          }),
+          status,
+          null
+        );
+      });
+    if (preparedList.length === 0) return [];
+    setItems((prev) => [...preparedList, ...prev]);
+    return preparedList;
   }, []);
 
   const updateItem = useCallback((id, updates) => {
@@ -883,6 +908,7 @@ export function useBacklog() {
     readingSessions,
     collections,
     addItem,
+    batchAddItems,
     updateItem,
     removeItem,
     batchUpdateItems,

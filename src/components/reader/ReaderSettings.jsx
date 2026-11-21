@@ -267,6 +267,29 @@ export function ReaderSettings({
             </button>
           </SettingRow>
 
+          <SettingRow label="Modo noturno agendado" hint="Usa OLED automaticamente entre 21h e 06h">
+            <button
+              type="button"
+              role="switch"
+              aria-checked={Boolean(settings.scheduledNightTheme)}
+              onClick={() =>
+                onUpdateSettings({ scheduledNightTheme: !settings.scheduledNightTheme })
+              }
+              className="min-h-[44px] rounded-[4px] border px-3 text-xs font-medium transition-colors duration-150 ease-out"
+              style={{
+                borderColor: settings.scheduledNightTheme
+                  ? 'var(--reader-accent)'
+                  : 'var(--reader-border)',
+                color: settings.scheduledNightTheme
+                  ? 'var(--reader-accent)'
+                  : 'var(--reader-muted)',
+                touchAction: 'manipulation',
+              }}
+            >
+              {settings.scheduledNightTheme ? 'Agendado' : 'Manual'}
+            </button>
+          </SettingRow>
+
           <SettingRow
             label="Gestos de toque"
             hint="Toques laterais viram páginas; centro abre barras ou marca página"

@@ -1,17 +1,22 @@
 import {
+  AlertCircle,
   BookOpen,
   Bookmark,
+  Download,
   ExternalLink,
   FileText,
   FolderOpen,
   Heart,
   MessageSquarePlus,
   Quote,
+  RotateCcw,
   Send,
   Share2,
   SlidersHorizontal,
   Star,
+  Tag,
   Trash2,
+  UserCheck,
   X,
 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
@@ -21,7 +26,14 @@ import {
   searchReaderProfiles,
   sendDirectMessage,
 } from '../services/codiceBackend';
-import { getDisplayTitles, getVerdictMeta } from '../utils/backlogHelpers';
+import {
+  getDisplayTitles,
+  getTodayLocalISO,
+  getVerdictMeta,
+  isLoanOverdue,
+  normalizeTagsList,
+} from '../utils/backlogHelpers';
+import { downloadWorkMarkdown } from '../utils/markdownExport';
 import { CollectionCreatorBar } from './CollectionCreatorBar';
 import { CoverArt } from './CoverArt';
 import { LibraryCatalogSection } from './LibraryCatalogSection';
@@ -59,6 +71,7 @@ export function ItemDetailSheet({
   const [sharePeers, setSharePeers] = useState([]);
   const [sendingPeerId, setSendingPeerId] = useState(null);
   const [confirmRemoveFile, setConfirmRemoveFile] = useState(false);
+  const [tagInput, setTagInput] = useState('');
   const progressSectionRef = useRef(null);
 
   useEffect(() => {
@@ -66,6 +79,7 @@ export function ItemDetailSheet({
     setShareOpen(false);
     setShareNote('');
     setConfirmRemoveFile(false);
+    setTagInput('');
   }, [item?.id]);
 
   useEffect(() => {
@@ -648,6 +662,115 @@ export function ItemDetailSheet({
               )}
             </section>
 
+            {/* Tags livres, Para Reler & Empréstimo */}
+            <section
+              aria-label="Tags livres e controle de empréstimo"
+              className="mt-4 rounded-xl border border-line bg-card p-3 space-y-3"
+            >
+              <div className="space-y-1.5">
+                <span className="inline-flex items-center gap-1.5 text-xs font-medium text-ink">
+                  <Tag className="h-3.5 w-3.5 text-accent" strokeWidth={1.5} />
+                  <span>Tags livres</span>
+                </span>
+                <div className="flex items-center gap-1.5">
+                  <input
+                    type="text"
+                    value={tagInput}
+                    onChange={(e) => setTagInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && tagInput.trim()) {
+                        e.preventDefault();
+                        const nextTags = normalizeTagsList([
+                          ...(Array.isArray(item.tags) ? item.tags : []),
+                          tagInput.trim(),
+                        ]);
+                        onUpdateItem(item.id, { tags: nextTags });
+                        setTagInput('');
+                      }
+                    }}
+                    placeholder="Ex: fav-2026, faculdade, reler..."
+                    aria-label="Adicionar tag livre"
+                    className="min-h-[38px] min-w-0 flex-1 rounded-[4px] border border-line bg-app px-2.5 py-1 text-xs text-ink placeholder:text-subtle focus:border-accent focus:outline-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!tagInput.trim()) return;
+                      const nextTags = normalizeTagsList([
+                        ...(Array.isArray(item.tags) ? item.tags : []),
+                        tagInput.trim(),
+                      ]);
+                      onUpdateItem(item.id, { tags: nextTags });
+                      setTagInput('');
+                    }}
+                    className="min-h-[38px] rounded-[4px] border border-line bg-app px-3 text-xs font-medium text-ink hover:border-accent"
+                  >
+                    + Tag
+                  </button>
+                </div>
+                {Array.isArray(item.tags) && item.tags.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 pt-1">
+                    {item.tags.map((t) => (
+                      <button
+                        key={t}
+                        type="button"
+                        onClick={() =>
+                          onUpdateItem(item.id, {
+                            tags: item.tags.filter((x) => x !== t),
+                          })
+                        }
+                        title={`Remover tag #${t}`}
+                        className="inline-flex min-h-[28px] items-center gap-1 rounded-[4px] border border-accent/40 bg-accent/10 px-2 py-0.5 text-[11px] font-medium text-ink hover:border-accent"
+                      >
+                        <span>#{t}</span>
+                        <X className="h-3 w-3 text-subtle" strokeWidth={1.5} />
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="border-t border-line pt-2.5 space-y-2">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="inline-flex items-center gap-1.5 text-xs font-medium text-ink">
+                    <UserCheck className="h-3.5 w-3.5 text-accent" strokeWidth={1.5} />
+                    <span>Empréstimo físico</span>
+                  </span>
+                  {isLoanOverdue(item) && (
+                    <span className="inline-flex items-center gap-1 rounded-[4px] border border-amber-500/40 bg-amber-500/15 px-2 py-0.5 text-[10px] font-semibold text-amber-500">
+                      <AlertCircle className="h-3 w-3" strokeWidth={1.5} />
+                      Emprestado há +30 dias
+                    </span>
+                  )}
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <input
+                    type="text"
+                    value={item.loanedTo || ''}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      onUpdateItem(item.id, {
+                        loanedTo: val,
+                        loanedAt: val.trim() ? item.loanedAt || getTodayLocalISO() : null,
+                      });
+                    }}
+                    placeholder="Emprestado para quem?"
+                    aria-label="Nome de quem pegou a obra emprestada"
+                    className="min-h-[38px] rounded-[4px] border border-line bg-app px-2.5 py-1 text-xs text-ink placeholder:text-subtle focus:border-accent focus:outline-none"
+                  />
+                  <input
+                    type="date"
+                    value={item.loanedAt ? String(item.loanedAt).slice(0, 10) : ''}
+                    onChange={(e) =>
+                      onUpdateItem(item.id, { loanedAt: e.target.value || null })
+                    }
+                    aria-label="Data do empréstimo"
+                    className="min-h-[38px] rounded-[4px] border border-line bg-app px-2.5 py-1 text-xs text-ink focus:border-accent focus:outline-none"
+                  />
+                </div>
+              </div>
+            </section>
+
             <label className="mt-4 block">
               <span className="mb-1.5 block text-xs font-medium text-muted">
                 {ui.detail.notesLabel}
@@ -663,13 +786,13 @@ export function ItemDetailSheet({
               />
             </label>
 
-            <div className="mt-4 grid grid-cols-2 gap-2">
+            <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-2">
               <button
                 type="button"
                 onClick={() =>
                   onUpdateItem(item.id, { isFavorite: !item.isFavorite })
                 }
-                className={`flex items-center justify-center gap-2 rounded-xl border py-2.5 text-xs font-medium transition-colors ${
+                className={`flex min-h-[44px] items-center justify-center gap-2 rounded-xl border py-2.5 text-xs font-medium transition-colors ${
                   item.isFavorite
                     ? 'border-accent/60 bg-accent/15 text-accent'
                     : 'border-line bg-app text-muted hover:text-ink'
@@ -685,9 +808,24 @@ export function ItemDetailSheet({
               <button
                 type="button"
                 onClick={() =>
+                  onUpdateItem(item.id, { wantToReread: !item.wantToReread })
+                }
+                className={`flex min-h-[44px] items-center justify-center gap-2 rounded-xl border py-2.5 text-xs font-medium transition-colors ${
+                  item.wantToReread
+                    ? 'border-accent/60 bg-accent/15 text-accent'
+                    : 'border-line bg-app text-muted hover:text-ink'
+                }`}
+              >
+                <RotateCcw className="h-3.5 w-3.5" strokeWidth={1.5} />
+                <span>{item.wantToReread ? 'Para reler (ativo)' : 'Para reler'}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() =>
                   onUpdateItem(item.id, { isWishlist: !item.isWishlist })
                 }
-                className={`flex items-center justify-center gap-2 rounded-xl border py-2.5 text-xs font-medium transition-colors ${
+                className={`flex min-h-[44px] items-center justify-center gap-2 rounded-xl border py-2.5 text-xs font-medium transition-colors ${
                   item.isWishlist
                     ? 'border-accent/60 bg-accent/15 text-accent'
                     : 'border-line bg-app text-muted hover:text-ink'
@@ -700,6 +838,18 @@ export function ItemDetailSheet({
                 {ui.detail.wishlistLabel}
               </button>
             </div>
+
+            <button
+              type="button"
+              onClick={() => {
+                downloadWorkMarkdown(item);
+                showToast({ message: 'Ficha exportada em Markdown (.md).', type: 'success' });
+              }}
+              className="mt-3 flex min-h-[44px] w-full items-center justify-center gap-1.5 rounded-xl border border-line bg-app py-2.5 text-xs font-medium text-ink transition-colors hover:border-accent"
+            >
+              <Download className="h-3.5 w-3.5 text-accent" strokeWidth={1.5} />
+              <span>Exportar notas e ficha (.md)</span>
+            </button>
 
             <button
               type="button"

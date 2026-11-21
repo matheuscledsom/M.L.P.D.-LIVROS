@@ -16,16 +16,25 @@ export const VERSIONING_RULES = {
 };
 
 export const CODICE_RELEASE = {
-  version: '4.15.0',
+  version: '4.16.0',
   codename: 'Ymir',
-  label: 'v4.15.0 · Ymir',
+  label: 'v4.16.0 · Ymir',
   releaseType: 'minor',
   date: '2026-11',
   summary:
-    'Motion FLIP, Skeletons com forma, Passaporte do Leitor SVG, 2 dias de descanso/mês, Modo Calmo e som tátil de página opt-in',
+    'Power user: atalhos globais (?), importador Goodreads/StoryGraph/Calibre/Lista com detector de duplicadas, scanner ISBN, tags, Para reler, empréstimos, Markdown e Undo universal',
 };
 
 export const RELEASE_HISTORY = [
+  {
+    version: '4.16.0',
+    codename: 'Ymir',
+    label: 'v4.16.0 · Ymir',
+    releaseType: 'minor',
+    date: '2026-11',
+    summary: 'Power user: atalhos globais (?), importador Goodreads/StoryGraph/Calibre/Lista com detector de duplicadas, scanner ISBN, tags, Para reler, empréstimos, Markdown e Undo universal',
+    highlights: ['Release automatizado via bump-version.mjs.'],
+  },
   {
     version: '4.15.0',
     codename: 'Ymir',

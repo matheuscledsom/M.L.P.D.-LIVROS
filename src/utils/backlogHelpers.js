@@ -646,3 +646,20 @@ export function syncSeriesProgressFields(raw = {}, isCompleted = false) {
     ownedVolumes,
   };
 }
+
+export function normalizeTagsList(rawTags) {
+  if (!Array.isArray(rawTags)) return [];
+  return Array.from(
+    new Set(
+      rawTags
+        .map((t) => String(t || '').trim().replace(/^#/, '').slice(0, 32))
+        .filter(Boolean)
+    )
+  ).slice(0, 24);
+}
+
+export function isLoanOverdue(item, thresholdDays = 30) {
+  if (!item?.loanedTo || !item?.loanedAt) return false;
+  const diff = diffCalendarDays(String(item.loanedAt).slice(0, 10), getTodayLocalISO());
+  return typeof diff === 'number' && diff >= thresholdDays;
+}

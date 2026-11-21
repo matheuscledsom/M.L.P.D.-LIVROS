@@ -137,6 +137,16 @@ const CommandPalette = lazy(() =>
     default: m.CommandPalette,
   }))
 );
+const KeyboardShortcutsModal = lazy(() =>
+  import('./components/KeyboardShortcutsModal').then((m) => ({
+    default: m.KeyboardShortcutsModal,
+  }))
+);
+const ImportCatalogModal = lazy(() =>
+  import('./components/ImportCatalogModal').then((m) => ({
+    default: m.ImportCatalogModal,
+  }))
+);
 
 const ReaderShell = lazy(() =>
   import('./components/reader/ReaderShell').then((m) => ({
@@ -153,6 +163,8 @@ export function App() {
   const [themeModalOpen, setThemeModalOpen] = useState(false);
   const [digitalShelfOpen, setDigitalShelfOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [importCatalogOpen, setImportCatalogOpen] = useState(false);
   const [requestedCollectionId, setRequestedCollectionId] = useState(null);
   const [onboardingReopened, setOnboardingReopened] = useState(false);
   const [storedReaderWorkIds, setStoredReaderWorkIds] = useState([]);
@@ -241,6 +253,7 @@ export function App() {
     readingSessions,
     collections,
     addItem,
+    batchAddItems,
     updateItem,
     removeItem,
     batchUpdateItems,
@@ -430,15 +443,72 @@ export function App() {
 
   useEffect(() => {
     if (typeof window === 'undefined') return undefined;
+    let gChordUntil = 0;
     const handleGlobalKeys = (e) => {
       if ((e.ctrlKey || e.metaKey) && String(e.key || '').toLowerCase() === 'k') {
         e.preventDefault();
         setPaletteOpen((prev) => !prev);
+        return;
+      }
+
+      if (readerSession.open || paletteOpen || importCatalogOpen || themeModalOpen || backupModalOpen) {
+        return;
+      }
+
+      const tag = e.target?.tagName?.toLowerCase();
+      if (tag === 'input' || tag === 'textarea' || tag === 'select' || e.target?.isContentEditable) {
+        return;
+      }
+
+      if (e.key === '?' && !e.ctrlKey && !e.metaKey) {
+        e.preventDefault();
+        setShortcutsOpen((prev) => !prev);
+        return;
+      }
+
+      const lowerKey = String(e.key || '').toLowerCase();
+      const now = Date.now();
+      if (gChordUntil > now) {
+        gChordUntil = 0;
+        if (lowerKey === 'h') {
+          e.preventDefault();
+          setActiveTab('home');
+          return;
+        }
+        if (lowerKey === 'a') {
+          e.preventDefault();
+          setActiveTab('list');
+          return;
+        }
+        if (lowerKey === 'm') {
+          e.preventDefault();
+          setActiveTab('stats');
+          return;
+        }
+      }
+
+      if (lowerKey === 'g' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        gChordUntil = now + 900;
+        return;
+      }
+
+      if (e.key === '/' && !e.ctrlKey && !e.metaKey) {
+        e.preventDefault();
+        setActiveTab('list');
+        requestAnimationFrame(() => {
+          document.querySelector('input[aria-label="Buscar obras no acervo"]')?.focus();
+        });
+        return;
+      }
+
+      if (lowerKey === 'n' && !e.ctrlKey && !e.metaKey && !e.altKey && !shortcutsOpen) {
+        e.preventDefault();
+        setActiveTab('add');
       }
     };
     window.addEventListener('keydown', handleGlobalKeys);
     return () => window.removeEventListener('keydown', handleGlobalKeys);
-  }, []);
+  }, [readerSession.open, paletteOpen, importCatalogOpen, themeModalOpen, backupModalOpen, shortcutsOpen]);
 
   const handleOpenReaderForWork = useCallback((work, file = null) => {
     if (!work) return;
@@ -698,15 +768,29 @@ export function App() {
   );
 
   const handleRemoveItem = (id) => {
-    const target = items.find((entry) => entry.id === id);
-    removeItem(id);
+    const snap = batchRemoveItems([id]);
+    const target = snap?.removedItems?.[0] || items.find((entry) => entry.id === id);
     removeStoredReaderBook(id).then(() => refreshStoredBookIds()).catch(() => {});
     if (target?.readerBookId && target.readerBookId !== id) {
       removeStoredReaderBook(target.readerBookId)
         .then(() => refreshStoredBookIds())
         .catch(() => {});
     }
-    showToast({ message: 'Obra removida do acervo', type: 'info' });
+    showToast({
+      message: 'Obra removida do acervo',
+      type: 'info',
+      duration: 8000,
+      action:
+        snap?.removedItems?.length > 0
+          ? {
+              label: 'Desfazer',
+              onClick: () => {
+                restoreRemovedItems(snap);
+                showToast({ message: 'Obra restaurada no acervo', type: 'success' });
+              },
+            }
+          : undefined,
+    });
   };
 
   const handleOpenJournalComposer = (itemId = null) => {
@@ -1397,6 +1481,7 @@ export function App() {
               onAddItem={handleAddItem}
               onSelectExisting={(item) => setSelectedItemId(item.id)}
               onOpenGeminiSettings={() => setGeminiModalOpen(true)}
+              onOpenImportCatalog={() => setImportCatalogOpen(true)}
             />
           )}
           {activeTab === 'list' && (
@@ -1466,6 +1551,8 @@ export function App() {
               onOpenAuthModal={() => setAuthModalOpen(true)}
               onOpenGeminiSettings={() => setGeminiModalOpen(true)}
               onOpenThemeStudio={() => setThemeModalOpen(true)}
+              onOpenImportCatalog={() => setImportCatalogOpen(true)}
+              onOpenShortcuts={() => setShortcutsOpen(true)}
               onSaveGeminiKey={(key) => {
                 saveApiKey(key);
                 showToast({
@@ -1937,6 +2024,29 @@ export function App() {
                 } else {
                   applySpecialTheme('focus-dim');
                 }
+              }}
+            />
+          )}
+
+          {shortcutsOpen && (
+            <KeyboardShortcutsModal
+              isOpen={shortcutsOpen}
+              onClose={() => setShortcutsOpen(false)}
+            />
+          )}
+
+          {importCatalogOpen && (
+            <ImportCatalogModal
+              isOpen={importCatalogOpen}
+              onClose={() => setImportCatalogOpen(false)}
+              existingItems={items}
+              onCommitImport={(records) => {
+                const inserted = batchAddItems(records);
+                showToast({
+                  message: `${inserted.length} obra(s) importada(s) para o acervo.`,
+                  type: 'success',
+                });
+                if (inserted.length > 0) setActiveTab('list');
               }}
             />
           )}

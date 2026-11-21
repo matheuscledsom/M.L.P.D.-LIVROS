@@ -15,6 +15,7 @@ export const DEFAULT_READER_SETTINGS = {
   sepiaWarmth: 50,
   brightnessPct: 100,
   focusRuler: false,
+  scheduledNightTheme: false,
   touchGesturesEnabled: true,
   fontId: 'lora',
   fontSizePct: 110,
@@ -71,6 +72,7 @@ export function normalizeReaderSettings(rawSettings = {}) {
       Math.min(100, Number(merged.brightnessPct ?? 100) || 100)
     ),
     focusRuler: Boolean(merged.focusRuler),
+    scheduledNightTheme: Boolean(merged.scheduledNightTheme),
     touchGesturesEnabled: merged.touchGesturesEnabled !== false,
     fontSizePct: Math.max(80, Math.min(200, Number(merged.fontSizePct) || 110)),
     lineHeight: Math.max(1.35, Math.min(2.1, Number(merged.lineHeight) || 1.65)),
@@ -604,10 +606,16 @@ export function useReaderProgress({
     setHighlights((prev) => prev.filter((h) => h.id !== highlightId));
   }, []);
 
-  const activeTheme = useMemo(
-    () => resolveReaderThemePalette(settings.theme, settings.sepiaWarmth),
-    [settings.theme, settings.sepiaWarmth]
-  );
+  const activeTheme = useMemo(() => {
+    let targetTheme = settings.theme;
+    if (settings.scheduledNightTheme) {
+      const hour = new Date().getHours();
+      if (hour >= 21 || hour < 6) {
+        targetTheme = 'oled';
+      }
+    }
+    return resolveReaderThemePalette(targetTheme, settings.sepiaWarmth);
+  }, [settings.theme, settings.sepiaWarmth, settings.scheduledNightTheme]);
 
   const telemetry = useMemo(
     () =>

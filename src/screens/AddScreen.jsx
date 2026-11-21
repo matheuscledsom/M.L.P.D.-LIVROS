@@ -1,4 +1,4 @@
-import { AlertCircle, Barcode, BookOpen, Check, ExternalLink, FileText, PenLine, Plus, RefreshCw, Search, SlidersHorizontal, Sparkles, X } from 'lucide-react';
+import { AlertCircle, Barcode, BookOpen, Camera, Check, ExternalLink, FileText, PenLine, Plus, RefreshCw, Search, SlidersHorizontal, Sparkles, X } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CoverArt } from '../components/CoverArt';
 import { LibraryCatalogSection } from '../components/LibraryCatalogSection';
@@ -37,6 +37,7 @@ import {
 } from '../utils/backlogHelpers';
 import { suggestLibraryClassification } from '../utils/catalogingClassification';
 import { buildPrefilledCatalogDraft } from '../utils/genreMapper';
+import { findDuplicateMatch } from '../utils/catalogImporters';
 import { GENRE_OPTIONS } from '../utils/readerPreferences';
 
 const MANUAL_PALETTES = [
@@ -136,6 +137,7 @@ export function AddScreen({
   onAddItem,
   onSelectExisting,
   onOpenGeminiSettings,
+  onOpenImportCatalog,
 }) {
   const [query, setQuery] = useState('');
   const [searchFilter, setSearchFilter] = useState(loadSavedSearchFilter);
@@ -185,8 +187,74 @@ export function AddScreen({
 
   const findExisting = (candidate) =>
     backlogLookup.byId.get(candidate.id) ||
-    backlogLookup.byTitle.get(candidate.title.trim().toLowerCase()) ||
+    backlogLookup.byTitle.get(candidate.title?.trim().toLowerCase()) ||
+    findDuplicateMatch(candidate, items) ||
     null;
+
+  const [scannerOpen, setScannerOpen] = useState(false);
+  const [scannerError, setScannerError] = useState('');
+  const videoRef = useRef(null);
+  const streamRef = useRef(null);
+
+  const stopBarcodeScanner = useCallback(() => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
+    }
+    setScannerOpen(false);
+  }, []);
+
+  useEffect(() => () => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((t) => t.stop());
+    }
+  }, []);
+
+  const handleOpenBarcodeScanner = async () => {
+    setScannerError('');
+    if (typeof window === 'undefined' || !('BarcodeDetector' in window) || !navigator?.mediaDevices?.getUserMedia) {
+      setScannerError('Leitura de código de barras pela câmera não suportada neste aparelho — digite o ISBN diretamente na busca.');
+      setScannerOpen(true);
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'environment' },
+      });
+      streamRef.current = stream;
+      setScannerOpen(true);
+      requestAnimationFrame(() => {
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          videoRef.current.play?.().catch(() => {});
+        }
+      });
+      const detector = new window.BarcodeDetector({
+        formats: ['ean_13', 'ean_8', 'isbn_13', 'upc_a'],
+      });
+      const scanTick = async () => {
+        if (!streamRef.current || !videoRef.current) return;
+        try {
+          const codes = await detector.detect(videoRef.current);
+          const isbnCode = codes.find((c) => /^\d{10,13}X?$/i.test(String(c.rawValue || '').trim()));
+          if (isbnCode) {
+            setQuery(String(isbnCode.rawValue).trim());
+            stopBarcodeScanner();
+            return;
+          }
+        } catch {
+          // Segue tentando no próximo frame
+        }
+        if (streamRef.current) {
+          setTimeout(scanTick, 350);
+        }
+      };
+      setTimeout(scanTick, 400);
+    } catch {
+      setScannerError('Não foi possível acessar a câmera. Digite o ISBN manualmente no campo de busca.');
+      setScannerOpen(true);
+    }
+  };
 
   const quickSuggestions = useMemo(() => {
     const libraryAuthors = Array.from(
@@ -738,41 +806,92 @@ export function AddScreen({
           <p className="mt-0.5 text-xs text-subtle">{add.subtitle}</p>
         </div>
 
-        <button
-          type="button"
-          onClick={openManualModal}
-          className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-accent/40 bg-accent/10 px-3 py-1.5 text-[11px] font-medium text-accent transition-colors hover:bg-accent/20"
-        >
-          <PenLine className="h-3 w-3" />
-          {add.manualButtonLabel}
-        </button>
+        <div className="flex flex-wrap items-center gap-1.5">
+          {onOpenImportCatalog && (
+            <button
+              type="button"
+              onClick={onOpenImportCatalog}
+              className="inline-flex min-h-[36px] shrink-0 items-center gap-1.5 rounded-full border border-line bg-card px-3 py-1.5 text-[11px] font-medium text-ink transition-colors hover:border-accent"
+            >
+              <span>Importar CSV / Lista</span>
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={openManualModal}
+            className="inline-flex min-h-[36px] shrink-0 items-center gap-1.5 rounded-full border border-accent/40 bg-accent/10 px-3 py-1.5 text-[11px] font-medium text-accent transition-colors hover:bg-accent/20"
+          >
+            <PenLine className="h-3 w-3" />
+            {add.manualButtonLabel}
+          </button>
+        </div>
       </header>
 
       <div className="sticky top-0 z-20 space-y-2.5 border-b border-line bg-app py-2">
-        <div className="relative flex items-center">
-          <Search
-            className="pointer-events-none absolute left-3.5 h-4 w-4 text-subtle"
-            strokeWidth={1.5}
-          />
-          <input
-            type="search"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={handleSearchKeyDown}
-            placeholder={add.searchPlaceholder}
-            className="w-full rounded-[6px] border border-line bg-card py-3 pl-10 pr-10 text-sm text-ink placeholder:text-subtle focus:border-accent focus:outline-none"
-          />
-          {query && (
-            <button
-              type="button"
-              onClick={() => setQuery('')}
-              aria-label="Limpar busca"
-              className="absolute right-3 rounded-[4px] p-1 text-subtle hover:text-ink"
-            >
-              <X className="h-3.5 w-3.5" strokeWidth={1.5} />
-            </button>
-          )}
+        <div className="relative flex items-center gap-2">
+          <div className="relative flex flex-1 items-center">
+            <Search
+              className="pointer-events-none absolute left-3.5 h-4 w-4 text-subtle"
+              strokeWidth={1.5}
+            />
+            <input
+              type="search"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={handleSearchKeyDown}
+              placeholder={add.searchPlaceholder}
+              className="w-full rounded-[6px] border border-line bg-card py-3 pl-10 pr-10 text-sm text-ink placeholder:text-subtle focus:border-accent focus:outline-none"
+            />
+            {query && (
+              <button
+                type="button"
+                onClick={() => setQuery('')}
+                aria-label="Limpar busca"
+                className="absolute right-3 rounded-[4px] p-1 text-subtle hover:text-ink"
+              >
+                <X className="h-3.5 w-3.5" strokeWidth={1.5} />
+              </button>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={scannerOpen ? stopBarcodeScanner : handleOpenBarcodeScanner}
+            aria-label="Escanear código de barras ISBN com a câmera"
+            title="Escanear ISBN (câmera com fallback manual)"
+            className={`inline-flex min-h-[44px] min-w-[44px] shrink-0 items-center justify-center rounded-[6px] border px-2.5 text-xs font-medium transition-colors ${
+              scannerOpen
+                ? 'border-accent bg-accent/15 text-accent'
+                : 'border-line bg-card text-muted hover:border-accent hover:text-ink'
+            }`}
+          >
+            <Camera className="h-4 w-4" strokeWidth={1.5} />
+          </button>
         </div>
+
+        {scannerOpen && (
+          <div className="rounded-[6px] border border-line bg-card p-3 space-y-2">
+            <div className="flex items-center justify-between gap-2 text-xs">
+              <span className="font-semibold text-ink">Leitor de Código ISBN</span>
+              <button
+                type="button"
+                onClick={stopBarcodeScanner}
+                className="text-[11px] font-medium text-accent hover:underline"
+              >
+                Fechar câmera
+              </button>
+            </div>
+            {scannerError ? (
+              <p className="text-[11px] text-muted">{scannerError}</p>
+            ) : (
+              <video
+                ref={videoRef}
+                playsInline
+                muted
+                className="h-40 w-full rounded-[4px] border border-line bg-app object-cover"
+              />
+            )}
+          </div>
+        )}
 
         {/* Sugestões rápidas clicáveis quando o campo está vazio */}
         {!query.trim() && quickSuggestions.length > 0 && (
@@ -1543,10 +1662,36 @@ export function AddScreen({
               />
             </div>
 
+            {(() => {
+              const dup = findDuplicateMatch(draftItem, items);
+              return dup ? (
+                <div
+                  role="status"
+                  className="mt-4 flex items-center justify-between gap-2 rounded-[4px] border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-ink"
+                >
+                  <span className="truncate">
+                    Já catalogada no acervo: <strong>{dup.title}</strong>
+                  </span>
+                  {onSelectExisting && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDraftItem(null);
+                        onSelectExisting(dup);
+                      }}
+                      className="shrink-0 font-semibold text-accent hover:underline"
+                    >
+                      Abrir ficha
+                    </button>
+                  )}
+                </div>
+              ) : null;
+            })()}
+
             <button
               type="button"
               onClick={handleConfirmAdd}
-              className="mt-6 min-h-[44px] w-full rounded-[4px] bg-accent py-3 text-sm font-semibold text-accent-ink transition-opacity hover:opacity-90"
+              className="mt-4 min-h-[44px] w-full rounded-[4px] bg-accent py-3 text-sm font-semibold text-accent-ink transition-opacity hover:opacity-90"
             >
               {add.drawerSaveLabel}
             </button>
@@ -1778,9 +1923,36 @@ export function AddScreen({
               />
             </div>
 
+            {(() => {
+              const dup = findDuplicateMatch(manualDraft, items);
+              return dup ? (
+                <div
+                  role="status"
+                  className="mt-4 flex items-center justify-between gap-2 rounded-[4px] border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-ink"
+                >
+                  <span className="truncate">
+                    Já catalogada no acervo: <strong>{dup.title}</strong>
+                  </span>
+                  {onSelectExisting && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setManualOpen(false);
+                        setManualDraft(null);
+                        onSelectExisting(dup);
+                      }}
+                      className="shrink-0 font-semibold text-accent hover:underline"
+                    >
+                      Abrir ficha
+                    </button>
+                  )}
+                </div>
+              ) : null;
+            })()}
+
             <button
               type="submit"
-              className="mt-6 w-full rounded-2xl bg-accent py-3 text-sm font-semibold text-accent-ink transition-opacity hover:opacity-90"
+              className="mt-4 w-full rounded-2xl bg-accent py-3 text-sm font-semibold text-accent-ink transition-opacity hover:opacity-90"
             >
               {add.drawerSaveLabel}
             </button>

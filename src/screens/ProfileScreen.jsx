@@ -95,6 +95,8 @@ export function ProfileScreen({
   onExportBibtex,
   onImportBackup,
   onOpenBackupModal,
+  onOpenImportCatalog,
+  onOpenShortcuts,
   onWallMutated,
   onSelectPeerProfile,
 }) {
@@ -934,6 +936,8 @@ export function ProfileScreen({
         onExportBibtex={onExportBibtex}
         onImportBackupClick={() => fileInputRef.current?.click()}
         onOpenBackupModal={onOpenBackupModal}
+        onOpenImportCatalog={onOpenImportCatalog}
+        onOpenShortcuts={onOpenShortcuts}
         aiPanelSlot={
           <AiProvidersPanel
             keys={resolvedAiConfig.keys}
