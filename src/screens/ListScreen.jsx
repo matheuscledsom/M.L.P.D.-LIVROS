@@ -19,7 +19,15 @@ import {
   Table2,
   X,
 } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import {
+  memo,
+  startTransition,
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { CollectionCreatorBar } from '../components/CollectionCreatorBar';
 import { CoverArt } from '../components/CoverArt';
 import { OfflineBookPickerModal } from '../components/OfflineBookPickerModal';
@@ -28,6 +36,7 @@ import { StatusBadge } from '../components/StatusBadge';
 import { VectorIcon } from '../components/VectorIcon';
 import { isFlagEnabled } from '../config/flags';
 import { SpineRenderer } from '../graphics/SpineRenderer';
+import { WORKER_ITEM_THRESHOLD, queryLibraryIndex } from '../workers/searchIndexClient';
 import {
   domainConfig,
   getStatusConfig,
@@ -105,6 +114,104 @@ function getDisplayPagesCount(item) {
   return Number(item.totalPages) || Number(item.currentPage) || 0;
 }
 
+const LIST_WINDOW_BATCH = 60;
+
+const MemoGridCard = memo(function MemoGridCard({
+  item,
+  titleMode,
+  creatorField,
+  canDirectRead,
+  priority = false,
+  onSelectItem,
+  onOpenReader,
+}) {
+  const status = getStatusConfig(item.status);
+  const workMeta = getWorkTypeConfig(item.workType);
+  const progressMode = normalizeProgressMode(item.progressMode);
+  const itemPct = calculateWorkProgress(item);
+  const gridMetric =
+    item.workType === 'manga'
+      ? item.currentChapter > 0
+        ? `C.${item.currentChapter}`
+        : item.totalChapters > 0
+          ? `${item.totalChapters}c`
+          : ''
+      : item.status === 'playing' && progressMode === 'loc' && item.locCurrent > 0
+        ? `L.${item.locCurrent}`
+        : item.status === 'playing' &&
+            (progressMode === 'percent' || !(item.totalPages > 0)) &&
+            itemPct > 0
+          ? `${itemPct}%`
+          : (item.status === 'playing' || item.status === 'dropped'
+              ? item.currentPage
+              : item.totalPages) > 0
+            ? `${
+                item.status === 'playing' || item.status === 'dropped'
+                  ? item.currentPage
+                  : item.totalPages
+              }p`
+            : '';
+
+  const titles = getDisplayTitles(item, titleMode);
+
+  return (
+    <div
+      className="group flex flex-col text-left"
+      style={{ contain: 'layout paint' }}
+    >
+      <button
+        type="button"
+        onClick={() => onSelectItem(item)}
+        className="text-left focus:outline-none"
+      >
+        <div className="relative">
+          <CoverArt
+            item={item}
+            compact
+            priority={priority}
+            className="aspect-[2/3] w-full rounded-[4px] transition-transform duration-150 group-hover:scale-[1.02] group-hover:border-accent/50"
+          />
+          {item.isPlatinum && (
+            <span className="absolute left-1.5 top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-app/85 text-accent ring-1 ring-accent/60">
+              <Star className="h-3 w-3 fill-current" strokeWidth={1.5} />
+            </span>
+          )}
+          <span
+            title={status.label}
+            className={`absolute bottom-1.5 right-1.5 h-2 w-2 rounded-full ring-2 ring-app ${status.dotClass}`}
+          />
+        </div>
+        <p className="mt-1.5 truncate text-[11px] font-medium text-ink">
+          {titles.primary}
+        </p>
+        {titles.secondary && (
+          <p
+            className="truncate text-[10px] italic"
+            style={{ color: 'var(--text-secondary)' }}
+          >
+            {titles.secondary}
+          </p>
+        )}
+        <p className="truncate text-[10px] tabular-nums text-subtle">
+          {item[creatorField] || workMeta.shortLabel}
+          {gridMetric ? ` • ${gridMetric}` : ''}
+        </p>
+      </button>
+      {canDirectRead && (
+        <button
+          type="button"
+          onClick={() => onOpenReader(item)}
+          aria-label={`Ler ${item.title}`}
+          className="mt-1.5 inline-flex min-h-[32px] w-full items-center justify-center gap-1 rounded-[4px] border border-line bg-card px-2 py-1 text-[11px] font-medium text-ink transition-colors hover:border-accent hover:text-accent"
+        >
+          <BookOpen className="h-3 w-3 text-accent" strokeWidth={1.5} />
+          <span>Ler</span>
+        </button>
+      )}
+    </div>
+  );
+});
+
 export function ListScreen({
   items,
   profile = null,
@@ -131,11 +238,15 @@ export function ListScreen({
   const [collectionManagerOpen, setCollectionManagerOpen] = useState(false);
   const [rouletteOpen, setRouletteOpen] = useState(false);
   const [localQuery, setLocalQuery] = useState('');
+  const deferredQuery = useDeferredValue(localQuery);
   const [titleMode, setTitleMode] = useState(loadSavedTitleMode);
   const [sortBy, setSortBy] = useState('recent');
   const [layoutMode, setLayoutMode] = useState(loadSavedViewMode);
   const [groupBy, setGroupBy] = useState(loadSavedGroupBy);
   const [tableSort, setTableSort] = useState({ key: 'call', dir: 'asc' });
+  const [visibleLimit, setVisibleLimit] = useState(LIST_WINDOW_BATCH);
+  const [workerResult, setWorkerResult] = useState(null);
+  const loadMoreRef = useRef(null);
 
   useEffect(() => {
     try {
@@ -206,7 +317,7 @@ export function ListScreen({
       .map(([name, count]) => ({ name, count }));
   }, [backlogItems]);
 
-  const filteredAndSortedItems = useMemo(() => {
+  const syncFilteredItems = useMemo(() => {
     const byStatus =
       selectedStatus === 'all'
         ? backlogItems
@@ -233,7 +344,7 @@ export function ListScreen({
         ? byGenre
         : byGenre.filter((item) => String(item.format || '').trim() === selectedFormat);
 
-    const q = localQuery.trim().toLowerCase();
+    const q = deferredQuery.trim().toLowerCase();
     const filtered = !q
       ? byFormat
       : byFormat.filter((item) => {
@@ -283,11 +394,96 @@ export function ListScreen({
     selectedCollectionId,
     selectedGenre,
     selectedFormat,
-    localQuery,
+    deferredQuery,
     sortBy,
     cardFields.creator,
     cardFields.rating,
   ]);
+
+  useEffect(() => {
+    if (backlogItems.length <= WORKER_ITEM_THRESHOLD) {
+      setWorkerResult(null);
+      return undefined;
+    }
+    let active = true;
+    queryLibraryIndex(backlogItems, {
+      selectedStatus,
+      selectedWorkType,
+      selectedCollectionId,
+      selectedGenre,
+      selectedFormat,
+      query: deferredQuery,
+      sortBy,
+      creatorField: cardFields.creator,
+      ratingField: cardFields.rating,
+    }).then((result) => {
+      if (active && Array.isArray(result)) {
+        startTransition(() => {
+          setWorkerResult(result);
+        });
+      }
+    });
+    return () => {
+      active = false;
+    };
+  }, [
+    backlogItems,
+    selectedStatus,
+    selectedWorkType,
+    selectedCollectionId,
+    selectedGenre,
+    selectedFormat,
+    deferredQuery,
+    sortBy,
+    cardFields.creator,
+    cardFields.rating,
+  ]);
+
+  const filteredAndSortedItems =
+    backlogItems.length > WORKER_ITEM_THRESHOLD && Array.isArray(workerResult)
+      ? workerResult
+      : syncFilteredItems;
+
+  useEffect(() => {
+    setVisibleLimit(LIST_WINDOW_BATCH);
+  }, [
+    selectedStatus,
+    selectedWorkType,
+    selectedCollectionId,
+    selectedGenre,
+    selectedFormat,
+    deferredQuery,
+    sortBy,
+    layoutMode,
+  ]);
+
+  const visibleItems = useMemo(
+    () =>
+      filteredAndSortedItems.length > visibleLimit
+        ? filteredAndSortedItems.slice(0, visibleLimit)
+        : filteredAndSortedItems,
+    [filteredAndSortedItems, visibleLimit]
+  );
+
+  const hasMoreVisible = visibleItems.length < filteredAndSortedItems.length;
+
+  useEffect(() => {
+    if (!hasMoreVisible || !loadMoreRef.current || typeof IntersectionObserver === 'undefined') {
+      return undefined;
+    }
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) {
+          startTransition(() => {
+            setVisibleLimit((prev) => prev + LIST_WINDOW_BATCH);
+          });
+        }
+      },
+      { rootMargin: '220px' }
+    );
+    observer.observe(loadMoreRef.current);
+    return () => observer.disconnect();
+  }, [hasMoreVisible]);
 
   const tableSortedItems = useMemo(() => {
     const dirMul = tableSort.dir === 'asc' ? 1 : -1;
@@ -634,40 +830,13 @@ export function ListScreen({
         </div>
       ) : layoutMode === 'shelf' && isFlagEnabled('spineShelf') ? (
         <SpineRenderer
-          items={filteredAndSortedItems}
+          items={visibleItems}
           titleMode={titleMode}
           onSelectItem={onSelectItem}
         />
       ) : layoutMode === 'grid' ? (
         <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-2.5 sm:gap-3">
-          {filteredAndSortedItems.map((item) => {
-            const status = getStatusConfig(item.status);
-            const workMeta = getWorkTypeConfig(item.workType);
-            const progressMode = normalizeProgressMode(item.progressMode);
-            const itemPct = calculateWorkProgress(item);
-            const gridMetric =
-              item.workType === 'manga'
-                ? item.currentChapter > 0
-                  ? `C.${item.currentChapter}`
-                  : item.totalChapters > 0
-                    ? `${item.totalChapters}c`
-                    : ''
-                : item.status === 'playing' && progressMode === 'loc' && item.locCurrent > 0
-                  ? `L.${item.locCurrent}`
-                  : item.status === 'playing' &&
-                      (progressMode === 'percent' || !(item.totalPages > 0)) &&
-                      itemPct > 0
-                    ? `${itemPct}%`
-                    : (item.status === 'playing' || item.status === 'dropped'
-                        ? item.currentPage
-                        : item.totalPages) > 0
-                      ? `${
-                          item.status === 'playing' || item.status === 'dropped'
-                            ? item.currentPage
-                            : item.totalPages
-                        }p`
-                      : '';
-
+          {visibleItems.map((item, idx) => {
             const canDirectRead =
               Boolean(onOpenReader) &&
               (item.status === 'playing' ||
@@ -676,69 +845,22 @@ export function ListScreen({
                 (item.readerBookId && storedReaderWorkIds.includes(String(item.readerBookId))));
 
             return (
-              <div key={item.id} className="group flex flex-col text-left">
-                <button
-                  type="button"
-                  onClick={() => onSelectItem(item)}
-                  className="text-left focus:outline-none"
-                >
-                  <div className="relative">
-                    <CoverArt
-                      item={item}
-                      compact
-                      className="aspect-[2/3] w-full rounded-[4px] transition-transform duration-150 group-hover:scale-[1.02] group-hover:border-accent/50"
-                    />
-                    {item.isPlatinum && (
-                      <span className="absolute left-1.5 top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-app/85 text-accent ring-1 ring-accent/60">
-                        <Star className="h-3 w-3 fill-current" strokeWidth={1.5} />
-                      </span>
-                    )}
-                    <span
-                      title={status.label}
-                      className={`absolute bottom-1.5 right-1.5 h-2 w-2 rounded-full ring-2 ring-app ${status.dotClass}`}
-                    />
-                  </div>
-                  {(() => {
-                    const titles = getDisplayTitles(item, titleMode);
-                    return (
-                      <>
-                        <p className="mt-1.5 truncate text-[11px] font-medium text-ink">
-                          {titles.primary}
-                        </p>
-                        {titles.secondary && (
-                          <p
-                            className="truncate text-[10px] italic"
-                            style={{ color: 'var(--text-secondary)' }}
-                          >
-                            {titles.secondary}
-                          </p>
-                        )}
-                      </>
-                    );
-                  })()}
-                  <p className="truncate text-[10px] tabular-nums text-subtle">
-                    {item[cardFields.creator] || workMeta.shortLabel}
-                    {gridMetric ? ` • ${gridMetric}` : ''}
-                  </p>
-                </button>
-                {canDirectRead && (
-                  <button
-                    type="button"
-                    onClick={() => onOpenReader(item)}
-                    aria-label={`Ler ${item.title}`}
-                    className="mt-1.5 inline-flex min-h-[32px] w-full items-center justify-center gap-1 rounded-[4px] border border-line bg-card px-2 py-1 text-[11px] font-medium text-ink transition-colors hover:border-accent hover:text-accent"
-                  >
-                    <BookOpen className="h-3 w-3 text-accent" strokeWidth={1.5} />
-                    <span>Ler</span>
-                  </button>
-                )}
-              </div>
+              <MemoGridCard
+                key={item.id}
+                item={item}
+                titleMode={titleMode}
+                creatorField={cardFields.creator}
+                canDirectRead={canDirectRead}
+                priority={idx < 6}
+                onSelectItem={onSelectItem}
+                onOpenReader={onOpenReader}
+              />
             );
           })}
         </div>
       ) : layoutMode === 'detailed' ? (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
-          {filteredAndSortedItems.map((item) => {
+          {visibleItems.map((item) => {
             const workMeta = getWorkTypeConfig(item.workType);
             const pace =
               item.status === 'completed' && item.workType !== 'manga'
@@ -1206,6 +1328,20 @@ export function ListScreen({
               </div>
             </section>
           ))}
+        </div>
+      )}
+
+      {hasMoreVisible && (
+        <div ref={loadMoreRef} className="flex justify-center pt-2">
+          <button
+            type="button"
+            onClick={() =>
+              startTransition(() => setVisibleLimit((prev) => prev + LIST_WINDOW_BATCH))
+            }
+            className="min-h-[44px] rounded-[4px] border border-line bg-card px-4 py-2 text-xs font-medium text-ink transition-colors hover:border-accent"
+          >
+            Mostrar mais ({filteredAndSortedItems.length - visibleItems.length} restantes)
+          </button>
         </div>
       )}
 

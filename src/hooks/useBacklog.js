@@ -371,19 +371,43 @@ export function useBacklog() {
   const [collections, setCollections] = useState(loadInitialCollections);
 
   useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
-    } catch {
-      // Ignora erro caso quota de storage esteja indisponível
+    const flush = () => {
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
+      } catch {
+        // Ignora erro caso quota de storage esteja indisponível
+      }
+    };
+    const timer = setTimeout(flush, 180);
+    if (typeof window !== 'undefined') {
+      window.addEventListener('pagehide', flush);
     }
+    return () => {
+      clearTimeout(timer);
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('pagehide', flush);
+      }
+    };
   }, [items]);
 
   useEffect(() => {
-    try {
-      localStorage.setItem(SESSIONS_STORAGE_KEY, JSON.stringify(readingSessions));
-    } catch {
-      // Ignora erro caso quota de storage esteja indisponível
+    const flushSessions = () => {
+      try {
+        localStorage.setItem(SESSIONS_STORAGE_KEY, JSON.stringify(readingSessions));
+      } catch {
+        // Ignora erro caso quota de storage esteja indisponível
+      }
+    };
+    const timer = setTimeout(flushSessions, 180);
+    if (typeof window !== 'undefined') {
+      window.addEventListener('pagehide', flushSessions);
     }
+    return () => {
+      clearTimeout(timer);
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('pagehide', flushSessions);
+      }
+    };
   }, [readingSessions]);
 
   useEffect(() => {

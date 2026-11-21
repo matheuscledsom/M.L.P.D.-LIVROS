@@ -1,7 +1,13 @@
 import { domainConfig } from '../config/domainConfig';
 import { CoverImage } from './CoverImage';
 
-export function CoverArt({ item, className = '', showTitle = false, compact = false }) {
+export function CoverArt({
+  item,
+  className = '',
+  showTitle = false,
+  compact = false,
+  priority = false,
+}) {
   if (!item) return null;
 
   const primaryBadge = item[domainConfig.cardFields.primary];
@@ -39,6 +45,7 @@ export function CoverArt({ item, className = '', showTitle = false, compact = fa
       className={className}
       showTitle={showTitle}
       compact={compact}
+      priority={priority}
     />
   );
 }

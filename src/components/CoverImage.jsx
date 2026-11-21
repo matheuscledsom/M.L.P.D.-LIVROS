@@ -2,6 +2,7 @@ import { BookOpen, GraduationCap, Layers } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { isFlagEnabled } from '../config/flags';
 import { buildGeneratedCoverDataUri } from '../graphics/coverGenerator';
+import { getCachedThumbnail, optimizeCoverThumbnail } from '../services/imagePipeline';
 
 const WORK_ICONS = {
   book: BookOpen,
@@ -30,6 +31,7 @@ export function CoverImage({
   showTitle = false,
   compact = false,
   badge = null,
+  priority = false,
 }) {
   const cleanSources = useMemo(() => {
     const list = Array.isArray(sources) ? sources : [sources];
@@ -41,15 +43,30 @@ export function CoverImage({
   const sourcesKey = cleanSources.join('|');
   const [activeIndex, setActiveIndex] = useState(0);
   const [loadedSrc, setLoadedSrc] = useState(null);
+  const [cachedThumb, setCachedThumb] = useState(null);
 
   useEffect(() => {
     setActiveIndex(0);
     setLoadedSrc(null);
+    setCachedThumb(null);
   }, [sourcesKey]);
 
   const currentSrc =
     activeIndex < cleanSources.length ? cleanSources[activeIndex] : null;
-  const isLoaded = Boolean(currentSrc && loadedSrc === currentSrc);
+  const effectiveSrc = cachedThumb || currentSrc;
+  const isLoaded = Boolean(effectiveSrc && loadedSrc === effectiveSrc);
+  const thumbKey = compact ? 'sm' : 'md';
+
+  useEffect(() => {
+    let active = true;
+    if (!currentSrc) return undefined;
+    getCachedThumbnail(currentSrc, thumbKey).then((hit) => {
+      if (active && hit) setCachedThumb(hit);
+    });
+    return () => {
+      active = false;
+    };
+  }, [currentSrc, thumbKey]);
 
   const FallbackIcon = WORK_ICONS[workType] || BookOpen;
   const generatedFallbackUri = useMemo(() => {
@@ -110,14 +127,15 @@ export function CoverImage({
         </div>
       )}
 
-      {currentSrc && (
+      {effectiveSrc && (
         <>
           <img
-            key={currentSrc}
-            src={currentSrc}
+            key={effectiveSrc}
+            src={effectiveSrc}
             alt={title || 'Capa da obra'}
-            loading="lazy"
+            loading={priority ? 'eager' : 'lazy'}
             decoding="async"
+            fetchPriority={priority ? 'high' : 'low'}
             referrerPolicy="no-referrer"
             onLoad={(e) => {
               if (
@@ -127,7 +145,10 @@ export function CoverImage({
                 handleImageError();
                 return;
               }
-              setLoadedSrc(currentSrc);
+              setLoadedSrc(effectiveSrc);
+              if (!cachedThumb && currentSrc) {
+                optimizeCoverThumbnail(currentSrc, thumbKey, title).catch(() => {});
+              }
             }}
             onError={handleImageError}
             className={`relative h-full w-full object-cover transition-opacity duration-150 ${

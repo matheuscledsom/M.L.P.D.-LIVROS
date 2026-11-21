@@ -1,22 +1,9 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { UserCheck, UserPlus, X } from 'lucide-react';
-import { AuthModal } from './components/auth/AuthModal';
-import { BackupRestoreModal } from './components/BackupRestoreModal';
 import { BottomNav } from './components/BottomNav';
 import { ErrorBoundary } from './components/ErrorBoundary';
-import { GraphicFilters } from './design/GraphicFilters';
-import { GeminiConfigModal } from './components/GeminiConfigModal';
-import { ItemDetailSheet } from './components/ItemDetailSheet';
-import { JournalComposerModal } from './components/JournalComposerModal';
-import { OnboardingFlow } from './components/OnboardingFlow';
-import { DigitalShelfModal } from './components/reader/DigitalShelfModal';
-import { ThemeModal } from './components/ThemeModal';
-import { CommunityScreen } from './components/social/CommunityScreen';
-import { DirectChatDrawer } from './components/social/DirectChatDrawer';
-import { FriendProfileCardModal } from './components/social/FriendProfileCardModal';
-import { ShareProfileCardModal } from './components/social/ShareProfileCardModal';
-import { UserProfileModal } from './components/social/UserProfileModal';
 import { formatExactPercent } from './components/reader/useReaderProgress';
+import { GraphicFilters } from './design/GraphicFilters';
 import { useToast } from './context/ToastContext';
 import { useAiConfig } from './hooks/useAiConfig';
 import { useBacklog } from './hooks/useBacklog';
@@ -63,11 +50,84 @@ import {
   listStoredReaderBooks,
   removeStoredReaderBook,
 } from './services/readerStorage';
-import { AddScreen } from './screens/AddScreen';
 import { HomeScreen } from './screens/HomeScreen';
-import { ListScreen } from './screens/ListScreen';
-import { ProfileScreen } from './screens/ProfileScreen';
-import { StatsScreen } from './screens/StatsScreen';
+
+const StatsScreen = lazy(() =>
+  import('./screens/StatsScreen').then((m) => ({ default: m.StatsScreen }))
+);
+const AddScreen = lazy(() =>
+  import('./screens/AddScreen').then((m) => ({ default: m.AddScreen }))
+);
+const ListScreen = lazy(() =>
+  import('./screens/ListScreen').then((m) => ({ default: m.ListScreen }))
+);
+const CommunityScreen = lazy(() =>
+  import('./components/social/CommunityScreen').then((m) => ({
+    default: m.CommunityScreen,
+  }))
+);
+const ProfileScreen = lazy(() =>
+  import('./screens/ProfileScreen').then((m) => ({ default: m.ProfileScreen }))
+);
+const AuthModal = lazy(() =>
+  import('./components/auth/AuthModal').then((m) => ({ default: m.AuthModal }))
+);
+const BackupRestoreModal = lazy(() =>
+  import('./components/BackupRestoreModal').then((m) => ({
+    default: m.BackupRestoreModal,
+  }))
+);
+const GeminiConfigModal = lazy(() =>
+  import('./components/GeminiConfigModal').then((m) => ({
+    default: m.GeminiConfigModal,
+  }))
+);
+const ItemDetailSheet = lazy(() =>
+  import('./components/ItemDetailSheet').then((m) => ({
+    default: m.ItemDetailSheet,
+  }))
+);
+const JournalComposerModal = lazy(() =>
+  import('./components/JournalComposerModal').then((m) => ({
+    default: m.JournalComposerModal,
+  }))
+);
+const OnboardingFlow = lazy(() =>
+  import('./components/OnboardingFlow').then((m) => ({
+    default: m.OnboardingFlow,
+  }))
+);
+const DigitalShelfModal = lazy(() =>
+  import('./components/reader/DigitalShelfModal').then((m) => ({
+    default: m.DigitalShelfModal,
+  }))
+);
+const ThemeModal = lazy(() =>
+  import('./components/ThemeModal').then((m) => ({ default: m.ThemeModal }))
+);
+const DirectChatDrawer = lazy(() =>
+  import('./components/social/DirectChatDrawer').then((m) => ({
+    default: m.DirectChatDrawer,
+  }))
+);
+const FriendProfileCardModal = lazy(() =>
+  import('./components/social/FriendProfileCardModal').then((m) => ({
+    default: m.FriendProfileCardModal,
+  }))
+);
+const ShareProfileCardModal = lazy(() =>
+  import('./components/social/ShareProfileCardModal').then((m) => ({
+    default: m.ShareProfileCardModal,
+  }))
+);
+const UserProfileModal = lazy(() =>
+  import('./components/social/UserProfileModal').then((m) => ({
+    default: m.UserProfileModal,
+  }))
+);
+const PerfOverlay = lazy(() =>
+  import('./components/PerfOverlay').then((m) => ({ default: m.PerfOverlay }))
+);
 
 const ReaderShell = lazy(() =>
   import('./components/reader/ReaderShell').then((m) => ({
@@ -119,6 +179,10 @@ export function App() {
   const [savedPeerCards, setSavedPeerCards] = useState(() => listSavedPeerCards());
   const [backupReminderDismissed, setBackupReminderDismissed] = useState(false);
   const [backupReminderTick, setBackupReminderTick] = useState(0);
+  const perfDebugEnabled = useMemo(() => {
+    if (typeof window === 'undefined') return false;
+    return new URLSearchParams(window.location.search || '').get('perf') === '1';
+  }, []);
 
   const { showToast } = useToast();
 
@@ -1206,6 +1270,13 @@ export function App() {
             }
             onOpenBackup={() => setBackupModalOpen(true)}
           >
+          <Suspense
+            fallback={
+              <div className="py-12 text-center text-xs text-muted">
+                Carregando...
+              </div>
+            }
+          >
           {activeTab === 'home' && (
             <HomeScreen
               items={items}
@@ -1363,6 +1434,7 @@ export function App() {
               onSelectPeerProfile={(id) => setViewingUserProfileId(id)}
             />
           )}
+          </Suspense>
           </ErrorBoundary>
         </main>
 
@@ -1372,36 +1444,40 @@ export function App() {
           unreadDmCount={unreadDmCount}
         />
 
-        <ItemDetailSheet
-          item={selectedItem}
-          posts={posts}
-          collections={collections}
-          geminiKey={geminiKey}
-          viewerId={activeViewerId}
-          hasStoredFile={Boolean(
-            selectedItem &&
-              (selectedStoredBook ||
-                storedReaderWorkIds.includes(selectedItem.id) ||
-                (selectedItem.readerBookId &&
-                  storedReaderWorkIds.includes(selectedItem.readerBookId)))
+        <Suspense fallback={null}>
+          {Boolean(selectedItem) && (
+            <ItemDetailSheet
+              item={selectedItem}
+              posts={posts}
+              collections={collections}
+              geminiKey={geminiKey}
+              viewerId={activeViewerId}
+              hasStoredFile={Boolean(
+                selectedItem &&
+                  (selectedStoredBook ||
+                    storedReaderWorkIds.includes(selectedItem.id) ||
+                    (selectedItem.readerBookId &&
+                      storedReaderWorkIds.includes(selectedItem.readerBookId)))
+              )}
+              storedFileMeta={selectedStoredBook}
+              onClose={() => setSelectedItemId(null)}
+              onUpdateItem={handleUpdateItem}
+              onToggleCollection={toggleWorkCollection}
+              onCreateCollection={createCollection}
+              onRemoveItem={handleRemoveItem}
+              onRemoveStoredFile={(work, meta) =>
+                handleRemoveStoredBook(
+                  meta?.bookId || work?.readerBookId || work?.id
+                )
+              }
+              onOpenJournal={handleOpenJournalComposer}
+              onOpenReader={handleOpenReaderForWork}
+              onOpenGeminiSettings={() => setGeminiModalOpen(true)}
+              onRecommendToFeed={handleRecommendWorkToFeed}
+              onSocialActivityChanged={refreshSocialSignals}
+            />
           )}
-          storedFileMeta={selectedStoredBook}
-          onClose={() => setSelectedItemId(null)}
-          onUpdateItem={handleUpdateItem}
-          onToggleCollection={toggleWorkCollection}
-          onCreateCollection={createCollection}
-          onRemoveItem={handleRemoveItem}
-          onRemoveStoredFile={(work, meta) =>
-            handleRemoveStoredBook(
-              meta?.bookId || work?.readerBookId || work?.id
-            )
-          }
-          onOpenJournal={handleOpenJournalComposer}
-          onOpenReader={handleOpenReaderForWork}
-          onOpenGeminiSettings={() => setGeminiModalOpen(true)}
-          onRecommendToFeed={handleRecommendWorkToFeed}
-          onSocialActivityChanged={refreshSocialSignals}
-        />
+        </Suspense>
 
         {readerSession.open && (
           <Suspense
@@ -1433,118 +1509,136 @@ export function App() {
           </Suspense>
         )}
 
-        <JournalComposerModal
-          isOpen={journalComposer.open}
-          onClose={() => setJournalComposer({ open: false, itemId: null })}
-          items={items}
-          initialItemId={journalComposer.itemId}
-          onPublish={handlePublishPost}
-        />
+        <Suspense fallback={null}>
+          {journalComposer.open && (
+            <JournalComposerModal
+              isOpen={journalComposer.open}
+              onClose={() => setJournalComposer({ open: false, itemId: null })}
+              items={items}
+              initialItemId={journalComposer.itemId}
+              onPublish={handlePublishPost}
+            />
+          )}
 
-        <GeminiConfigModal
-          isOpen={geminiModalOpen}
-          onClose={() => setGeminiModalOpen(false)}
-          apiKey={geminiKey}
-          aiConfig={aiConfig}
-          onSaveKey={(key) => {
-            saveApiKey(key);
-            showToast({
-              message: key ? 'Chave Google Gemini salva' : 'Chave Gemini removida',
-              type: 'success',
-            });
-          }}
-          onClearKey={() => {
-            clearApiKey();
-            showToast({ message: 'Chave Gemini removida', type: 'info' });
-          }}
-        />
+          {geminiModalOpen && (
+            <GeminiConfigModal
+              isOpen={geminiModalOpen}
+              onClose={() => setGeminiModalOpen(false)}
+              apiKey={geminiKey}
+              aiConfig={aiConfig}
+              onSaveKey={(key) => {
+                saveApiKey(key);
+                showToast({
+                  message: key ? 'Chave Google Gemini salva' : 'Chave Gemini removida',
+                  type: 'success',
+                });
+              }}
+              onClearKey={() => {
+                clearApiKey();
+                showToast({ message: 'Chave Gemini removida', type: 'info' });
+              }}
+            />
+          )}
 
-        <OnboardingFlow
-          isOpen={!profile.onboardingCompleted || onboardingReopened}
-          canDismiss={Boolean(profile.onboardingCompleted)}
-          profile={profile}
-          geminiKey={geminiKey}
-          onSelectThemeMode={setMode}
-          onApplyThemePreset={applyPreset}
-          onChangeAccentColor={setCustomAccentColor}
-          onSaveGeminiKey={saveApiKey}
-          onImportBackup={handleImportBackup}
-          onComplete={(updates) => {
-            handleUpdateProfileWithSync(updates, 'Perfil do leitor salvo');
-            setOnboardingReopened(false);
-          }}
-          onDismiss={() => setOnboardingReopened(false)}
-        />
+          {(!profile.onboardingCompleted || onboardingReopened) && (
+            <OnboardingFlow
+              isOpen={!profile.onboardingCompleted || onboardingReopened}
+              canDismiss={Boolean(profile.onboardingCompleted)}
+              profile={profile}
+              geminiKey={geminiKey}
+              onSelectThemeMode={setMode}
+              onApplyThemePreset={applyPreset}
+              onChangeAccentColor={setCustomAccentColor}
+              onSaveGeminiKey={saveApiKey}
+              onImportBackup={handleImportBackup}
+              onComplete={(updates) => {
+                handleUpdateProfileWithSync(updates, 'Perfil do leitor salvo');
+                setOnboardingReopened(false);
+              }}
+              onDismiss={() => setOnboardingReopened(false)}
+            />
+          )}
 
-        <BackupRestoreModal
-          isOpen={backupModalOpen}
-          onClose={() => setBackupModalOpen(false)}
-          currentWorkspace={{
-            items,
-            profile,
-            posts,
-            streak: streakData,
-            readingSessions,
-          }}
-          onExportBackup={handleExportBackup}
-          onExportCsv={handleExportCsv}
-          onExportBibtex={handleExportBibtex}
-          onApplyRestore={handleApplyRestoreSnapshot}
-        />
+          {backupModalOpen && (
+            <BackupRestoreModal
+              isOpen={backupModalOpen}
+              onClose={() => setBackupModalOpen(false)}
+              currentWorkspace={{
+                items,
+                profile,
+                posts,
+                streak: streakData,
+                readingSessions,
+              }}
+              onExportBackup={handleExportBackup}
+              onExportCsv={handleExportCsv}
+              onExportBibtex={handleExportBibtex}
+              onApplyRestore={handleApplyRestoreSnapshot}
+            />
+          )}
 
-        <DigitalShelfModal
-          isOpen={digitalShelfOpen}
-          onClose={() => setDigitalShelfOpen(false)}
-          works={items}
-          onOpenStoredBook={handleOpenStoredBook}
-          onRemoveStoredBook={handleRemoveStoredBook}
-          onSyncLinkedWork={(targetWork, extractedPosition) => {
-            if (extractedPosition) {
-              handleSyncWorkProgress(targetWork, extractedPosition);
-            }
-          }}
-          onShelfMutated={refreshStoredBookIds}
-        />
+          {digitalShelfOpen && (
+            <DigitalShelfModal
+              isOpen={digitalShelfOpen}
+              onClose={() => setDigitalShelfOpen(false)}
+              works={items}
+              onOpenStoredBook={handleOpenStoredBook}
+              onRemoveStoredBook={handleRemoveStoredBook}
+              onSyncLinkedWork={(targetWork, extractedPosition) => {
+                if (extractedPosition) {
+                  handleSyncWorkProgress(targetWork, extractedPosition);
+                }
+              }}
+              onShelfMutated={refreshStoredBookIds}
+            />
+          )}
 
-        <AuthModal
-          isOpen={authModalOpen}
-          onClose={() => setAuthModalOpen(false)}
-          backendSession={backendSession}
-          currentWorkspace={{
-            profile,
-            items,
-            posts,
-            streak: streakData,
-            readingSessions,
-          }}
-          onAuthSuccess={handleAuthSuccess}
-        />
+          {authModalOpen && (
+            <AuthModal
+              isOpen={authModalOpen}
+              onClose={() => setAuthModalOpen(false)}
+              backendSession={backendSession}
+              currentWorkspace={{
+                profile,
+                items,
+                posts,
+                streak: streakData,
+                readingSessions,
+              }}
+              onAuthSuccess={handleAuthSuccess}
+            />
+          )}
 
-        <UserProfileModal
-          isOpen={Boolean(viewingUserProfileId)}
-          profileId={viewingUserProfileId}
-          viewerId={activeViewerId}
-          onClose={() => setViewingUserProfileId(null)}
-          onOpenDirectChat={(peerId) => {
-            setViewingUserProfileId(null);
-            handleOpenDirectChat(peerId);
-          }}
-          onCopyBookToWishlist={handleCopyWorkToWishlist}
-          onSelectPeerProfile={(id) => setViewingUserProfileId(id)}
-          onFollowChanged={refreshSocialSignals}
-        />
+          {Boolean(viewingUserProfileId) && (
+            <UserProfileModal
+              isOpen={Boolean(viewingUserProfileId)}
+              profileId={viewingUserProfileId}
+              viewerId={activeViewerId}
+              onClose={() => setViewingUserProfileId(null)}
+              onOpenDirectChat={(peerId) => {
+                setViewingUserProfileId(null);
+                handleOpenDirectChat(peerId);
+              }}
+              onCopyBookToWishlist={handleCopyWorkToWishlist}
+              onSelectPeerProfile={(id) => setViewingUserProfileId(id)}
+              onFollowChanged={refreshSocialSignals}
+            />
+          )}
 
-        <DirectChatDrawer
-          isOpen={chatOpen}
-          onClose={() => setChatOpen(false)}
-          viewerId={activeViewerId}
-          initialPeerId={chatPeerId}
-          myShelfItems={items}
-          backendMode={backendSession?.mode || 'local'}
-          onOpenAuthModal={() => setAuthModalOpen(true)}
-          onCopyBookToWishlist={handleCopyWorkToWishlist}
-          onUnreadChanged={refreshSocialSignals}
-        />
+          {chatOpen && (
+            <DirectChatDrawer
+              isOpen={chatOpen}
+              onClose={() => setChatOpen(false)}
+              viewerId={activeViewerId}
+              initialPeerId={chatPeerId}
+              myShelfItems={items}
+              backendMode={backendSession?.mode || 'local'}
+              onOpenAuthModal={() => setAuthModalOpen(true)}
+              onCopyBookToWishlist={handleCopyWorkToWishlist}
+              onUnreadChanged={refreshSocialSignals}
+            />
+          )}
+        </Suspense>
 
         {inviteCandidate && (
           <div
@@ -1676,59 +1770,69 @@ export function App() {
           </div>
         )}
 
-        <ShareProfileCardModal
-          isOpen={shareProfileModalOpen}
-          onClose={() => setShareProfileModalOpen(false)}
-          profile={profile}
-          items={items}
-          activeTitleName={resolvedTitleBadge}
-          streakCount={streakCount}
-        />
-
-        <FriendProfileCardModal
-          isOpen={Boolean(friendCardModal)}
-          card={friendCardModal}
-          isAlreadySaved={Boolean(
-            friendCardModal &&
-              savedPeerCards.some(
-                (c) =>
-                  String(c.handle || '').toLowerCase() ===
-                  String(friendCardModal.handle || '').toLowerCase()
-              )
+        <Suspense fallback={null}>
+          {shareProfileModalOpen && (
+            <ShareProfileCardModal
+              isOpen={shareProfileModalOpen}
+              onClose={() => setShareProfileModalOpen(false)}
+              profile={profile}
+              items={items}
+              activeTitleName={resolvedTitleBadge}
+              streakCount={streakCount}
+            />
           )}
-          onClose={() => setFriendCardModal(null)}
-          onSaveFriend={handleSavePeerCard}
-          onCopyBookToWishlist={handleCopyWorkToWishlist}
-        />
 
-        <ThemeModal
-          isOpen={themeModalOpen}
-          onClose={() => setThemeModalOpen(false)}
-          mode={mode}
-          font={font}
-          texture={texture}
-          density={density}
-          motion={motion}
-          presetId={presetId}
-          specialThemeId={specialThemeId}
-          pastelSubpaletteId={pastelSubpaletteId}
-          pastelCustomColor={pastelCustomColor}
-          bgColor={bgColor}
-          accentColor={accentColor}
-          hasCustomBg={hasCustomBg}
-          onSelectMode={setMode}
-          onSelectFont={setFont}
-          onSelectTexture={setTexture}
-          onSelectDensity={setDensity}
-          onSelectMotion={setMotion}
-          onApplyPreset={applyPreset}
-          onApplySpecialTheme={applySpecialTheme}
-          onSelectPastelSubpalette={selectPastelSubpalette}
-          onChangePastelColor={setPastelCustomColor}
-          onChangeBgColor={setCustomBgColor}
-          onChangeAccentColor={setCustomAccentColor}
-          onResetTheme={resetCustomColors}
-        />
+          {Boolean(friendCardModal) && (
+            <FriendProfileCardModal
+              isOpen={Boolean(friendCardModal)}
+              card={friendCardModal}
+              isAlreadySaved={Boolean(
+                friendCardModal &&
+                  savedPeerCards.some(
+                    (c) =>
+                      String(c.handle || '').toLowerCase() ===
+                      String(friendCardModal.handle || '').toLowerCase()
+                  )
+              )}
+              onClose={() => setFriendCardModal(null)}
+              onSaveFriend={handleSavePeerCard}
+              onCopyBookToWishlist={handleCopyWorkToWishlist}
+            />
+          )}
+
+          {themeModalOpen && (
+            <ThemeModal
+              isOpen={themeModalOpen}
+              onClose={() => setThemeModalOpen(false)}
+              mode={mode}
+              font={font}
+              texture={texture}
+              density={density}
+              motion={motion}
+              presetId={presetId}
+              specialThemeId={specialThemeId}
+              pastelSubpaletteId={pastelSubpaletteId}
+              pastelCustomColor={pastelCustomColor}
+              bgColor={bgColor}
+              accentColor={accentColor}
+              hasCustomBg={hasCustomBg}
+              onSelectMode={setMode}
+              onSelectFont={setFont}
+              onSelectTexture={setTexture}
+              onSelectDensity={setDensity}
+              onSelectMotion={setMotion}
+              onApplyPreset={applyPreset}
+              onApplySpecialTheme={applySpecialTheme}
+              onSelectPastelSubpalette={selectPastelSubpalette}
+              onChangePastelColor={setPastelCustomColor}
+              onChangeBgColor={setCustomBgColor}
+              onChangeAccentColor={setCustomAccentColor}
+              onResetTheme={resetCustomColors}
+            />
+          )}
+
+          {perfDebugEnabled && <PerfOverlay />}
+        </Suspense>
       </div>
     </div>
   );
