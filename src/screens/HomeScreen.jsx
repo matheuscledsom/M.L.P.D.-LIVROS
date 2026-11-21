@@ -4,6 +4,7 @@ import {
   Dices,
   FilePlus2,
   Library,
+  Palette,
   Play,
   Plus,
   Sparkles,
@@ -61,6 +62,7 @@ export function HomeScreen({
   onNavigateList,
   onNavigateAdd,
   onOpenGeminiSettings,
+  onOpenThemeStudio,
 }) {
   const { showToast } = useToast();
   const { ui, cardFields, currentYear } = domainConfig;
@@ -256,6 +258,17 @@ export function HomeScreen({
             </button>
           </div>
         </div>
+        {onOpenThemeStudio && (
+          <button
+            type="button"
+            onClick={onOpenThemeStudio}
+            aria-label="Temas e Aparência"
+            className="inline-flex min-h-[44px] shrink-0 items-center gap-1.5 rounded-[4px] border border-line bg-card px-2.5 py-1.5 text-xs font-medium text-ink transition-colors hover:border-accent hover:text-accent"
+          >
+            <Palette className="h-4 w-4 text-accent" strokeWidth={1.5} />
+            <span className="hidden sm:inline">Temas &amp; Aparência</span>
+          </button>
+        )}
       </header>
 
       {profile?.gamificationEnabled !== false && streakProps && (

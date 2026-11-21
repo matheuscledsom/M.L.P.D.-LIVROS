@@ -10,6 +10,7 @@ import { ItemDetailSheet } from './components/ItemDetailSheet';
 import { JournalComposerModal } from './components/JournalComposerModal';
 import { OnboardingFlow } from './components/OnboardingFlow';
 import { DigitalShelfModal } from './components/reader/DigitalShelfModal';
+import { ThemeModal } from './components/ThemeModal';
 import { CommunityScreen } from './components/social/CommunityScreen';
 import { DirectChatDrawer } from './components/social/DirectChatDrawer';
 import { FriendProfileCardModal } from './components/social/FriendProfileCardModal';
@@ -80,6 +81,7 @@ export function App() {
   const [geminiModalOpen, setGeminiModalOpen] = useState(false);
   const [authModalOpen, setAuthModalOpen] = useState(false);
   const [backupModalOpen, setBackupModalOpen] = useState(false);
+  const [themeModalOpen, setThemeModalOpen] = useState(false);
   const [digitalShelfOpen, setDigitalShelfOpen] = useState(false);
   const [onboardingReopened, setOnboardingReopened] = useState(false);
   const [storedReaderWorkIds, setStoredReaderWorkIds] = useState([]);
@@ -1231,6 +1233,7 @@ export function App() {
               onNavigateList={() => setActiveTab('list')}
               onNavigateAdd={() => setActiveTab('add')}
               onOpenGeminiSettings={() => setGeminiModalOpen(true)}
+              onOpenThemeStudio={() => setThemeModalOpen(true)}
             />
           )}
           {activeTab === 'stats' && (
@@ -1264,6 +1267,7 @@ export function App() {
               onSelectItem={(item) => setSelectedItemId(item.id)}
               onOpenReader={handleOpenReaderForWork}
               onOpenDigitalShelf={() => setDigitalShelfOpen(true)}
+              onOpenThemeStudio={() => setThemeModalOpen(true)}
               onNavigateAdd={() => setActiveTab('add')}
               onOpenGeminiSettings={() => setGeminiModalOpen(true)}
             />
@@ -1307,6 +1311,7 @@ export function App() {
               onOpenShareProfileCard={() => setShareProfileModalOpen(true)}
               onOpenAuthModal={() => setAuthModalOpen(true)}
               onOpenGeminiSettings={() => setGeminiModalOpen(true)}
+              onOpenThemeStudio={() => setThemeModalOpen(true)}
               onSaveGeminiKey={(key) => {
                 saveApiKey(key);
                 showToast({
@@ -1694,6 +1699,35 @@ export function App() {
           onClose={() => setFriendCardModal(null)}
           onSaveFriend={handleSavePeerCard}
           onCopyBookToWishlist={handleCopyWorkToWishlist}
+        />
+
+        <ThemeModal
+          isOpen={themeModalOpen}
+          onClose={() => setThemeModalOpen(false)}
+          mode={mode}
+          font={font}
+          texture={texture}
+          density={density}
+          motion={motion}
+          presetId={presetId}
+          specialThemeId={specialThemeId}
+          pastelSubpaletteId={pastelSubpaletteId}
+          pastelCustomColor={pastelCustomColor}
+          bgColor={bgColor}
+          accentColor={accentColor}
+          hasCustomBg={hasCustomBg}
+          onSelectMode={setMode}
+          onSelectFont={setFont}
+          onSelectTexture={setTexture}
+          onSelectDensity={setDensity}
+          onSelectMotion={setMotion}
+          onApplyPreset={applyPreset}
+          onApplySpecialTheme={applySpecialTheme}
+          onSelectPastelSubpalette={selectPastelSubpalette}
+          onChangePastelColor={setPastelCustomColor}
+          onChangeBgColor={setCustomBgColor}
+          onChangeAccentColor={setCustomAccentColor}
+          onResetTheme={resetCustomColors}
         />
       </div>
     </div>

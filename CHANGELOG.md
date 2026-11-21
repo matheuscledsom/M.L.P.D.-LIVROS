@@ -17,6 +17,10 @@ npm run version:major -- --name="Odin"
 
 ---
 
+## [v4.3.0 · Ymir] — 2026-11
+
+**Resumo:** Fase 2: 6 temas distintos com miniaturas vivas, ResponsiveSheet, View Transitions e atalho global de Temas
+
 ## [v4.2.0 · Ymir] — 2026-11
 
 **Resumo:** Design System v2 com tokens em 3 camadas, ThemeEngine sem flash, fontes variáveis autohospedadas e motor gráfico nativo.

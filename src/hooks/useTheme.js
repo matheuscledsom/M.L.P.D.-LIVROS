@@ -4,6 +4,7 @@ import {
   MOTION_OPTIONS,
   applyThemeEngineAttributes,
   loadThemeEnginePrefs,
+  runWithViewTransition,
   saveThemeEnginePrefs,
 } from '../design/themeEngine';
 import {
@@ -155,14 +156,18 @@ export function useTheme() {
     }));
 
   const setMode = (mode) =>
-    setTheme((prev) => ({
-      ...prev,
-      mode,
-      presetId: null,
-      specialThemeId: null,
-      customBgColor: null,
-      customCardColor: null,
-    }));
+    runWithViewTransition(
+      () =>
+        setTheme((prev) => ({
+          ...prev,
+          mode,
+          presetId: null,
+          specialThemeId: null,
+          customBgColor: null,
+          customCardColor: null,
+        })),
+      enginePrefs.motion
+    );
 
   const setFont = (font) =>
     setTheme((prev) => ({
@@ -179,24 +184,32 @@ export function useTheme() {
   const applyPreset = (presetId) => {
     const preset = EDITORIAL_PRESETS.find((p) => p.id === presetId);
     if (!preset) return;
-    setTheme((prev) => ({
-      ...prev,
-      presetId: preset.id,
-      specialThemeId: null,
-      customBgColor: preset.bg,
-      customCardColor: preset.card,
-      customAccentColor: preset.accent,
-    }));
+    runWithViewTransition(
+      () =>
+        setTheme((prev) => ({
+          ...prev,
+          presetId: preset.id,
+          specialThemeId: null,
+          customBgColor: preset.bg,
+          customCardColor: preset.card,
+          customAccentColor: preset.accent,
+        })),
+      enginePrefs.motion
+    );
   };
 
   const applySpecialTheme = (specialThemeId) => {
     const special = SPECIAL_THEMES.find((item) => item.id === specialThemeId);
     if (!special) return;
-    setTheme((prev) => ({
-      ...prev,
-      specialThemeId: special.id,
-      presetId: null,
-    }));
+    runWithViewTransition(
+      () =>
+        setTheme((prev) => ({
+          ...prev,
+          specialThemeId: special.id,
+          presetId: null,
+        })),
+      enginePrefs.motion
+    );
   };
 
   const selectPastelSubpalette = (subpaletteId) => {

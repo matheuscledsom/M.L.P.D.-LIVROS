@@ -222,6 +222,24 @@ export function ProfileSettingsDrawer({
         </div>
 
         <div className="flex-1 divide-y divide-line overflow-y-auto no-scrollbar">
+          {/* Acesso Direto: Temas & Aparência */}
+          <section className="p-4">
+            <button
+              type="button"
+              onClick={() => {
+                onClose?.();
+                onOpenThemeStudio?.();
+              }}
+              className="flex min-h-[44px] w-full items-center justify-between gap-2 rounded-[4px] border border-accent/45 bg-accent/10 px-3 py-2 text-left text-xs font-semibold text-ink hover:bg-accent/15"
+            >
+              <span className="inline-flex items-center gap-2">
+                <Palette className="h-4 w-4 text-accent" strokeWidth={1.5} />
+                <span>Temas &amp; Aparência</span>
+              </span>
+              <span className="text-[11px] font-medium text-accent">Abrir agora</span>
+            </button>
+          </section>
+
           {/* 1. Conta & Sincronização Nuvem */}
           <section className="space-y-2.5 p-4">
             <div className="flex items-center justify-between gap-2">

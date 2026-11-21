@@ -164,13 +164,14 @@
 }
 
 :root[data-theme-style="glass-pastel"] :is(section.bg-card, article.bg-card, div.bg-card:not(.fixed)) {
-  background-color: color-mix(in srgb, var(--pastel-card-1, var(--bg-card)) 74%, rgba(255, 255, 255, 0.7));
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border-color: rgba(255, 255, 255, 0.85);
+  background-color: color-mix(in srgb, var(--pastel-card-1, var(--bg-card)) 74%, rgba(255, 255, 255, 0.72));
+  backdrop-filter: blur(22px) saturate(165%);
+  -webkit-backdrop-filter: blur(22px) saturate(165%);
+  border: 1px solid rgba(255, 255, 255, 0.85);
+  border-radius: 14px;
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.8),
-    0 8px 20px -12px rgba(30, 27, 46, 0.16);
+    inset 0 1px 0 rgba(255, 255, 255, 0.85),
+    var(--elev-2);
 }
 
 :root[data-theme-style="glass-pastel"] :is(article, section.bg-card):nth-of-type(5n+2) {
@@ -219,9 +220,14 @@
   }
 }
 
-/* 2. Windows XP Luna: creme classico, barra azul Luna e chanfro de 3px */
+/* 2. Windows XP Luna: creme classico, barra azul Luna, chanfro 3px e barra em blocos */
+:root[data-theme-style="win-xp"] {
+  --font-app: Tahoma, "Trebuchet MS", "Source Sans 3 Variable", sans-serif;
+}
+
 :root[data-theme-style="win-xp"] body {
   background-color: #ECE9D8;
+  font-family: Tahoma, "Trebuchet MS", "Source Sans 3 Variable", sans-serif;
 }
 
 :root[data-theme-style="win-xp"] header.pt-2 {
@@ -232,10 +238,10 @@
     #0044C2 88%,
     #003399 100%
   );
-  border: 2px solid #00359B;
-  border-radius: 6px 6px 3px 3px;
+  border: 3px solid #00359B;
+  border-radius: 6px 6px 2px 2px;
   padding: 10px 12px;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.65);
 }
 
 :root[data-theme-style="win-xp"] header.pt-2 :is(h1, h2, p, span:not(button span)) {
@@ -243,13 +249,30 @@
 }
 
 :root[data-theme-style="win-xp"] :is(section.bg-card, article.bg-card, article, div.bg-card:not(.fixed)) {
-  border-width: 2px;
+  border-width: 3px;
   border-style: solid;
-  border-color: #7F9DB9;
-  border-radius: 4px;
+  border-color: #0054E3;
+  border-radius: 6px 6px 3px 3px;
   box-shadow:
     inset 2px 2px 0 #FFFFFF,
-    inset -2px -2px 0 #CEC9B4;
+    inset -2px -2px 0 #ACA899,
+    var(--elev-1);
+}
+
+:root[data-theme-style="win-xp"] button.bg-card {
+  border: 2px solid #7F9DB9;
+  box-shadow:
+    inset 1px 1px 0 #FFFFFF,
+    inset -1px -1px 0 #ACA899;
+}
+
+:root[data-theme-style="win-xp"] .codice-goal-fill {
+  background: repeating-linear-gradient(
+    90deg,
+    #34A827 0 8px,
+    #58D047 8px 9px,
+    transparent 9px 12px
+  );
 }
 
 :root[data-theme-style="win-xp"] nav.fixed {
@@ -294,19 +317,29 @@
   background-color: var(--win7-glass, rgba(19, 30, 46, 0.72));
   background-image: linear-gradient(
     130deg,
-    rgba(255, 255, 255, 0.11) 0%,
+    rgba(255, 255, 255, 0.14) 0%,
     rgba(255, 255, 255, 0.03) 34%,
     transparent 35%,
-    rgba(56, 189, 248, 0.04) 76%,
-    rgba(255, 255, 255, 0.05) 100%
+    rgba(56, 189, 248, 0.05) 76%,
+    rgba(255, 255, 255, 0.07) 100%
   );
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
   border: 1px solid rgba(3, 8, 15, 0.92);
   box-shadow:
-    inset 0 0 0 1px rgba(255, 255, 255, 0.2),
-    inset 0 1px 0 rgba(255, 255, 255, 0.34),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.28),
+    inset 0 1px 0 rgba(255, 255, 255, 0.42),
     0 6px 18px -8px rgba(0, 0, 0, 0.55);
+}
+
+:root[data-theme-style="win-7"] button.bg-accent {
+  background-image: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.35) 0%,
+    rgba(255, 255, 255, 0.08) 49%,
+    transparent 50%
+  );
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55);
 }
 
 :root[data-theme-style="win-7"] nav.fixed {
@@ -404,13 +437,19 @@
   filter: grayscale(100%);
 }
 
-/* 6. Modo Foco: grafite fosco de baixo brilho e reducao de ruido visual */
+:root[data-theme-style="manga"] header.pt-2 h1 {
+  filter: url(#ink-bleed);
+}
+
+/* 6. Modo Foco: grafite fosco de baixo brilho, zero blur e economia de GPU */
 :root[data-theme-style="focus"] body {
   background-color: #111214;
 }
 
-:root[data-theme-style="focus"] :is(section.bg-card, article.bg-card, div.bg-card:not(.fixed)) {
-  box-shadow: none;
+:root[data-theme-style="focus"] :is(section.bg-card, article.bg-card, div.bg-card:not(.fixed), nav.fixed, button) {
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
   border-color: #262930;
 }
 

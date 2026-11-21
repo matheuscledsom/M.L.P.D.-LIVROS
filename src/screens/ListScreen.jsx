@@ -10,6 +10,7 @@ import {
   LayoutList,
   Library,
   MapPin,
+  Palette,
   Plus,
   Search,
   Star,
@@ -107,6 +108,7 @@ export function ListScreen({
   onSelectItem,
   onOpenReader,
   onOpenDigitalShelf,
+  onOpenThemeStudio,
   onNavigateAdd,
   onOpenGeminiSettings,
 }) {
@@ -341,6 +343,17 @@ export function ListScreen({
             >
               <Library className="h-3.5 w-3.5 text-accent" strokeWidth={1.5} />
               <span>Meus EPUBs</span>
+            </button>
+          )}
+          {onOpenThemeStudio && (
+            <button
+              type="button"
+              onClick={onOpenThemeStudio}
+              aria-label="Abrir Temas e Aparência"
+              className="inline-flex min-h-[44px] items-center gap-1.5 rounded-[4px] border border-line bg-card px-2.5 py-1.5 text-xs font-medium text-ink transition-colors hover:border-accent"
+            >
+              <Palette className="h-3.5 w-3.5 text-accent" strokeWidth={1.5} />
+              <span>Temas</span>
             </button>
           )}
         </div>

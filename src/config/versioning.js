@@ -16,16 +16,25 @@ export const VERSIONING_RULES = {
 };
 
 export const CODICE_RELEASE = {
-  version: '4.2.0',
+  version: '4.3.0',
   codename: 'Ymir',
-  label: 'v4.2.0 · Ymir',
+  label: 'v4.3.0 · Ymir',
   releaseType: 'minor',
   date: '2026-11',
   summary:
-    'Design System v2 com tokens em 3 camadas, ThemeEngine sem flash, fontes variáveis autohospedadas e motor gráfico nativo.',
+    'Fase 2: 6 temas distintos com miniaturas vivas, ResponsiveSheet, View Transitions e atalho global de Temas',
 };
 
 export const RELEASE_HISTORY = [
+  {
+    version: '4.3.0',
+    codename: 'Ymir',
+    label: 'v4.3.0 · Ymir',
+    releaseType: 'minor',
+    date: '2026-11',
+    summary: 'Fase 2: 6 temas distintos com miniaturas vivas, ResponsiveSheet, View Transitions e atalho global de Temas',
+    highlights: ['Release automatizado via bump-version.mjs.'],
+  },
   {
     version: '4.2.0',
     codename: 'Ymir',

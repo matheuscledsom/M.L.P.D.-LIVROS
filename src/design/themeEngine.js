@@ -1,3 +1,5 @@
+import { isFlagEnabled } from '../config/flags.js';
+
 export const THEME_PREFS_STORAGE_KEY = 'codice_theme_prefs_v2';
 
 export const DENSITY_OPTIONS = [
@@ -74,4 +76,26 @@ export function applyThemeEngineAttributes({
   }
   root.setAttribute('data-density', density === 'compact' ? 'compact' : 'comfortable');
   root.setAttribute('data-motion', resolveEffectiveMotion(motion));
+}
+
+export function runWithViewTransition(updateFn, motionPref = 'system') {
+  if (typeof updateFn !== 'function') return;
+  const effectiveMotion = resolveEffectiveMotion(motionPref);
+  const canAnimate =
+    effectiveMotion !== 'reduced' &&
+    isFlagEnabled('viewTransitions') &&
+    typeof document !== 'undefined' &&
+    typeof document.startViewTransition === 'function';
+
+  if (canAnimate) {
+    try {
+      document.startViewTransition(() => {
+        updateFn();
+      });
+      return;
+    } catch {
+      // Fallback direto sem transição
+    }
+  }
+  updateFn();
 }

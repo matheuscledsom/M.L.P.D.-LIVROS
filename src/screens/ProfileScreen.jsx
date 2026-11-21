@@ -80,6 +80,7 @@ export function ProfileScreen({
   onOpenShareProfileCard,
   onOpenAuthModal,
   onOpenGeminiSettings,
+  onOpenThemeStudio,
   onSaveGeminiKey,
   onReopenOnboarding,
   onUpdateProfile,
@@ -908,7 +909,13 @@ export function ProfileScreen({
         }}
         onOpenAuthModal={onOpenAuthModal}
         onUpdateProfile={onUpdateProfile}
-        onOpenThemeStudio={() => setThemeModalOpen(true)}
+        onOpenThemeStudio={() => {
+          if (onOpenThemeStudio) {
+            onOpenThemeStudio();
+          } else {
+            setThemeModalOpen(true);
+          }
+        }}
         themeProps={themeProps}
         onReopenOnboarding={onReopenOnboarding}
         onOpenGeminiSettings={onOpenGeminiSettings}
@@ -935,11 +942,13 @@ export function ProfileScreen({
         }
       />
 
-      <ThemeModal
-        isOpen={themeModalOpen}
-        onClose={() => setThemeModalOpen(false)}
-        {...themeProps}
-      />
+      {!onOpenThemeStudio && (
+        <ThemeModal
+          isOpen={themeModalOpen}
+          onClose={() => setThemeModalOpen(false)}
+          {...themeProps}
+        />
+      )}
 
       <ProfileEditModal
         isOpen={editModalOpen}
