@@ -1,3 +1,4 @@
+import { computeDnaWeightedScore } from '../services/dnaScoring.js';
 import { getTodayLocalISO } from './backlogHelpers.js';
 
 export function toLocalIsoDate(dateInput) {
@@ -262,5 +263,61 @@ export function pickRandomQueuedWork({
     picked: eligible[safeIndex],
     poolCount: pool.length,
     pool,
+  };
+}
+
+export function pickWeightedQueuedWork({
+  items = [],
+  filter = 'all',
+  storedReaderWorkIds = [],
+  readerDna = null,
+  lastPickedId = null,
+  rng = Math.random,
+} = {}) {
+  const pool = buildOfflinePickerPool({
+    items,
+    filter,
+    storedReaderWorkIds,
+  });
+
+  if (pool.length === 0) {
+    return { picked: null, poolCount: 0, totalPoolCount: 0, matchedReason: '', pool: [] };
+  }
+
+  const scored = pool.map((item) => ({
+    item,
+    dna: computeDnaWeightedScore(item, readerDna),
+  }));
+
+  const allowed = scored.filter((entry) => !entry.dna.excluded);
+  const safePool = allowed.length > 0 ? allowed : scored;
+  const eligible =
+    safePool.length > 1 && lastPickedId
+      ? safePool.filter((entry) => entry.item.id !== lastPickedId)
+      : safePool;
+
+  const weighted = eligible.map((entry) => ({
+    ...entry,
+    weight: Math.max(1, 10 + (Number(entry.dna?.bonus) || 0)),
+  }));
+
+  const totalWeight = weighted.reduce((acc, entry) => acc + entry.weight, 0);
+  let target = Math.max(0, Math.min(0.999999, rng())) * totalWeight;
+  let chosen = weighted[weighted.length - 1];
+
+  for (const entry of weighted) {
+    if (target < entry.weight) {
+      chosen = entry;
+      break;
+    }
+    target -= entry.weight;
+  }
+
+  return {
+    picked: chosen.item,
+    poolCount: allowed.length,
+    totalPoolCount: pool.length,
+    matchedReason: chosen.dna?.topDimensionLabel || '',
+    pool: allowed.map((entry) => entry.item),
   };
 }

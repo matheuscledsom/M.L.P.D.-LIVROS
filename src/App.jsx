@@ -50,6 +50,9 @@ import {
   listStoredReaderBooks,
   removeStoredReaderBook,
 } from './services/readerStorage';
+import {
+  syncSeriesProgressFields,
+} from './utils/backlogHelpers';
 import { HomeScreen } from './screens/HomeScreen';
 
 const StatsScreen = lazy(() =>
@@ -866,36 +869,68 @@ export function App() {
   };
 
   const handleQuickReadingCheckIn = useCallback(
-    ({ workId = null, pages = 0, note = '' } = {}) => {
+    ({ workId = null, pages = 0, chapters = 0, note = '' } = {}) => {
       const cleanPages = Math.max(0, Math.round(Number(pages) || 0));
+      const cleanChapters = Math.max(0, Math.round(Number(chapters) || 0));
       const cleanNote = String(note || '').trim();
-      if (cleanPages <= 0 && !cleanNote) return;
+      if (cleanPages <= 0 && cleanChapters <= 0 && !cleanNote) return;
 
       const targetWork = workId
         ? items.find((entry) => entry.id === workId)
         : null;
 
       if (targetWork) {
-        if (cleanPages > 0) {
+        if (cleanPages > 0 || cleanChapters > 0) {
           const prevPage = Math.max(0, Number(targetWork.currentPage) || 0);
           const total = Number(targetWork.totalPages) || 0;
           const nextPage =
-            total > 0 ? Math.min(total, prevPage + cleanPages) : prevPage + cleanPages;
+            cleanPages > 0
+              ? total > 0
+                ? Math.min(total, prevPage + cleanPages)
+                : prevPage + cleanPages
+              : prevPage;
+
           const updates = {
-            currentPage: nextPage,
             updatedAt: new Date().toISOString(),
             ...(targetWork.status === 'queued' ? { status: 'playing' } : {}),
           };
-          if (total > 0 && nextPage >= total) {
-            updates.progressPercent = 100;
+
+          if (cleanPages > 0) {
+            updates.currentPage = nextPage;
+            if (total > 0 && nextPage >= total) {
+              updates.progressPercent = 100;
+            }
           }
+
+          if (cleanChapters > 0) {
+            const prevChap = Math.max(
+              0,
+              Number(targetWork.chapterCurrent ?? targetWork.currentChapter) || 0
+            );
+            const totalChap = Number(targetWork.chapterTotal ?? targetWork.totalChapters) || 0;
+            const nextChap =
+              totalChap > 0
+                ? Math.min(totalChap, prevChap + cleanChapters)
+                : prevChap + cleanChapters;
+            Object.assign(
+              updates,
+              syncSeriesProgressFields(
+                { ...targetWork, currentChapter: nextChap, chapterCurrent: nextChap },
+                targetWork.status === 'completed'
+              )
+            );
+          }
+
           updateItem(targetWork.id, updates);
         }
 
         addReadingSession({
           workId: targetWork.id,
           pagesRead: cleanPages,
-          notes: cleanNote,
+          notes:
+            cleanChapters > 0 && !cleanNote
+              ? `+${cleanChapters} capítulo(s)`
+              : cleanNote,
         });
         registerToday({ note: cleanNote });
       } else {
@@ -908,9 +943,11 @@ export function App() {
 
       showToast({
         message:
-          cleanPages > 0
-            ? `+${cleanPages} ${cleanPages === 1 ? 'página registrada' : 'páginas registradas'} hoje`
-            : 'Reflexão de leitura salva',
+          cleanChapters > 0
+            ? `+${cleanChapters} ${cleanChapters === 1 ? 'capítulo registrado' : 'capítulos registrados'} hoje`
+            : cleanPages > 0
+              ? `+${cleanPages} ${cleanPages === 1 ? 'página registrada' : 'páginas registradas'} hoje`
+              : 'Reflexão de leitura salva',
         type: 'success',
       });
     },

@@ -3,11 +3,17 @@ import { useMemo, useState } from 'react';
 import { buildReadingHeatmap } from '../utils/readingCheckIn';
 
 const LEVEL_STYLES = {
-  0: { backgroundColor: 'color-mix(in srgb, var(--border-subtle) 45%, var(--bg-app))' },
-  1: { backgroundColor: 'color-mix(in srgb, var(--accent-color) 28%, var(--bg-app))' },
-  2: { backgroundColor: 'color-mix(in srgb, var(--accent-color) 52%, var(--bg-app))' },
-  3: { backgroundColor: 'color-mix(in srgb, var(--accent-color) 76%, var(--bg-app))' },
-  4: { backgroundColor: 'var(--accent-color)' },
+  0: 'color-mix(in srgb, var(--border-subtle) 45%, var(--bg-app))',
+  1: 'color-mix(in srgb, var(--accent-color) 28%, var(--bg-app))',
+  2: 'color-mix(in srgb, var(--accent-color) 52%, var(--bg-app))',
+  3: 'color-mix(in srgb, var(--accent-color) 76%, var(--bg-app))',
+  4: 'var(--accent-color)',
+};
+
+const PATTERN_FOR_LEVEL = {
+  2: 'url(#codice-hm-pat-2)',
+  3: 'url(#codice-hm-pat-3)',
+  4: 'url(#codice-hm-pat-4)',
 };
 
 export function ReadingHeatmapWidget({
@@ -46,6 +52,12 @@ export function ReadingHeatmapWidget({
     }
     return null;
   }, [heatmap, selectedCell]);
+
+  const cellSize = 14;
+  const gap = 3;
+  const step = cellSize + gap;
+  const svgWidth = Math.max(100, heatmap.columns.length * step - gap + 2);
+  const svgHeight = 7 * step - gap + 2;
 
   return (
     <section
@@ -96,43 +108,100 @@ export function ReadingHeatmapWidget({
       </div>
 
       <div className="overflow-x-auto pb-1 no-scrollbar">
-        <div
+        <svg
           role="grid"
           aria-label={`Grade de atividade das últimas ${weeksSpan} semanas`}
-          className="inline-flex min-w-full justify-between gap-1"
+          viewBox={`0 0 ${svgWidth} ${svgHeight}`}
+          className="block h-auto min-w-full"
+          style={{ minHeight: `${Math.min(130, svgHeight)}px` }}
         >
-          {heatmap.columns.map((week, wIdx) => (
-            <div key={week[0]?.date || wIdx} role="row" className="flex flex-col gap-1">
-              {week.map((cell) => {
+          <defs>
+            <pattern id="codice-hm-pat-2" width="4" height="4" patternUnits="userSpaceOnUse">
+              <circle cx="2" cy="2" r="0.65" fill="var(--bg-app)" fillOpacity="0.45" />
+            </pattern>
+            <pattern
+              id="codice-hm-pat-3"
+              width="4"
+              height="4"
+              patternTransform="rotate(45)"
+              patternUnits="userSpaceOnUse"
+            >
+              <line x1="0" y1="0" x2="0" y2="4" stroke="var(--bg-app)" strokeOpacity="0.38" strokeWidth="1" />
+            </pattern>
+            <pattern
+              id="codice-hm-pat-4"
+              width="4"
+              height="4"
+              patternTransform="rotate(45)"
+              patternUnits="userSpaceOnUse"
+            >
+              <line x1="0" y1="0" x2="0" y2="4" stroke="var(--accent-contrast, #ffffff)" strokeOpacity="0.32" strokeWidth="1" />
+              <line x1="0" y1="2" x2="4" y2="2" stroke="var(--accent-contrast, #ffffff)" strokeOpacity="0.22" strokeWidth="0.7" />
+            </pattern>
+          </defs>
+
+          {heatmap.columns.map((week, colIdx) => (
+            <g key={week[0]?.date || colIdx} role="row">
+              {week.map((cell, rowIdx) => {
                 const isSelected = displayedCell?.date === cell.date;
+                const x = 1 + colIdx * step;
+                const y = 1 + rowIdx * step;
+                const patternOverlay = !cell.isFuture ? PATTERN_FOR_LEVEL[cell.level] : null;
                 return (
-                  <button
+                  <g
                     key={cell.date}
-                    type="button"
                     role="gridcell"
-                    disabled={cell.isFuture}
-                    title={cell.ariaLabel}
+                    tabIndex={cell.isFuture ? -1 : 0}
                     aria-label={cell.ariaLabel}
-                    aria-pressed={isSelected}
-                    onClick={() => setSelectedCell(cell.date)}
-                    onFocus={() => setSelectedCell(cell.date)}
-                    style={{
-                      ...(LEVEL_STYLES[cell.level] || LEVEL_STYLES[0]),
-                      ...(cell.isFuture ? { opacity: 0.25 } : {}),
+                    aria-selected={isSelected}
+                    onClick={() => !cell.isFuture && setSelectedCell(cell.date)}
+                    onFocus={() => !cell.isFuture && setSelectedCell(cell.date)}
+                    onMouseEnter={() => !cell.isFuture && setSelectedCell(cell.date)}
+                    onKeyDown={(e) => {
+                      if (!cell.isFuture && (e.key === 'Enter' || e.key === ' ')) {
+                        e.preventDefault();
+                        setSelectedCell(cell.date);
+                      }
                     }}
-                    className={`h-3.5 w-3.5 shrink-0 rounded-[2px] border transition-colors ${
-                      isSelected
-                        ? 'border-accent'
-                        : cell.isToday
-                          ? 'border-ink/60'
-                          : 'border-transparent'
-                    }`}
-                  />
+                    style={{
+                      cursor: cell.isFuture ? 'default' : 'pointer',
+                      opacity: cell.isFuture ? 0.25 : 1,
+                    }}
+                  >
+                    <title>{cell.ariaLabel}</title>
+                    <rect
+                      x={x}
+                      y={y}
+                      width={cellSize}
+                      height={cellSize}
+                      rx="2"
+                      fill={LEVEL_STYLES[cell.level] || LEVEL_STYLES[0]}
+                      stroke={
+                        isSelected
+                          ? 'var(--accent-color)'
+                          : cell.isToday
+                            ? 'var(--text-primary)'
+                            : 'transparent'
+                      }
+                      strokeWidth={isSelected || cell.isToday ? '1.3' : '0'}
+                    />
+                    {patternOverlay && (
+                      <rect
+                        x={x}
+                        y={y}
+                        width={cellSize}
+                        height={cellSize}
+                        rx="2"
+                        fill={patternOverlay}
+                        pointerEvents="none"
+                      />
+                    )}
+                  </g>
                 );
               })}
-            </div>
+            </g>
           ))}
-        </div>
+        </svg>
       </div>
 
       <div className="flex flex-wrap items-center justify-between gap-2 border-t border-line pt-2.5 text-[11px]">
@@ -160,7 +229,7 @@ export function ReadingHeatmapWidget({
             <span
               key={lvl}
               className="h-2.5 w-2.5 rounded-[2px]"
-              style={LEVEL_STYLES[lvl]}
+              style={{ backgroundColor: LEVEL_STYLES[lvl] }}
             />
           ))}
           <span>Mais</span>

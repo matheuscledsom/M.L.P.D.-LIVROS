@@ -1,6 +1,6 @@
 import { BookOpenCheck, Check, Plus, Send } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
-import { getTodayLocalISO } from '../utils/backlogHelpers';
+import { getTodayLocalISO, isSerializedWork } from '../utils/backlogHelpers';
 import { formatShortPtBrDate } from '../utils/readingCheckIn';
 
 export function QuickReadingCheckIn({
@@ -88,6 +88,39 @@ export function QuickReadingCheckIn({
     if (quickNote.trim()) setQuickNote('');
     setCustomPages('');
     triggerFeedback(`+${cleanPages} págs registradas`);
+  };
+
+  const selectedWork = useMemo(
+    () => activeWorks.find((w) => w.id === selectedWorkId) || null,
+    [activeWorks, selectedWorkId]
+  );
+
+  const firstSerializedWork = useMemo(
+    () =>
+      activeWorks.find(
+        (w) => isSerializedWork(w) || Number(w.totalChapters) > 0 || Number(w.currentChapter) > 0
+      ) || null,
+    [activeWorks]
+  );
+
+  const canQuickChapter = Boolean(
+    selectedWork
+      ? isSerializedWork(selectedWork) ||
+          Number(selectedWork.totalChapters) > 0 ||
+          Number(selectedWork.currentChapter) > 0
+      : firstSerializedWork
+  );
+
+  const handleSubmitChapters = (chaptersCount = 1) => {
+    const cleanChapters = Math.max(1, Math.round(Number(chaptersCount) || 1));
+    const targetWork = selectedWork || firstSerializedWork;
+    onQuickLog?.({
+      workId: targetWork?.id || null,
+      chapters: cleanChapters,
+      note: quickNote.trim(),
+    });
+    if (quickNote.trim()) setQuickNote('');
+    triggerFeedback(`+${cleanChapters} cap registrado`);
   };
 
   const handleSubmitNoteOnly = (e) => {
@@ -184,6 +217,17 @@ export function QuickReadingCheckIn({
           <Plus className="h-3.5 w-3.5" strokeWidth={1.5} />
           +25 págs
         </button>
+
+        {canQuickChapter && (
+          <button
+            type="button"
+            onClick={() => handleSubmitChapters(1)}
+            className="inline-flex min-h-[44px] items-center justify-center gap-1 rounded-[4px] border border-line bg-app px-3 py-2 text-xs font-semibold tabular-nums text-ink transition-colors hover:border-accent hover:text-accent"
+          >
+            <Plus className="h-3.5 w-3.5" strokeWidth={1.5} />
+            +1 Cap
+          </button>
+        )}
 
         <div className="flex min-w-[140px] flex-1 items-center gap-1.5">
           <input

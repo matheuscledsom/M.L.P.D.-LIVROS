@@ -7,6 +7,7 @@ import {
   buildOfflinePickerPool,
   hasStoredOfflineReaderFile,
   pickRandomQueuedWork,
+  pickWeightedQueuedWork,
 } from '../utils/readingCheckIn';
 import { CoverArt } from './CoverArt';
 
@@ -15,12 +16,15 @@ export function OfflineBookPickerModal({
   onClose,
   items = [],
   storedReaderWorkIds = [],
+  readerDna = null,
   onStartReading,
   onSelectItem,
   onOpenReader,
 }) {
   const [filter, setFilter] = useState('all');
+  const [useDnaWeighting, setUseDnaWeighting] = useState(() => Boolean(readerDna));
   const [pickedItem, setPickedItem] = useState(null);
+  const [matchedReason, setMatchedReason] = useState('');
   const [rollingPreview, setRollingPreview] = useState(null);
   const [isSpinning, setIsSpinning] = useState(false);
   const spinTimerRef = useRef(null);
@@ -71,15 +75,30 @@ export function OfflineBookPickerModal({
       typeof window !== 'undefined' &&
       window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 
-    const { picked } = pickRandomQueuedWork({
-      items,
-      filter,
-      storedReaderWorkIds,
-      lastPickedId: pickedItem?.id || null,
-    });
+    const result =
+      readerDna && useDnaWeighting
+        ? pickWeightedQueuedWork({
+            items,
+            filter,
+            storedReaderWorkIds,
+            readerDna,
+            lastPickedId: pickedItem?.id || null,
+          })
+        : {
+            ...pickRandomQueuedWork({
+              items,
+              filter,
+              storedReaderWorkIds,
+              lastPickedId: pickedItem?.id || null,
+            }),
+            matchedReason: '',
+          };
+
+    const { picked, matchedReason: nextReason } = result;
 
     if (prefersReduced || pool.length === 1) {
       setPickedItem(picked);
+      setMatchedReason(nextReason || '');
       setRollingPreview(null);
       setIsSpinning(false);
       return;
@@ -96,6 +115,7 @@ export function OfflineBookPickerModal({
         spinTimerRef.current = null;
         setRollingPreview(null);
         setPickedItem(picked);
+        setMatchedReason(nextReason || '');
         setIsSpinning(false);
       }
     }, 75);
@@ -178,11 +198,27 @@ export function OfflineBookPickerModal({
           })}
         </div>
 
-        <div className="flex items-center justify-between text-xs text-muted">
-          <span className="tabular-nums">
-            <strong className="font-semibold text-ink">{pool.length}</strong>{' '}
-            {pool.length === 1 ? 'obra compatível' : 'obras compatíveis'}
-          </span>
+        <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="tabular-nums">
+              <strong className="font-semibold text-ink">{pool.length}</strong>{' '}
+              {pool.length === 1 ? 'obra compatível' : 'obras compatíveis'}
+            </span>
+            {readerDna && (
+              <button
+                type="button"
+                aria-pressed={useDnaWeighting}
+                onClick={() => setUseDnaWeighting((v) => !v)}
+                className={`min-h-[34px] rounded-[4px] border px-2 py-1 text-[11px] font-medium transition-colors ${
+                  useDnaWeighting
+                    ? 'border-accent bg-accent/15 text-ink'
+                    : 'border-line bg-app text-muted hover:text-ink'
+                }`}
+              >
+                Afinar pelo DNA
+              </button>
+            )}
+          </div>
           <button
             type="button"
             disabled={pool.length === 0 || isSpinning}
@@ -236,6 +272,11 @@ export function OfflineBookPickerModal({
                   {hasOfflineFile && (
                     <span className="rounded-[2px] border border-accent/40 bg-accent/15 px-1.5 py-0.5 font-medium text-accent">
                       EPUB/PDF disponível
+                    </span>
+                  )}
+                  {matchedReason && !isSpinning && (
+                    <span className="rounded-[2px] border border-accent/40 bg-card px-1.5 py-0.5 font-medium text-accent">
+                      Afinidade DNA: {matchedReason}
                     </span>
                   )}
                 </div>

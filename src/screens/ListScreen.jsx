@@ -1999,6 +1999,7 @@ export function ListScreen({
         onClose={() => setRouletteOpen(false)}
         items={items}
         storedReaderWorkIds={storedReaderWorkIds}
+        readerDna={profile?.readerDna || null}
         onStartReading={onStartPickedWork}
         onSelectItem={onSelectItem}
         onOpenReader={onOpenReader}

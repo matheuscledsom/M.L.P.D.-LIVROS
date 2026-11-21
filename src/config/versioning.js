@@ -16,16 +16,25 @@ export const VERSIONING_RULES = {
 };
 
 export const CODICE_RELEASE = {
-  version: '4.12.0',
+  version: '4.13.0',
   codename: 'Ymir',
-  label: 'v4.12.0 · Ymir',
+  label: 'v4.13.0 · Ymir',
   releaseType: 'minor',
   date: '2026-11',
   summary:
-    'Seleção em lote com Desfazer (Toast), coleções reordenáveis com capa mosaico SVG e Command Palette global (Ctrl+K)',
+    'Engajamento sem ruído: check-in +1 Cap, heatmap SVG acessível com padrões daltônicos, roleta ponderada pelo DNA e timer silencioso no leitor',
 };
 
 export const RELEASE_HISTORY = [
+  {
+    version: '4.13.0',
+    codename: 'Ymir',
+    label: 'v4.13.0 · Ymir',
+    releaseType: 'minor',
+    date: '2026-11',
+    summary: 'Engajamento sem ruído: check-in +1 Cap, heatmap SVG acessível com padrões daltônicos, roleta ponderada pelo DNA e timer silencioso no leitor',
+    highlights: ['Release automatizado via bump-version.mjs.'],
+  },
   {
     version: '4.12.0',
     codename: 'Ymir',

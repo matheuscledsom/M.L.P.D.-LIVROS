@@ -17,6 +17,10 @@ npm run version:major -- --name="Odin"
 
 ---
 
+## [v4.13.0 · Ymir] — 2026-11
+
+**Resumo:** Engajamento sem ruído: check-in +1 Cap, heatmap SVG acessível com padrões daltônicos, roleta ponderada pelo DNA e timer silencioso no leitor
+
 ## [v4.12.0 · Ymir] — 2026-11
 
 **Resumo:** Seleção em lote com Desfazer (Toast), coleções reordenáveis com capa mosaico SVG e Command Palette global (Ctrl+K)

@@ -6,10 +6,21 @@ import {
   ListTree,
   Maximize2,
   Minimize2,
+  Pause,
+  Play,
+  RotateCcw,
   Search,
+  Timer,
 } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { formatExactPercent } from './useReaderProgress';
+
+function formatFocusClock(totalSeconds) {
+  const safe = Math.max(0, Math.floor(Number(totalSeconds) || 0));
+  const mins = Math.floor(safe / 60);
+  const secs = safe % 60;
+  return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+}
 
 export function ReaderToolbar({
   title,
@@ -35,6 +46,16 @@ export function ReaderToolbar({
 }) {
   const [scrubbingPct, setScrubbingPct] = useState(null);
   const [metricMode, setMetricMode] = useState('percent');
+  const [focusRunning, setFocusRunning] = useState(false);
+  const [focusSeconds, setFocusSeconds] = useState(0);
+
+  useEffect(() => {
+    if (!focusRunning) return undefined;
+    const id = setInterval(() => {
+      setFocusSeconds((prev) => prev + 1);
+    }, 1000);
+    return () => clearInterval(id);
+  }, [focusRunning]);
 
   const safePct = Math.max(0, Math.min(100, Number(progressPct) || 0));
   const shownPct = scrubbingPct !== null ? scrubbingPct : safePct;
@@ -169,6 +190,47 @@ export function ReaderToolbar({
                 strokeWidth={1.5}
               />
             </button>
+
+            <div className="inline-flex items-center">
+              <button
+                type="button"
+                onClick={() => setFocusRunning((prev) => !prev)}
+                aria-pressed={focusRunning}
+                aria-label={
+                  focusRunning
+                    ? `Pausar timer silencioso de leitura (${formatFocusClock(focusSeconds)})`
+                    : `Iniciar timer silencioso de leitura (${formatFocusClock(focusSeconds)})`
+                }
+                title="Timer silencioso de foco (sem alertas ou sons)"
+                className="flex min-h-[44px] items-center gap-1 rounded-[4px] border px-2 text-[11px] font-medium tabular-nums transition-colors duration-150 ease-out"
+                style={{
+                  borderColor: 'var(--reader-border)',
+                  color: focusRunning ? 'var(--reader-accent)' : 'var(--reader-muted)',
+                  touchAction: 'manipulation',
+                }}
+              >
+                {focusRunning ? (
+                  <Pause className="h-3.5 w-3.5" strokeWidth={1.5} />
+                ) : focusSeconds > 0 ? (
+                  <Play className="h-3.5 w-3.5" strokeWidth={1.5} />
+                ) : (
+                  <Timer className="h-3.5 w-3.5" strokeWidth={1.5} />
+                )}
+                <span>{formatFocusClock(focusSeconds)}</span>
+              </button>
+              {focusSeconds > 0 && !focusRunning && (
+                <button
+                  type="button"
+                  onClick={() => setFocusSeconds(0)}
+                  aria-label="Zerar timer de leitura"
+                  title="Zerar timer"
+                  className="flex min-h-[44px] min-w-[36px] items-center justify-center rounded-[4px] transition-colors"
+                  style={{ color: 'var(--reader-muted)', touchAction: 'manipulation' }}
+                >
+                  <RotateCcw className="h-3.5 w-3.5" strokeWidth={1.5} />
+                </button>
+              )}
+            </div>
 
             <button
               type="button"
