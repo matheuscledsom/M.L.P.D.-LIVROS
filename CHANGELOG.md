@@ -17,6 +17,10 @@ npm run version:major -- --name="Odin"
 
 ---
 
+## [v4.10.0 · Ymir] — 2026-11
+
+**Resumo:** Fase 9: Motor de Franquias em Andamento com deteccao de volumes faltantes, carrossel na Home e + Catalogar em 1 toque
+
 ## [v4.9.0 · Ymir] — 2026-11
 
 **Resumo:** Fase 8: Progresso aditivo de volumes/capitulos e ownedVolumes para mangá, light novel e comic com grade clicavel acessivel

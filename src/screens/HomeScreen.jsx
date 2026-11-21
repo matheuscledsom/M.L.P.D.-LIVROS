@@ -3,6 +3,7 @@ import {
   BookOpen,
   Dices,
   FilePlus2,
+  Layers,
   Library,
   Palette,
   Play,
@@ -30,6 +31,10 @@ import {
 import { domainConfig, getWorkTypeConfig } from '../config/domainConfig';
 import { CODICE_RELEASE } from '../config/versioning';
 import { useToast } from '../context/ToastContext';
+import {
+  analyzeFranchises,
+  buildMissingVolumeDraft,
+} from '../services/franchiseEngine';
 import {
   buildContinueReadingHub,
   getDisplayTitles,
@@ -59,6 +64,7 @@ export function HomeScreen({
   onOpenQuickReader,
   onOpenDigitalShelf,
   onAddToWishlist,
+  onCatalogFranchiseVolume,
   onNavigateList,
   onNavigateAdd,
   onOpenGeminiSettings,
@@ -99,6 +105,11 @@ export function HomeScreen({
 
   const backlogItems = useMemo(
     () => items.filter((item) => item.inBacklog),
+    [items]
+  );
+
+  const ongoingFranchises = useMemo(
+    () => analyzeFranchises(items).filter((f) => !f.isComplete || f.totalVolumes > 1).slice(0, 8),
     [items]
   );
 
@@ -777,6 +788,85 @@ export function HomeScreen({
             onSelectItem={onSelectItem}
             onNavigateAdd={onNavigateAdd}
           />
+
+          {ongoingFranchises.length > 0 && (
+            <section aria-label="Franquias em Andamento" className="space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Layers className="h-4 w-4 text-accent" strokeWidth={1.5} />
+                  <h2 className="text-sm font-semibold tracking-tight text-ink">
+                    Franquias em Andamento
+                  </h2>
+                </div>
+                <span className="text-[11px] tabular-nums text-subtle">
+                  {ongoingFranchises.length}{' '}
+                  {ongoingFranchises.length === 1 ? 'série' : 'séries'}
+                </span>
+              </div>
+
+              <div className="flex snap-x snap-mandatory gap-3 overflow-x-auto pb-1 no-scrollbar">
+                {ongoingFranchises.map((fr) => (
+                  <div
+                    key={fr.id}
+                    className="flex w-60 shrink-0 snap-start flex-col justify-between gap-2.5 rounded-2xl border border-line bg-card p-3"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => onSelectItem?.(fr.representativeItem)}
+                      className="flex items-start gap-2.5 text-left"
+                    >
+                      <CoverArt
+                        item={fr.representativeItem}
+                        compact
+                        className="h-16 w-11 shrink-0 rounded-[4px]"
+                      />
+                      <div className="min-w-0 flex-1 space-y-1">
+                        <p className="truncate text-xs font-semibold text-ink">
+                          {fr.name}
+                        </p>
+                        <p className="truncate text-[10px] text-muted">
+                          {fr.author || getWorkTypeConfig(fr.workType).shortLabel}
+                        </p>
+                        <p className="text-[11px] font-semibold tabular-nums text-accent">
+                          {fr.ownedCount}/{fr.totalVolumes} vols · {fr.completionPct}%
+                        </p>
+                      </div>
+                    </button>
+
+                    <div className="h-1.5 w-full overflow-hidden rounded-full bg-line">
+                      <div
+                        className="codice-goal-fill h-full bg-accent transition-all duration-300"
+                        style={{ width: `${fr.completionPct}%` }}
+                      />
+                    </div>
+
+                    {fr.nextVolumeNumber && onCatalogFranchiseVolume ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onCatalogFranchiseVolume(
+                            buildMissingVolumeDraft(fr, fr.nextVolumeNumber)
+                          );
+                          showToast({
+                            message: `Vol. ${fr.nextVolumeNumber} de "${fr.name}" catalogado na estante.`,
+                            type: 'success',
+                          });
+                        }}
+                        className="inline-flex min-h-[44px] w-full items-center justify-center gap-1.5 rounded-[4px] border border-accent bg-accent/10 px-2.5 py-1.5 text-[11px] font-semibold text-accent transition-colors hover:bg-accent hover:text-accent-ink"
+                      >
+                        <Plus className="h-3.5 w-3.5" strokeWidth={1.5} />
+                        <span>+ Catalogar Vol. {fr.nextVolumeNumber}</span>
+                      </button>
+                    ) : (
+                      <span className="inline-flex min-h-[36px] items-center justify-center rounded-[4px] border border-line bg-app px-2.5 text-[11px] font-medium text-muted">
+                        Coleção completa
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
 
           {/* Vitrine "Destaques & Últimas Leituras" */}
           <section aria-label={ui.home.highlightsTitle} className="space-y-3">

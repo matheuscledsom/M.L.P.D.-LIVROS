@@ -1301,6 +1301,7 @@ export function App() {
               onOpenQuickReader={handleOpenQuickReader}
               onOpenDigitalShelf={() => setDigitalShelfOpen(true)}
               onAddToWishlist={handleCopyWorkToWishlist}
+              onCatalogFranchiseVolume={handleAddItem}
               onNavigateList={() => setActiveTab('list')}
               onNavigateAdd={() => setActiveTab('add')}
               onOpenGeminiSettings={() => setGeminiModalOpen(true)}
