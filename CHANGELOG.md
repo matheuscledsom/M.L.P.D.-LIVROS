@@ -17,6 +17,10 @@ npm run version:major -- --name="Odin"
 
 ---
 
+## [v4.12.0 · Ymir] — 2026-11
+
+**Resumo:** Seleção em lote com Desfazer (Toast), coleções reordenáveis com capa mosaico SVG e Command Palette global (Ctrl+K)
+
 ## [v4.11.0 · Ymir] — 2026-11
 
 **Resumo:** Fase 10: Upgrade do Leitor Manga/CBZ com RTL, Spread duplo, Webtoon virtualizado, filtros E-Ink Sumi/Noturno e Zoom 2x no toque

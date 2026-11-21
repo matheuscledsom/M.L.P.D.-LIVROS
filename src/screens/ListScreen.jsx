@@ -4,6 +4,9 @@ import {
   ArrowUpDown,
   BookMarked,
   BookOpen,
+  Check,
+  CheckSquare,
+  Command,
   Dices,
   FolderPlus,
   FolderTree,
@@ -17,6 +20,7 @@ import {
   SlidersHorizontal,
   Star,
   Table2,
+  Trash2,
   X,
 } from 'lucide-react';
 import {
@@ -54,7 +58,12 @@ import {
   getVerdictMeta,
   normalizeProgressMode,
 } from '../utils/backlogHelpers';
-import { filterWorksByCollection } from '../utils/collections';
+import { useToast } from '../context/ToastContext';
+import {
+  buildCollectionMosaicCoverDataUri,
+  filterWorksByCollection,
+  sortWorksInCollection,
+} from '../utils/collections';
 
 const VIEW_MODE_STORAGE_KEY = 'codice_list_view_mode';
 const GROUP_BY_STORAGE_KEY = 'codice_list_group_by';
@@ -122,6 +131,8 @@ const MemoGridCard = memo(function MemoGridCard({
   creatorField,
   canDirectRead,
   priority = false,
+  selectionMode = false,
+  selected = false,
   onSelectItem,
   onOpenReader,
 }) {
@@ -162,6 +173,7 @@ const MemoGridCard = memo(function MemoGridCard({
       <button
         type="button"
         onClick={() => onSelectItem(item)}
+        aria-pressed={selectionMode ? selected : undefined}
         className="text-left focus:outline-none"
       >
         <div className="relative">
@@ -169,9 +181,22 @@ const MemoGridCard = memo(function MemoGridCard({
             item={item}
             compact
             priority={priority}
-            className="aspect-[2/3] w-full rounded-[4px] transition-transform duration-150 group-hover:scale-[1.02] group-hover:border-accent/50"
+            className={`aspect-[2/3] w-full rounded-[4px] transition-transform duration-150 group-hover:scale-[1.02] group-hover:border-accent/50 ${
+              selected ? 'ring-2 ring-accent' : ''
+            }`}
           />
-          {item.isPlatinum && (
+          {selectionMode && (
+            <span
+              className={`absolute left-1.5 top-1.5 flex h-5 w-5 items-center justify-center rounded-[4px] border ${
+                selected
+                  ? 'border-accent bg-accent text-accent-ink'
+                  : 'border-white/70 bg-black/50 text-white'
+              }`}
+            >
+              {selected && <Check className="h-3.5 w-3.5" strokeWidth={2} />}
+            </span>
+          )}
+          {!selectionMode && item.isPlatinum && (
             <span className="absolute left-1.5 top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-app/85 text-accent ring-1 ring-accent/60">
               <Star className="h-3 w-3 fill-current" strokeWidth={1.5} />
             </span>
@@ -221,14 +246,26 @@ export function ListScreen({
   storedReaderWorkIds = [],
   onCreateCollection,
   onDeleteCollection,
+  onMoveCollection,
+  onMoveCollectionWork,
+  onBatchUpdateItems,
+  onBatchRemoveItems,
+  onRestoreRemovedItems,
   onStartPickedWork,
   onSelectItem,
   onOpenReader,
   onOpenDigitalShelf,
   onOpenThemeStudio,
+  onOpenCommandPalette,
   onNavigateAdd,
   onOpenGeminiSettings,
+  requestedCollectionId = null,
+  onConsumeRequestedCollection,
 }) {
+  const { showToast } = useToast();
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState([]);
+  const [batchColTarget, setBatchColTarget] = useState('');
   const [selectedStatus, setSelectedStatus] = useState('all');
   const [selectedWorkType, setSelectedWorkType] = useState('all');
   const [selectedCollectionId, setSelectedCollectionId] = useState('all');
@@ -289,6 +326,14 @@ export function ListScreen({
       setSelectedCollectionId('all');
     }
   }, [collections, selectedCollectionId]);
+
+  useEffect(() => {
+    if (!requestedCollectionId) return;
+    if (collections.some((c) => c.id === requestedCollectionId)) {
+      setSelectedCollectionId(requestedCollectionId);
+    }
+    onConsumeRequestedCollection?.();
+  }, [requestedCollectionId, collections, onConsumeRequestedCollection]);
 
   const availableGenres = useMemo(() => {
     const map = new Map();
@@ -359,6 +404,14 @@ export function ListScreen({
             : false;
           return inTitle || inOrig || inAuthor || inPub || inIsbn || inCall || inGenres;
         });
+
+    const activeColObj =
+      selectedCollectionId !== 'all'
+        ? collections.find((c) => c.id === selectedCollectionId) || null
+        : null;
+    if (activeColObj && activeColObj.workOrder?.length > 0 && sortBy === 'recent') {
+      return sortWorksInCollection(filtered, activeColObj);
+    }
 
     return [...filtered].sort((a, b) => {
       if (sortBy === 'rating') {
@@ -466,6 +519,115 @@ export function ListScreen({
   );
 
   const hasMoreVisible = visibleItems.length < filteredAndSortedItems.length;
+
+  useEffect(() => {
+    setSelectedIds((prev) =>
+      prev.filter((id) => backlogItems.some((item) => String(item.id) === String(id)))
+    );
+  }, [backlogItems]);
+
+  const toggleSelectedId = (workId) => {
+    const targetId = String(workId || '');
+    if (!targetId) return;
+    setSelectedIds((prev) =>
+      prev.includes(targetId)
+        ? prev.filter((id) => id !== targetId)
+        : [...prev, targetId]
+    );
+  };
+
+  const handleWorkCardClick = (item) => {
+    if (!item) return;
+    if (selectionMode) {
+      toggleSelectedId(item.id);
+      return;
+    }
+    onSelectItem(item);
+  };
+
+  const toggleSelectAllVisible = () => {
+    const visibleIdSet = visibleItems.map((i) => String(i.id));
+    const allSelected =
+      visibleIdSet.length > 0 && visibleIdSet.every((id) => selectedIds.includes(id));
+    if (allSelected) {
+      setSelectedIds([]);
+    } else {
+      setSelectedIds(visibleIdSet);
+    }
+  };
+
+  const clearSelectionMode = () => {
+    setSelectionMode(false);
+    setSelectedIds([]);
+    setBatchColTarget('');
+  };
+
+  const handleBatchStatusChange = (nextStatus) => {
+    if (!nextStatus || selectedIds.length === 0 || !onBatchUpdateItems) return;
+    onBatchUpdateItems(selectedIds, { status: nextStatus });
+    const statusLabel = getStatusConfig(nextStatus)?.label || nextStatus;
+    showToast({
+      message: `${selectedIds.length} obra(s) movida(s) para ${statusLabel}.`,
+      type: 'success',
+    });
+    clearSelectionMode();
+  };
+
+  const handleBatchAssignCollection = (collectionId) => {
+    if (!collectionId || selectedIds.length === 0 || !onBatchUpdateItems) return;
+    onBatchUpdateItems(selectedIds, { addCollectionId: collectionId });
+    const colName = collections.find((c) => c.id === collectionId)?.name || 'Coleção';
+    showToast({
+      message: `${selectedIds.length} obra(s) adicionada(s) a "${colName}".`,
+      type: 'success',
+    });
+    setBatchColTarget('');
+    clearSelectionMode();
+  };
+
+  const handleBatchDelete = () => {
+    if (selectedIds.length === 0 || !onBatchRemoveItems) return;
+    const snap = onBatchRemoveItems(selectedIds);
+    const removedCount = snap?.removedItems?.length || selectedIds.length;
+    clearSelectionMode();
+    showToast({
+      message: `${removedCount} obra(s) removida(s) do acervo.`,
+      type: 'info',
+      duration: 8000,
+      action:
+        onRestoreRemovedItems && snap?.removedItems?.length > 0
+          ? {
+              label: 'Desfazer',
+              onClick: () => {
+                onRestoreRemovedItems(snap);
+                showToast({
+                  message: `${snap.removedItems.length} obra(s) restaurada(s).`,
+                  type: 'success',
+                });
+              },
+            }
+          : undefined,
+    });
+  };
+
+  const activeCustomCollection = useMemo(
+    () =>
+      selectedCollectionId !== 'all'
+        ? collections.find((c) => c.id === selectedCollectionId) || null
+        : null,
+    [collections, selectedCollectionId]
+  );
+
+  const activeCollectionWorks = useMemo(
+    () =>
+      activeCustomCollection
+        ? sortWorksInCollection(
+            filterWorksByCollection(backlogItems, activeCustomCollection.id),
+            activeCustomCollection
+          )
+        : [],
+    [activeCustomCollection, backlogItems]
+  );
 
   useEffect(() => {
     if (!hasMoreVisible || !loadMoreRef.current || typeof IntersectionObserver === 'undefined') {
@@ -666,6 +828,38 @@ export function ListScreen({
           </span>
         </div>
         <div className="flex flex-wrap items-center gap-1.5">
+          {backlogItems.length > 0 && (
+            <button
+              type="button"
+              onClick={() => {
+                if (selectionMode) {
+                  clearSelectionMode();
+                } else {
+                  setSelectionMode(true);
+                }
+              }}
+              aria-pressed={selectionMode}
+              className={`inline-flex min-h-[44px] items-center gap-1.5 rounded-[4px] border px-2.5 py-1.5 text-xs font-medium transition-colors ${
+                selectionMode
+                  ? 'border-accent bg-accent/15 text-ink'
+                  : 'border-line bg-card text-ink hover:border-accent'
+              }`}
+            >
+              <CheckSquare className="h-3.5 w-3.5 text-accent" strokeWidth={1.5} />
+              <span>{selectionMode ? 'Concluir seleção' : 'Selecionar'}</span>
+            </button>
+          )}
+          {onOpenCommandPalette && (
+            <button
+              type="button"
+              onClick={onOpenCommandPalette}
+              aria-label="Abrir busca global Ctrl+K"
+              className="inline-flex min-h-[44px] items-center gap-1.5 rounded-[4px] border border-line bg-card px-2.5 py-1.5 text-xs font-medium text-ink transition-colors hover:border-accent"
+            >
+              <Command className="h-3.5 w-3.5 text-accent" strokeWidth={1.5} />
+              <span className="hidden sm:inline">Ctrl+K</span>
+            </button>
+          )}
           <button
             type="button"
             onClick={() => setRouletteOpen(true)}
@@ -798,6 +992,66 @@ export function ListScreen({
               </button>
             </div>
           )}
+
+          {selectionMode && (
+            <div className="flex flex-wrap items-center justify-between gap-2 rounded-[6px] border border-accent/40 bg-accent/10 px-3 py-2">
+              <p className="text-xs font-medium text-ink tabular-nums">
+                {selectedIds.length} selecionada(s) no acervo
+              </p>
+              <div className="flex flex-wrap items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={toggleSelectAllVisible}
+                  className="min-h-[36px] rounded-[4px] border border-line bg-card px-2.5 py-1 text-[11px] font-medium text-ink hover:border-accent"
+                >
+                  {visibleItems.length > 0 &&
+                  visibleItems.every((i) => selectedIds.includes(String(i.id)))
+                    ? 'Desmarcar visíveis'
+                    : 'Selecionar visíveis'}
+                </button>
+                <button
+                  type="button"
+                  onClick={clearSelectionMode}
+                  className="min-h-[36px] rounded-[4px] border border-line bg-card px-2.5 py-1 text-[11px] font-medium text-muted hover:text-ink"
+                >
+                  Cancelar
+                </button>
+              </div>
+            </div>
+          )}
+
+          {activeCustomCollection && (
+            <div className="flex items-center justify-between gap-3 rounded-[6px] border border-line bg-card px-3 py-2.5">
+              <div className="flex min-w-0 items-center gap-3">
+                <img
+                  src={buildCollectionMosaicCoverDataUri(
+                    activeCollectionWorks,
+                    activeCustomCollection.name
+                  )}
+                  alt={`Mosaico da coleção ${activeCustomCollection.name}`}
+                  className="h-12 w-12 shrink-0 rounded-[4px] border border-line object-cover"
+                />
+                <div className="min-w-0">
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-subtle">
+                    Coleção selecionada
+                  </p>
+                  <p className="truncate text-sm font-semibold text-ink">
+                    {activeCustomCollection.name}
+                  </p>
+                  <p className="text-[11px] text-muted tabular-nums">
+                    {activeCollectionWorks.length} obra(s) · ordem personalizada
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSelectedCollectionId('all')}
+                className="min-h-[38px] shrink-0 rounded-[4px] border border-line bg-app px-2.5 py-1 text-[11px] font-medium text-muted hover:text-ink"
+              >
+                Ver tudo
+              </button>
+            </div>
+          )}
         </div>
       )}
 
@@ -832,7 +1086,16 @@ export function ListScreen({
         <SpineRenderer
           items={visibleItems}
           titleMode={titleMode}
-          onSelectItem={onSelectItem}
+          selectedIds={selectedIds}
+          selectionMode={selectionMode}
+          onSelectItem={handleWorkCardClick}
+          onLongPressItem={(picked) => {
+            if (!picked) return;
+            setSelectionMode(true);
+            setSelectedIds((prev) =>
+              prev.includes(String(picked.id)) ? prev : [...prev, String(picked.id)]
+            );
+          }}
         />
       ) : layoutMode === 'grid' ? (
         <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-2.5 sm:gap-3">
@@ -852,7 +1115,9 @@ export function ListScreen({
                 creatorField={cardFields.creator}
                 canDirectRead={canDirectRead}
                 priority={idx < 6}
-                onSelectItem={onSelectItem}
+                selectionMode={selectionMode}
+                selected={selectedIds.includes(String(item.id))}
+                onSelectItem={handleWorkCardClick}
                 onOpenReader={onOpenReader}
               />
             );
@@ -860,7 +1125,7 @@ export function ListScreen({
         </div>
       ) : layoutMode === 'detailed' ? (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
-          {visibleItems.map((item) => {
+          {visibleItems.map((item, idx) => {
             const workMeta = getWorkTypeConfig(item.workType);
             const pace =
               item.status === 'completed' && item.workType !== 'manga'
@@ -897,28 +1162,43 @@ export function ListScreen({
                 storedReaderWorkIds.includes(String(item.id)) ||
                 (item.readerBookId && storedReaderWorkIds.includes(String(item.readerBookId))));
 
+            const isSelected = selectedIds.includes(String(item.id));
             return (
               <div
                 key={item.id}
-                className="flex w-full gap-3 rounded-[6px] border border-line bg-card p-3 text-left transition-colors hover:border-accent/50"
+                className={`flex w-full gap-3 rounded-[6px] border bg-card p-3 text-left transition-colors ${
+                  isSelected ? 'border-accent ring-2 ring-accent/35' : 'border-line hover:border-accent/50'
+                }`}
               >
                 <button
                   type="button"
-                  onClick={() => onSelectItem(item)}
-                  aria-label={`Abrir ficha de ${item.title}`}
-                  className="shrink-0 focus:outline-none"
+                  onClick={() => handleWorkCardClick(item)}
+                  aria-label={selectionMode ? `Selecionar ${item.title}` : `Abrir ficha de ${item.title}`}
+                  aria-pressed={selectionMode ? isSelected : undefined}
+                  className="relative shrink-0 focus:outline-none"
                 >
                   <CoverArt
                     item={item}
                     compact
                     className="h-27 w-18 rounded-[4px]"
                   />
+                  {selectionMode && (
+                    <span
+                      className={`absolute left-1 top-1 flex h-5 w-5 items-center justify-center rounded-[4px] border ${
+                        isSelected
+                          ? 'border-accent bg-accent text-accent-ink'
+                          : 'border-white/70 bg-black/55 text-white'
+                      }`}
+                    >
+                      {isSelected && <Check className="h-3.5 w-3.5" strokeWidth={2} />}
+                    </span>
+                  )}
                 </button>
 
                 <div className="flex min-w-0 flex-1 flex-col justify-between">
                   <button
                     type="button"
-                    onClick={() => onSelectItem(item)}
+                    onClick={() => handleWorkCardClick(item)}
                     className="w-full text-left focus:outline-none"
                   >
                     <div className="flex items-start justify-between gap-2">
@@ -1054,17 +1334,45 @@ export function ListScreen({
                     </div>
                   )}
 
-                  {canDirectRead && (
-                    <div className="mt-2 flex justify-end border-t border-line pt-1.5">
-                      <button
-                        type="button"
-                        onClick={() => onOpenReader(item)}
-                        aria-label={`Ler ${item.title}`}
-                        className="inline-flex min-h-[34px] items-center gap-1.5 rounded-[4px] border border-line bg-app px-2.5 py-1 text-[11px] font-medium text-ink transition-colors hover:border-accent hover:text-accent"
-                      >
-                        <BookOpen className="h-3.5 w-3.5 text-accent" strokeWidth={1.5} />
-                        <span>Ler</span>
-                      </button>
+                  {(canDirectRead || (activeCustomCollection && onMoveCollectionWork)) && (
+                    <div className="mt-2 flex items-center justify-end gap-1.5 border-t border-line pt-1.5">
+                      {activeCustomCollection && onMoveCollectionWork && (
+                        <>
+                          <button
+                            type="button"
+                            disabled={idx === 0}
+                            onClick={() =>
+                              onMoveCollectionWork(activeCustomCollection.id, item.id, -1)
+                            }
+                            aria-label={`Mover ${item.title} para cima na coleção`}
+                            className="inline-flex min-h-[34px] min-w-[34px] items-center justify-center rounded-[4px] border border-line bg-app text-muted hover:text-ink disabled:opacity-40"
+                          >
+                            <ArrowUp className="h-3.5 w-3.5" strokeWidth={1.5} />
+                          </button>
+                          <button
+                            type="button"
+                            disabled={idx === visibleItems.length - 1}
+                            onClick={() =>
+                              onMoveCollectionWork(activeCustomCollection.id, item.id, 1)
+                            }
+                            aria-label={`Mover ${item.title} para baixo na coleção`}
+                            className="inline-flex min-h-[34px] min-w-[34px] items-center justify-center rounded-[4px] border border-line bg-app text-muted hover:text-ink disabled:opacity-40"
+                          >
+                            <ArrowDown className="h-3.5 w-3.5" strokeWidth={1.5} />
+                          </button>
+                        </>
+                      )}
+                      {canDirectRead && (
+                        <button
+                          type="button"
+                          onClick={() => onOpenReader(item)}
+                          aria-label={`Ler ${item.title}`}
+                          className="inline-flex min-h-[34px] items-center gap-1.5 rounded-[4px] border border-line bg-app px-2.5 py-1 text-[11px] font-medium text-ink transition-colors hover:border-accent hover:text-accent"
+                        >
+                          <BookOpen className="h-3.5 w-3.5 text-accent" strokeWidth={1.5} />
+                          <span>Ler</span>
+                        </button>
+                      )}
                     </div>
                   )}
                 </div>
@@ -1449,26 +1757,55 @@ export function ListScreen({
               >
                 Todas
               </button>
-              {collections.map((col) => {
+              {collections.map((col, colIdx) => {
                 const isActive = selectedCollectionId === col.id;
-                const colCount = filterWorksByCollection(backlogItems, col.id).length;
+                const colWorks = filterWorksByCollection(backlogItems, col.id);
+                const colCount = colWorks.length;
+                const mosaicUri = buildCollectionMosaicCoverDataUri(colWorks, col.name);
                 return (
                   <div key={col.id} className="inline-flex items-center">
                     <button
                       type="button"
                       aria-pressed={isActive}
                       onClick={() => setSelectedCollectionId(col.id)}
-                      className={`inline-flex min-h-[40px] items-center gap-1.5 border px-3 py-1 text-xs font-medium transition-colors ${
-                        onDeleteCollection ? 'rounded-l-[4px]' : 'rounded-[4px]'
+                      className={`inline-flex min-h-[40px] items-center gap-1.5 border px-2 py-1 text-xs font-medium transition-colors ${
+                        onDeleteCollection || onMoveCollection ? 'rounded-l-[4px]' : 'rounded-[4px]'
                       } ${
                         isActive
                           ? 'border-accent bg-accent/15 text-ink'
                           : 'border-line bg-app text-muted hover:text-ink'
                       }`}
                     >
+                      <img
+                        src={mosaicUri}
+                        alt=""
+                        className="h-6 w-6 shrink-0 rounded-[2px] border border-line object-cover"
+                      />
                       <span>{col.name}</span>
                       <span className="text-[10px] tabular-nums text-subtle">{colCount}</span>
                     </button>
+                    {onMoveCollection && collections.length > 1 && (
+                      <>
+                        <button
+                          type="button"
+                          disabled={colIdx === 0}
+                          aria-label={`Mover coleção ${col.name} para cima`}
+                          onClick={() => onMoveCollection(col.id, -1)}
+                          className="inline-flex min-h-[40px] min-w-[32px] items-center justify-center border border-l-0 border-line bg-app px-1 text-subtle hover:text-ink disabled:opacity-40"
+                        >
+                          <ArrowUp className="h-3 w-3" strokeWidth={1.5} />
+                        </button>
+                        <button
+                          type="button"
+                          disabled={colIdx === collections.length - 1}
+                          aria-label={`Mover coleção ${col.name} para baixo`}
+                          onClick={() => onMoveCollection(col.id, 1)}
+                          className="inline-flex min-h-[40px] min-w-[32px] items-center justify-center border border-l-0 border-line bg-app px-1 text-subtle hover:text-ink disabled:opacity-40"
+                        >
+                          <ArrowDown className="h-3 w-3" strokeWidth={1.5} />
+                        </button>
+                      </>
+                    )}
                     {onDeleteCollection && (
                       <button
                         type="button"
@@ -1666,6 +2003,69 @@ export function ListScreen({
         onSelectItem={onSelectItem}
         onOpenReader={onOpenReader}
       />
+
+      {selectionMode && selectedIds.length > 0 && (
+        <div
+          role="region"
+          aria-label="Ações em lote do acervo"
+          className="fixed inset-x-0 bottom-16 z-40 mx-auto max-w-3xl px-3"
+        >
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-[6px] border border-accent/50 bg-card px-3 py-2.5 shadow-sm">
+            <span className="text-xs font-semibold text-ink tabular-nums">
+              {selectedIds.length} selecionada(s)
+            </span>
+            <div className="flex flex-wrap items-center gap-1.5">
+              {onBatchUpdateItems && (
+                <>
+                  <select
+                    aria-label="Alterar status das obras selecionadas"
+                    value=""
+                    onChange={(e) => {
+                      if (e.target.value) handleBatchStatusChange(e.target.value);
+                    }}
+                    className="min-h-[38px] rounded-[4px] border border-line bg-app px-2 text-xs text-ink"
+                  >
+                    <option value="">Alterar status...</option>
+                    {statuses.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.label}
+                      </option>
+                    ))}
+                  </select>
+                  {collections.length > 0 && (
+                    <select
+                      aria-label="Adicionar obras selecionadas a coleção"
+                      value={batchColTarget}
+                      onChange={(e) => {
+                        setBatchColTarget(e.target.value);
+                        if (e.target.value) handleBatchAssignCollection(e.target.value);
+                      }}
+                      className="min-h-[38px] rounded-[4px] border border-line bg-app px-2 text-xs text-ink"
+                    >
+                      <option value="">Adicionar à coleção...</option>
+                      {collections.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.name}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </>
+              )}
+              {onBatchRemoveItems && (
+                <button
+                  type="button"
+                  onClick={handleBatchDelete}
+                  className="inline-flex min-h-[38px] items-center gap-1 rounded-[4px] border border-rose-500/40 bg-rose-500/10 px-2.5 text-xs font-medium text-rose-500 hover:bg-rose-500/20"
+                >
+                  <Trash2 className="h-3.5 w-3.5" strokeWidth={1.5} />
+                  <span>Remover</span>
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

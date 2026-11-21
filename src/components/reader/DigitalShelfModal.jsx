@@ -1,9 +1,11 @@
 import {
   ArrowUpDown,
   BookOpen,
+  CheckSquare,
   FilePlus2,
   Link2,
   Search,
+  Square,
   Trash2,
   X,
 } from 'lucide-react';
@@ -77,6 +79,9 @@ export function DigitalShelfModal({
   const [linkingBookId, setLinkingBookId] = useState(null);
   const [linkWorkQuery, setLinkWorkQuery] = useState('');
   const [confirmRemoveId, setConfirmRemoveId] = useState(null);
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedBookIds, setSelectedBookIds] = useState([]);
+  const pendingBatchTimersRef = useRef([]);
 
   const refreshShelf = useCallback(async () => {
     setIsLoading(true);
@@ -94,6 +99,8 @@ export function DigitalShelfModal({
     if (!isOpen) {
       setLinkingBookId(null);
       setConfirmRemoveId(null);
+      setSelectionMode(false);
+      setSelectedBookIds([]);
       setSearchQuery('');
       setLinkWorkQuery('');
       return;
@@ -208,6 +215,48 @@ export function DigitalShelfModal({
     onShelfMutated?.();
   };
 
+  const toggleSelectBook = (bookId) => {
+    setSelectedBookIds((prev) =>
+      prev.includes(bookId) ? prev.filter((id) => id !== bookId) : [...prev, bookId]
+    );
+  };
+
+  const handleBatchDeleteBooks = () => {
+    if (selectedBookIds.length === 0) return;
+    const idsToDelete = [...selectedBookIds];
+    const idSet = new Set(idsToDelete);
+    const prevSnapshot = [...entries];
+
+    setEntries((prev) => prev.filter((e) => !idSet.has(e.bookId)));
+    setSelectedBookIds([]);
+    setSelectionMode(false);
+
+    const timer = setTimeout(async () => {
+      for (const id of idsToDelete) {
+        if (onRemoveStoredBook) {
+          await onRemoveStoredBook(id);
+        } else {
+          await removeStoredReaderBook(id, { works });
+        }
+      }
+      onShelfMutated?.();
+    }, 8000);
+    pendingBatchTimersRef.current.push(timer);
+
+    showToast({
+      message: `${idsToDelete.length} ${idsToDelete.length === 1 ? 'arquivo removido' : 'arquivos removidos'}`,
+      type: 'info',
+      duration: 8000,
+      action: {
+        label: 'Desfazer',
+        onClick: () => {
+          clearTimeout(timer);
+          setEntries(prevSnapshot);
+        },
+      },
+    });
+  };
+
   const handleConfirmLinkWork = async (entry, targetWork) => {
     try {
       const res = await linkStoredReaderBookToWork(entry.bookId, targetWork.id);
@@ -256,6 +305,25 @@ export function DigitalShelfModal({
           </div>
 
           <div className="flex shrink-0 items-center gap-2">
+            {entries.length > 0 && (
+              <button
+                type="button"
+                aria-pressed={selectionMode}
+                onClick={() => {
+                  setSelectionMode((prev) => !prev);
+                  setSelectedBookIds([]);
+                }}
+                className={`inline-flex min-h-[44px] items-center gap-1 rounded-[4px] border px-2.5 py-2 text-xs font-medium transition-colors ${
+                  selectionMode
+                    ? 'border-accent bg-accent/15 text-accent'
+                    : 'border-line bg-app text-muted hover:text-ink'
+                }`}
+              >
+                <CheckSquare className="h-3.5 w-3.5" strokeWidth={1.5} />
+                <span className="hidden sm:inline">Selecionar</span>
+              </button>
+            )}
+
             <button
               type="button"
               disabled={isImporting}
@@ -399,12 +467,30 @@ export function DigitalShelfModal({
             filteredEntries.map((entry) => {
               const isLinking = linkingBookId === entry.bookId;
               const isConfirmingRemove = confirmRemoveId === entry.bookId;
+              const isSelected = selectedBookIds.includes(entry.bookId);
               return (
                 <div
                   key={entry.bookId}
-                  className="rounded-[6px] border border-line bg-app p-3"
+                  className={`rounded-[6px] border bg-app p-3 transition-colors ${
+                    isSelected ? 'border-accent bg-accent/10' : 'border-line'
+                  }`}
                 >
                   <div className="flex items-start gap-3">
+                    {selectionMode && (
+                      <button
+                        type="button"
+                        aria-pressed={isSelected}
+                        aria-label={`Selecionar ${entry.title}`}
+                        onClick={() => toggleSelectBook(entry.bookId)}
+                        className="flex min-h-[44px] min-w-[36px] shrink-0 items-center justify-center text-accent"
+                      >
+                        {isSelected ? (
+                          <CheckSquare className="h-4 w-4" strokeWidth={1.5} />
+                        ) : (
+                          <Square className="h-4 w-4 text-muted" strokeWidth={1.5} />
+                        )}
+                      </button>
+                    )}
                     {entry.linkedWork ? (
                       <CoverArt
                         item={entry.linkedWork}
@@ -565,6 +651,32 @@ export function DigitalShelfModal({
             })
           )}
         </div>
+
+        {selectedBookIds.length > 0 && (
+          <div className="flex items-center justify-between gap-2 border-t border-line bg-app px-4 py-2.5">
+            <span className="text-xs font-medium tabular-nums text-ink">
+              {selectedBookIds.length}{' '}
+              {selectedBookIds.length === 1 ? 'selecionado' : 'selecionados'}
+            </span>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setSelectedBookIds([])}
+                className="min-h-[40px] rounded-[4px] border border-line px-2.5 text-xs text-muted hover:text-ink"
+              >
+                Limpar
+              </button>
+              <button
+                type="button"
+                onClick={handleBatchDeleteBooks}
+                className="inline-flex min-h-[40px] items-center gap-1.5 rounded-[4px] border border-rose-500/40 bg-rose-500/15 px-3 text-xs font-semibold text-rose-400"
+              >
+                <Trash2 className="h-3.5 w-3.5" strokeWidth={1.5} />
+                <span>Remover lote</span>
+              </button>
+            </div>
+          </div>
+        )}
 
         <input
           ref={fileInputRef}

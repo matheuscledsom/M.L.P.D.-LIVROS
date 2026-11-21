@@ -30,6 +30,8 @@ import {
   COLLECTIONS_STORAGE_KEY,
   createCustomCollection,
   normalizeCollectionList,
+  reorderCollections,
+  reorderWorkInCollection,
   saveCollections,
   toggleWorkInCollection,
 } from '../utils/collections';
@@ -632,6 +634,84 @@ export function useBacklog() {
     setReadingSessions((prev) => prev.filter((session) => session.workId !== id));
   }, []);
 
+  const batchUpdateItems = useCallback((ids = [], updates = {}) => {
+    const idSet = new Set((Array.isArray(ids) ? ids : []).map(String));
+    if (idSet.size === 0) return;
+    const nowIso = new Date().toISOString();
+    setItems((prev) =>
+      prev.map((item) => {
+        if (!idSet.has(String(item.id))) return item;
+        let merged = { ...item, updatedAt: nowIso };
+        if (updates.status) {
+          merged.status = updates.status;
+          merged = applyStatusTransitionDefaults(merged, updates.status, item);
+        }
+        if (updates.addCollectionId) {
+          const cols = Array.isArray(merged.collectionIds) ? merged.collectionIds.map(String) : [];
+          if (!cols.includes(String(updates.addCollectionId))) {
+            merged.collectionIds = [...cols, String(updates.addCollectionId)];
+          }
+        }
+        if (updates.removeCollectionId) {
+          const cols = Array.isArray(merged.collectionIds) ? merged.collectionIds.map(String) : [];
+          merged.collectionIds = cols.filter((c) => c !== String(updates.removeCollectionId));
+        }
+        return normalizeItem(merged);
+      })
+    );
+  }, []);
+
+  const batchRemoveItems = useCallback(
+    (ids = []) => {
+      const idSet = new Set((Array.isArray(ids) ? ids : []).map(String));
+      if (idSet.size === 0) return { removedItems: [], removedSessions: [] };
+      const removedItems = items.filter((item) => idSet.has(String(item.id)));
+      const removedSessions = readingSessions.filter((s) => idSet.has(String(s.workId)));
+      setItems((prev) => prev.filter((item) => !idSet.has(String(item.id))));
+      setReadingSessions((prev) => prev.filter((s) => !idSet.has(String(s.workId))));
+      return { removedItems, removedSessions };
+    },
+    [items, readingSessions]
+  );
+
+  const restoreRemovedItems = useCallback(({ removedItems = [], removedSessions = [] } = {}) => {
+    if (Array.isArray(removedItems) && removedItems.length > 0) {
+      setItems((prev) => {
+        const existingIds = new Set(prev.map((i) => String(i.id)));
+        const restored = removedItems
+          .filter((i) => !existingIds.has(String(i.id)))
+          .map(normalizeItem);
+        return [...restored, ...prev];
+      });
+    }
+    if (Array.isArray(removedSessions) && removedSessions.length > 0) {
+      setReadingSessions((prev) => {
+        const existingIds = new Set(prev.map((s) => String(s.id)));
+        const restored = removedSessions.filter((s) => !existingIds.has(String(s.id)));
+        return [...restored, ...prev];
+      });
+    }
+  }, []);
+
+  const moveCollection = useCallback((collectionId, direction = -1) => {
+    setCollections((prev) => reorderCollections(prev, collectionId, direction));
+  }, []);
+
+  const moveCollectionWork = useCallback(
+    (collectionId, workId, direction = -1) => {
+      setCollections((prev) =>
+        prev.map((col) => {
+          if (col.id !== String(collectionId)) return col;
+          const memberWorks = items.filter(
+            (i) => Array.isArray(i.collectionIds) && i.collectionIds.includes(col.id)
+          );
+          return reorderWorkInCollection(col, workId, direction, memberWorks);
+        })
+      );
+    },
+    [items]
+  );
+
   const createCollection = useCallback(
     (name) => {
       const res = createCustomCollection(name, collections);
@@ -805,8 +885,13 @@ export function useBacklog() {
     addItem,
     updateItem,
     removeItem,
+    batchUpdateItems,
+    batchRemoveItems,
+    restoreRemovedItems,
     createCollection,
     deleteCollection,
+    moveCollection,
+    moveCollectionWork,
     toggleWorkCollection,
     addReadingSession,
     replaceWorkspaceData,

@@ -128,6 +128,11 @@ const UserProfileModal = lazy(() =>
 const PerfOverlay = lazy(() =>
   import('./components/PerfOverlay').then((m) => ({ default: m.PerfOverlay }))
 );
+const CommandPalette = lazy(() =>
+  import('./components/CommandPalette').then((m) => ({
+    default: m.CommandPalette,
+  }))
+);
 
 const ReaderShell = lazy(() =>
   import('./components/reader/ReaderShell').then((m) => ({
@@ -143,6 +148,8 @@ export function App() {
   const [backupModalOpen, setBackupModalOpen] = useState(false);
   const [themeModalOpen, setThemeModalOpen] = useState(false);
   const [digitalShelfOpen, setDigitalShelfOpen] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [requestedCollectionId, setRequestedCollectionId] = useState(null);
   const [onboardingReopened, setOnboardingReopened] = useState(false);
   const [storedReaderWorkIds, setStoredReaderWorkIds] = useState([]);
   const [storedReaderBooks, setStoredReaderBooks] = useState([]);
@@ -232,8 +239,13 @@ export function App() {
     addItem,
     updateItem,
     removeItem,
+    batchUpdateItems,
+    batchRemoveItems,
+    restoreRemovedItems,
     createCollection,
     deleteCollection,
+    moveCollection,
+    moveCollectionWork,
     toggleWorkCollection,
     addReadingSession,
     replaceWorkspaceData,
@@ -408,6 +420,18 @@ export function App() {
         handleStorageChanged
       );
   }, [refreshStoredBookIds]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    const handleGlobalKeys = (e) => {
+      if ((e.ctrlKey || e.metaKey) && String(e.key || '').toLowerCase() === 'k') {
+        e.preventDefault();
+        setPaletteOpen((prev) => !prev);
+      }
+    };
+    window.addEventListener('keydown', handleGlobalKeys);
+    return () => window.removeEventListener('keydown', handleGlobalKeys);
+  }, []);
 
   const handleOpenReaderForWork = useCallback((work, file = null) => {
     if (!work) return;
@@ -1335,13 +1359,21 @@ export function App() {
               storedReaderWorkIds={storedReaderWorkIds}
               onCreateCollection={createCollection}
               onDeleteCollection={deleteCollection}
+              onMoveCollection={moveCollection}
+              onMoveCollectionWork={moveCollectionWork}
+              onBatchUpdateItems={batchUpdateItems}
+              onBatchRemoveItems={batchRemoveItems}
+              onRestoreRemovedItems={restoreRemovedItems}
               onStartPickedWork={handleStartPickedWork}
               onSelectItem={(item) => setSelectedItemId(item.id)}
               onOpenReader={handleOpenReaderForWork}
               onOpenDigitalShelf={() => setDigitalShelfOpen(true)}
               onOpenThemeStudio={() => setThemeModalOpen(true)}
+              onOpenCommandPalette={() => setPaletteOpen(true)}
               onNavigateAdd={() => setActiveTab('add')}
               onOpenGeminiSettings={() => setGeminiModalOpen(true)}
+              requestedCollectionId={requestedCollectionId}
+              onConsumeRequestedCollection={() => setRequestedCollectionId(null)}
             />
           )}
           {activeTab === 'community' && (
@@ -1829,6 +1861,33 @@ export function App() {
               onChangeBgColor={setCustomBgColor}
               onChangeAccentColor={setCustomAccentColor}
               onResetTheme={resetCustomColors}
+            />
+          )}
+
+          {paletteOpen && (
+            <CommandPalette
+              isOpen={paletteOpen}
+              onClose={() => setPaletteOpen(false)}
+              items={items}
+              collections={collections}
+              onNavigateTab={setActiveTab}
+              onSelectItem={(item) => {
+                if (item?.id) setSelectedItemId(item.id);
+              }}
+              onSelectCollection={(colId) => {
+                setRequestedCollectionId(colId);
+                setActiveTab('list');
+              }}
+              onOpenThemeStudio={() => setThemeModalOpen(true)}
+              onOpenDigitalShelf={() => setDigitalShelfOpen(true)}
+              onExportBackup={handleSaveBackupCopyNow}
+              onToggleFocusTheme={() => {
+                if (specialThemeId === 'focus-dim') {
+                  setMode(mode || 'oled');
+                } else {
+                  applySpecialTheme('focus-dim');
+                }
+              }}
             />
           )}
 
