@@ -16,16 +16,25 @@ export const VERSIONING_RULES = {
 };
 
 export const CODICE_RELEASE = {
-  version: '4.1.0',
+  version: '4.1.1',
   codename: 'Ymir',
-  label: 'v4.1.0 · Ymir',
-  releaseType: 'major',
+  label: 'v4.1.1 · Ymir',
+  releaseType: 'patch',
   date: '2026-11',
   summary:
-    'Motor híbrido local/nuvem, leitor imersivo, busca seletiva e rede literária.',
+    'Deploy contínuo Cloudflare Pages, novos temas, check-in rápido, roleta offline, coleções e cartões de perfil sem servidor.',
 };
 
 export const RELEASE_HISTORY = [
+  {
+    version: '4.1.1',
+    codename: 'Ymir',
+    label: 'v4.1.1 · Ymir',
+    releaseType: 'patch',
+    date: '2026-11',
+    summary: 'Deploy contínuo Cloudflare Pages, novos temas, check-in rápido, roleta offline, coleções e cartões de perfil sem servidor.',
+    highlights: ['Release automatizado via bump-version.mjs.'],
+  },
   {
     version: '4.1.0',
     codename: 'Ymir',
