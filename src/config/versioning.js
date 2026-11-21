@@ -16,16 +16,25 @@ export const VERSIONING_RULES = {
 };
 
 export const CODICE_RELEASE = {
-  version: '4.6.0',
+  version: '4.7.0',
   codename: 'Ymir',
-  label: 'v4.6.0 · Ymir',
+  label: 'v4.7.0 · Ymir',
   releaseType: 'minor',
   date: '2026-11',
   summary:
-    'Fase 5: Code splitting lazy por aba/modal, Web Worker (>500 obras), pipeline de capas WebP LRU, windowing e debounce de persistencia',
+    'Fase 6: Identidade @handle#XXXX (0001-9999), leitura estatica VITE_SUPABASE_*, busca por codigo/tag e schema RLS completo',
 };
 
 export const RELEASE_HISTORY = [
+  {
+    version: '4.7.0',
+    codename: 'Ymir',
+    label: 'v4.7.0 · Ymir',
+    releaseType: 'minor',
+    date: '2026-11',
+    summary: 'Fase 6: Identidade @handle#XXXX (0001-9999), leitura estatica VITE_SUPABASE_*, busca por codigo/tag e schema RLS completo',
+    highlights: ['Release automatizado via bump-version.mjs.'],
+  },
   {
     version: '4.6.0',
     codename: 'Ymir',

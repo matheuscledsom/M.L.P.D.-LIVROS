@@ -85,12 +85,47 @@ function buildInitials(displayName, fallback = 'LC') {
   return (clean.slice(0, 2) || fallback).toUpperCase();
 }
 
+export function deriveUserDiscriminator(seed = '') {
+  const input = String(seed || 'leitor');
+  let hash = 2166136261;
+  for (let i = 0; i < input.length; i += 1) {
+    hash ^= input.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  const num = ((hash >>> 0) % 9999) + 1;
+  return String(num).padStart(4, '0');
+}
+
+export function normalizeDiscriminator(raw, fallbackSeed = 'leitor') {
+  const digits = String(raw || '').replace(/[^0-9]/g, '').slice(0, 4);
+  if (digits.length === 4) {
+    const num = Number(digits);
+    if (num >= 1 && num <= 9999) return digits;
+  }
+  return deriveUserDiscriminator(fallbackSeed);
+}
+
+export function buildUserTag(handle, discriminator) {
+  const normHandle = normalizeHandle(handle);
+  const disc = normalizeDiscriminator(discriminator, normHandle);
+  return `${normHandle}#${disc}`;
+}
+
 export function normalizeFrontendProfile(rawProfile = {}) {
   const defaults = domainConfig.ui.profile;
+  const rawHandleStr = String(rawProfile.handle || defaults.handle).trim();
+  const embeddedDiscMatch = rawHandleStr.match(/#([0-9]{4})$/);
   const handle = normalizeHandle(
-    rawProfile.handle || defaults.handle,
+    rawHandleStr.replace(/#[0-9]{4}$/, ''),
     rawProfile.displayName || rawProfile.display_name || 'leitor'
   );
+  const rawUserTag = String(rawProfile.userTag ?? rawProfile.user_tag ?? '').trim();
+  const tagDiscMatch = rawUserTag.match(/#([0-9]{4})$/);
+  const discriminator = normalizeDiscriminator(
+    rawProfile.discriminator || tagDiscMatch?.[1] || embeddedDiscMatch?.[1],
+    rawProfile.id || handle
+  );
+  const userTag = buildUserTag(handle, discriminator);
   const displayName =
     String(
       rawProfile.displayName ??
@@ -112,6 +147,8 @@ export function normalizeFrontendProfile(rawProfile = {}) {
     id: rawProfile.id || createUuid(),
     email: typeof rawProfile.email === 'string' ? rawProfile.email.trim().toLowerCase() : '',
     handle,
+    discriminator,
+    userTag,
     displayName,
     avatarInitials:
       rawProfile.avatarInitials ??
@@ -175,6 +212,8 @@ export function toSqlProfileRow(profile = {}) {
   return {
     id: norm.id,
     handle: norm.handle,
+    user_tag: norm.userTag,
+    discriminator: norm.discriminator,
     display_name: norm.displayName,
     bio: norm.bio,
     avatar_url: norm.avatarUrl,
@@ -240,8 +279,16 @@ export function canInteractWithProfile(
 
 function readEnvValue(key) {
   try {
-    if (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env[key]) {
-      return String(import.meta.env[key]).trim();
+    if (typeof import.meta !== 'undefined' && import.meta.env) {
+      if (key === 'VITE_SUPABASE_URL' && import.meta.env.VITE_SUPABASE_URL) {
+        return String(import.meta.env.VITE_SUPABASE_URL).trim();
+      }
+      if (key === 'VITE_SUPABASE_ANON_KEY' && import.meta.env.VITE_SUPABASE_ANON_KEY) {
+        return String(import.meta.env.VITE_SUPABASE_ANON_KEY).trim();
+      }
+      if (import.meta.env[key]) {
+        return String(import.meta.env[key]).trim();
+      }
     }
   } catch {
     // Ambiente sem import.meta.env
@@ -2048,8 +2095,9 @@ export async function searchReaderProfiles(query = '', { viewerId = null } = {})
     const session = await ensureFreshSupabaseSession();
     if (session?.access_token) {
       try {
+        const cleanQuery = q.replace(/^#/, '');
         const filterPart = q
-          ? `&or=(handle.ilike.*${encodeURIComponent(q)}*,display_name.ilike.*${encodeURIComponent(q)}*)`
+          ? `&or=(handle.ilike.*${encodeURIComponent(cleanQuery)}*,user_tag.ilike.*${encodeURIComponent(cleanQuery)}*,display_name.ilike.*${encodeURIComponent(cleanQuery)}*)`
           : '';
         const rows = await supabaseFetchJson(
           `/rest/v1/profiles?select=*&limit=30${filterPart}`,
@@ -2088,7 +2136,11 @@ export async function searchReaderProfiles(query = '', { viewerId = null } = {})
         return false;
       }
       if (!q) return true;
+      const hashCode = profile.discriminator ? `#${profile.discriminator}` : '';
       return (
+        String(profile.userTag || '').toLowerCase().includes(q) ||
+        String(profile.discriminator || '').toLowerCase().includes(q.replace(/^#/, '')) ||
+        hashCode.includes(q) ||
         String(profile.handle || '').toLowerCase().includes(q) ||
         String(profile.displayName || '').toLowerCase().includes(q) ||
         String(profile.bio || '').toLowerCase().includes(q)

@@ -25,6 +25,7 @@ import {
   searchReaderProfiles,
   unfollowReader,
 } from '../../services/codiceBackend';
+import { decodePublicProfileCard } from '../../services/peerProfileShare';
 import { ActivityFeed } from './ActivityFeed';
 import { DirectChatPanel } from './DirectChatDrawer';
 
@@ -63,6 +64,7 @@ export function CommunityScreen({
   const [busyIds, setBusyIds] = useState({});
   const [chatTargetPeerId, setChatTargetPeerId] = useState(null);
   const [copiedInvite, setCopiedInvite] = useState(false);
+  const [cardImportInput, setCardImportInput] = useState('');
   const tabRefs = useRef({});
 
   const loadDirectoryAndRequests = useCallback(async () => {
@@ -139,6 +141,22 @@ export function CommunityScreen({
       // Fallback below
     }
     showToast({ message: `Convite: ${inviteUrl}`, type: 'info' });
+  };
+
+  const handleImportLiveCard = (e) => {
+    e.preventDefault();
+    const raw = cardImportInput.trim();
+    if (!raw) return;
+    const decoded = decodePublicProfileCard(raw);
+    if (!decoded.ok) {
+      showToast({
+        message: decoded.error || 'Não foi possível validar esse Cartão Vivo.',
+        type: 'error',
+      });
+      return;
+    }
+    setCardImportInput('');
+    onOpenFriendCard?.(decoded.card);
   };
 
   const handleToggleFollow = async (reader) => {
@@ -399,10 +417,11 @@ export function CommunityScreen({
               <p className="text-xs font-semibold text-ink">
                 Compartilhe seu Cartão Vivo (Link &amp; QR Code) ou @handle
               </p>
-              <p className="truncate text-xs text-muted tabular-nums">
-                {inviteUrl || 'Configure um @handle em Editar Perfil para compartilhar'}
-              </p>
-            </div>
+                <p className="truncate text-xs text-muted tabular-nums">
+                  {inviteUrl || 'Configure um @handle em Editar Perfil para compartilhar'}
+                  {myProfile?.userTag ? ` · Tag: ${myProfile.userTag}` : ''}
+                </p>
+              </div>
             <div className="flex flex-wrap items-center gap-2">
               {onOpenShareProfileCard && (
                 <button
@@ -424,6 +443,28 @@ export function CommunityScreen({
               </button>
             </div>
           </div>
+
+          <form
+            onSubmit={handleImportLiveCard}
+            className="rounded-[4px] border border-line bg-surface p-3 flex flex-col sm:flex-row gap-2"
+          >
+            <input
+              type="text"
+              value={cardImportInput}
+              onChange={(e) => setCardImportInput(e.target.value)}
+              placeholder="Cole um link ?card= ou código de Cartão Vivo de amigo para confirmar e salvar..."
+              aria-label="Colar link ou código de Cartão Vivo"
+              className="min-h-[44px] min-w-0 flex-1 rounded-[4px] border border-line bg-panel px-3 py-2 text-xs text-ink placeholder:text-muted focus:border-accent focus:outline-none"
+            />
+            <button
+              type="submit"
+              disabled={!cardImportInput.trim()}
+              className="inline-flex min-h-[44px] shrink-0 items-center justify-center gap-1.5 rounded-[4px] border border-line bg-panel px-3.5 py-2 text-xs font-medium text-ink hover:border-accent hover:text-accent disabled:opacity-50"
+            >
+              <Link2 className="h-3.5 w-3.5 text-accent" strokeWidth={1.5} />
+              <span>Visualizar Cartão</span>
+            </button>
+          </form>
 
           {/* Solicitações Pendentes */}
           {pendingRequests.length > 0 && (
@@ -491,7 +532,7 @@ export function CommunityScreen({
               type="search"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Buscar por nome, @handle ou interesses..."
+              placeholder="Buscar por nome, @handle ou #código..."
               aria-label="Buscar leitores na comunidade"
               className="w-full min-h-[44px] pl-9 pr-3 py-2 rounded-[4px] border border-line bg-surface text-sm text-ink placeholder:text-muted focus:outline-none focus:border-accent"
             />
@@ -582,7 +623,7 @@ export function CommunityScreen({
                               {reader.displayName || reader.handle}
                             </button>
                             <span className="text-xs text-muted tabular-nums">
-                              {reader.handle}
+                              {reader.userTag || reader.handle}
                             </span>
                             {reader.isSelf && (
                               <span className="text-[11px] uppercase tracking-wider text-accent font-medium">

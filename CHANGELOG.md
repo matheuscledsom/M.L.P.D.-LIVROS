@@ -17,6 +17,10 @@ npm run version:major -- --name="Odin"
 
 ---
 
+## [v4.7.0 · Ymir] — 2026-11
+
+**Resumo:** Fase 6: Identidade @handle#XXXX (0001-9999), leitura estatica VITE_SUPABASE_*, busca por codigo/tag e schema RLS completo
+
 ## [v4.6.0 · Ymir] — 2026-11
 
 **Resumo:** Fase 5: Code splitting lazy por aba/modal, Web Worker (>500 obras), pipeline de capas WebP LRU, windowing e debounce de persistencia

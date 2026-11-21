@@ -812,3 +812,18 @@ ALTER TABLE public.wall_posts
 
 ALTER TABLE public.direct_messages
   ADD COLUMN IF NOT EXISTS attached_work_snapshot jsonb;
+
+-- ----------------------------------------------------------------------------
+-- 8. DISCRIMINADOR @HANDLE#XXXX & ÍNDICES DE BUSCA (Fase 6)
+-- ----------------------------------------------------------------------------
+ALTER TABLE public.profiles
+  ADD COLUMN IF NOT EXISTS discriminator text;
+
+ALTER TABLE public.profiles
+  ADD COLUMN IF NOT EXISTS user_tag text;
+
+CREATE INDEX IF NOT EXISTS idx_profiles_user_tag_lower
+  ON public.profiles (lower(user_tag));
+
+CREATE INDEX IF NOT EXISTS idx_profiles_display_name_lower
+  ON public.profiles (lower(display_name));

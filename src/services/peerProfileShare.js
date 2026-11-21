@@ -135,6 +135,7 @@ function buildCompactCardPayload({
   return {
     v: 1,
     h: sanitizeCardHandle(profile?.handle || '@leitor'),
+    ut: sanitizePlainText(profile?.userTag || '', 48),
     n: sanitizePlainText(
       profile?.displayName || profile?.handle || 'Leitor do Códice',
       55
@@ -264,6 +265,8 @@ export function decodePublicProfileCard(rawInput) {
     }
 
     const handle = sanitizeCardHandle(parsed.h);
+    const rawUt = sanitizePlainText(parsed.ut || '', 48);
+    const userTag = /^@[a-z0-9_.-]+#[0-9]{4}$/i.test(rawUt) ? rawUt.toLowerCase() : '';
     const displayName = sanitizePlainText(parsed.n || handle, 60);
     if (!displayName) {
       return { ok: false, error: 'Cartão sem identificação válida do leitor.' };
@@ -332,6 +335,7 @@ export function decodePublicProfileCard(rawInput) {
         id: `card:${handle.replace(/^@/, '')}`,
         version: 1,
         handle,
+        userTag: userTag || handle,
         displayName,
         avatarInitials,
         bio,

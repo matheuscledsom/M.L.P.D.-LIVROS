@@ -72,7 +72,7 @@ export function FriendProfileCardModal({
                 {card.displayName}
               </h2>
               <p className="truncate text-xs tabular-nums text-muted">
-                {card.handle}
+                {card.userTag || card.handle}
               </p>
             </div>
           </div>
