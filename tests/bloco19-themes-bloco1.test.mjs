@@ -127,6 +127,8 @@ test('Bloco 1: CSS e UI contemplam os 6 estilos especiais, seletor pastel e zero
   const rootDir = process.cwd();
   const css = await fs.readFile(path.join(rootDir, 'src/index.css'), 'utf8');
   const hookCode = await fs.readFile(path.join(rootDir, 'src/hooks/useTheme.js'), 'utf8');
+  const engineCode = await fs.readFile(path.join(rootDir, 'src/design/themeEngine.js'), 'utf8');
+  const themeLayerCode = `${hookCode}\n${engineCode}`;
   const modalCode = await fs.readFile(path.join(rootDir, 'src/components/ThemeModal.jsx'), 'utf8');
   const drawerCode = await fs.readFile(path.join(rootDir, 'src/components/ProfileSettingsDrawer.jsx'), 'utf8');
 
@@ -138,8 +140,8 @@ test('Bloco 1: CSS e UI contemplam os 6 estilos especiais, seletor pastel e zero
   assert.ok(css.includes('radial-gradient('));
   assert.ok(css.includes('@media (prefers-reduced-motion: reduce)'));
 
-  assert.ok(hookCode.includes("setAttribute('data-theme-style'"));
-  assert.ok(hookCode.includes("removeAttribute('data-theme-style')"));
+  assert.ok(themeLayerCode.includes("setAttribute('data-theme-style'"));
+  assert.ok(themeLayerCode.includes("removeAttribute('data-theme-style')"));
   assert.ok(modalCode.includes('PastelPaletteCustomizer'));
   assert.ok(modalCode.includes('type="color"'));
   assert.ok(drawerCode.includes('PastelPaletteCustomizer'));

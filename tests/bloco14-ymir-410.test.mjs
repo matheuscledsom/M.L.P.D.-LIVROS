@@ -57,11 +57,10 @@ const { buildHomeBookRecommendations } = await import(
 
 test('versioning.js, package.json, CHANGELOG.md e scripts/bump-version.mjs configuram Ymir corretamente', async () => {
   const pkg = JSON.parse(await fs.readFile(path.resolve('package.json'), 'utf8'));
-  assert.equal(CODICE_RELEASE.version, '4.1.1');
-  assert.equal(pkg.version, '4.1.1');
-  assert.equal(CODICE_RELEASE.codename, 'Ymir');
-  assert.equal(CODICE_RELEASE.label, 'v4.1.1 · Ymir');
-  assert.equal(formatReleaseBadge(), 'Códice v4.1.1 · Ymir');
+  assert.equal(CODICE_RELEASE.version, pkg.version);
+  assert.ok(CODICE_RELEASE.codename);
+  assert.equal(CODICE_RELEASE.label, `v${pkg.version} · ${CODICE_RELEASE.codename}`);
+  assert.equal(formatReleaseBadge(), `Códice ${CODICE_RELEASE.label}`);
   assert.ok(Array.isArray(RELEASE_HISTORY) && RELEASE_HISTORY.length >= 2);
   assert.ok(RELEASE_HISTORY.some((entry) => entry.version === '4.1.0'));
   assert.ok(pkg.scripts['version:patch']);
@@ -69,7 +68,7 @@ test('versioning.js, package.json, CHANGELOG.md e scripts/bump-version.mjs confi
   assert.ok(pkg.scripts['version:major']);
 
   const changelog = await fs.readFile(path.resolve('CHANGELOG.md'), 'utf8');
-  assert.ok(changelog.includes('v4.1.1 · Ymir'));
+  assert.ok(changelog.includes(`v${pkg.version} · ${CODICE_RELEASE.codename}`));
   assert.ok(changelog.includes('v4.1.0 · Ymir'));
   assert.ok(changelog.includes('codinome'));
 

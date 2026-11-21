@@ -15,9 +15,53 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Crimson+Pro:wght@400;500;700&family=EB+Garamond:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500;700&family=Inter:wght@400;500;700&family=JetBrains+Mono:wght@400;500;700&family=Libre+Baskerville:wght@400;700&family=Lora:wght@400;500;700&family=Merriweather:wght@400;700&family=Plus+Jakarta+Sans:wght@400;500;700&family=Space+Grotesk:wght@400;500;700&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Crimson+Pro:wght@400;500;700&family=EB+Garamond:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500;700&family=JetBrains+Mono:wght@400;500;700&family=Libre+Baskerville:wght@400;700&family=Lora:wght@400;500;700&family=Merriweather:wght@400;700&family=Plus+Jakarta+Sans:wght@400;500;700&family=Space+Grotesk:wght@400;500;700&display=swap"
       rel="stylesheet"
     />
+    <script>
+      (function () {
+        try {
+          var root = document.documentElement;
+          var styleMap = {
+            'pastel-glass': 'glass-pastel',
+            'windows-xp': 'win-xp',
+            'windows-7': 'win-7',
+            'frutiger-aero': 'frutiger-aero',
+            'manga-ink': 'manga',
+            'focus-dim': 'focus',
+          };
+          var rawTheme = localStorage.getItem('mlpd_livros_theme');
+          if (rawTheme) {
+            var t = JSON.parse(rawTheme);
+            var sp = t && t.specialThemeId && styleMap[t.specialThemeId];
+            if (sp) {
+              root.setAttribute('data-theme-style', sp);
+              var isLight = sp !== 'win-7' && sp !== 'focus';
+              root.classList.toggle('dark', !isLight);
+            } else if (t && t.mode === 'parchment') {
+              root.classList.remove('dark');
+              root.style.setProperty('--bg-app', '#FAF8F5');
+            }
+          } else if (
+            window.matchMedia &&
+            window.matchMedia('(prefers-color-scheme: light)').matches
+          ) {
+            root.classList.remove('dark');
+          }
+          var rawPrefs = localStorage.getItem('codice_theme_prefs_v2');
+          if (rawPrefs) {
+            var p = JSON.parse(rawPrefs);
+            if (p && p.density) root.setAttribute('data-density', p.density);
+            if (p && p.motion === 'reduced') root.setAttribute('data-motion', 'reduced');
+          } else if (
+            window.matchMedia &&
+            window.matchMedia('(prefers-reduced-motion: reduce)').matches
+          ) {
+            root.setAttribute('data-motion', 'reduced');
+          }
+        } catch (e) {}
+      })();
+    </script>
     <title>Códice — Arquivo Literário &amp; Pesquisa</title>
   </head>
   <body class="bg-app text-ink antialiased selection:bg-accent/30 selection:text-ink">

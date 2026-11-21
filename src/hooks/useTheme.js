@@ -1,5 +1,12 @@
 import { useEffect, useState } from 'react';
 import {
+  DENSITY_OPTIONS,
+  MOTION_OPTIONS,
+  applyThemeEngineAttributes,
+  loadThemeEnginePrefs,
+  saveThemeEnginePrefs,
+} from '../design/themeEngine';
+import {
   EDITORIAL_PRESETS,
   FONT_PRESETS,
   TEXTURE_OPTIONS,
@@ -18,8 +25,10 @@ import {
 } from '../data/themePresets';
 
 export {
+  DENSITY_OPTIONS,
   EDITORIAL_PRESETS,
   FONT_PRESETS,
+  MOTION_OPTIONS,
   PASTEL_SUBPALETTES,
   SPECIAL_THEMES,
   TEXTURE_OPTIONS,
@@ -57,11 +66,12 @@ function loadSavedTheme() {
 
 export function useTheme() {
   const [theme, setTheme] = useState(loadSavedTheme);
+  const [enginePrefs, setEnginePrefs] = useState(loadThemeEnginePrefs);
 
   const modeConfig =
     THEME_MODES.find((m) => m.id === theme.mode) ?? THEME_MODES[2];
   const fontConfig =
-    FONT_PRESETS.find((f) => f.id === theme.font) ?? FONT_PRESETS[0];
+    FONT_PRESETS.find((f) => f.id === theme.font) ?? FONT_PRESETS[5] ?? FONT_PRESETS[0];
 
   const specialConfig = theme.specialThemeId
     ? resolveSpecialThemeConfig(
@@ -97,11 +107,12 @@ export function useTheme() {
       root.style.setProperty(key, value);
     });
 
-    if (specialConfig?.styleAttr) {
-      root.setAttribute('data-theme-style', specialConfig.styleAttr);
-    } else {
-      root.removeAttribute('data-theme-style');
-    }
+    applyThemeEngineAttributes({
+      root,
+      styleAttr: specialConfig?.styleAttr || null,
+      density: enginePrefs.density,
+      motion: enginePrefs.motion,
+    });
 
     root.style.setProperty('--accent-color', activeAccentColor);
     root.style.setProperty('--accent-contrast', accentContrast);
@@ -113,6 +124,7 @@ export function useTheme() {
       metaTheme.setAttribute('content', activeBgColor);
     }
 
+    saveThemeEnginePrefs(enginePrefs);
     try {
       localStorage.setItem(THEME_STORAGE_KEY, JSON.stringify(theme));
     } catch {
@@ -120,6 +132,7 @@ export function useTheme() {
     }
   }, [
     theme,
+    enginePrefs,
     surface,
     specialConfig,
     activeBgColor,
@@ -127,6 +140,19 @@ export function useTheme() {
     accentContrast,
     fontConfig,
   ]);
+
+  const setDensity = (density) =>
+    setEnginePrefs((prev) => ({
+      ...prev,
+      density: density === 'compact' ? 'compact' : 'comfortable',
+    }));
+
+  const setMotion = (motion) =>
+    setEnginePrefs((prev) => ({
+      ...prev,
+      motion:
+        motion === 'full' || motion === 'reduced' ? motion : 'system',
+    }));
 
   const setMode = (mode) =>
     setTheme((prev) => ({
@@ -237,6 +263,8 @@ export function useTheme() {
     mode: theme.mode,
     font: theme.font,
     texture: theme.texture,
+    density: enginePrefs.density,
+    motion: enginePrefs.motion,
     presetId: theme.presetId,
     specialThemeId: theme.specialThemeId,
     pastelSubpaletteId: theme.pastelSubpaletteId,
@@ -251,6 +279,8 @@ export function useTheme() {
     setMode,
     setFont,
     setTexture,
+    setDensity,
+    setMotion,
     applyPreset,
     applySpecialTheme,
     selectPastelSubpalette,

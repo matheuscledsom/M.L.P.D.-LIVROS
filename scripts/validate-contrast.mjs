@@ -22,16 +22,30 @@ const UI_MIN = 3.0;
 const failures = [];
 
 function checkThemeEntry(name, vars, accentHex) {
+  const resolved = {
+    ...vars,
+    '--surface-base': vars['--surface-base'] || vars['--bg-app'],
+    '--surface-elevated': vars['--surface-elevated'] || vars['--bg-card'],
+    '--text-1': vars['--text-1'] || vars['--text-primary'],
+    '--text-2': vars['--text-2'] || vars['--text-muted'],
+    '--text-3': vars['--text-3'] || vars['--text-subtle'],
+  };
+
   const surfaces = [
-    ['bg-app', vars['--bg-app']],
-    ['bg-card', vars['--bg-card']],
-    ['bg-elevated', vars['--bg-elevated']],
+    ['bg-app', resolved['--bg-app']],
+    ['bg-card', resolved['--bg-card']],
+    ['bg-elevated', resolved['--bg-elevated']],
+    ['surface-base', resolved['--surface-base']],
+    ['surface-elevated', resolved['--surface-elevated']],
   ];
 
   const textVars = [
-    ['--text-primary', vars['--text-primary']],
-    ['--text-muted', vars['--text-muted']],
-    ['--text-subtle', vars['--text-subtle']],
+    ['--text-primary', resolved['--text-primary']],
+    ['--text-muted', resolved['--text-muted']],
+    ['--text-subtle', resolved['--text-subtle']],
+    ['--text-1', resolved['--text-1']],
+    ['--text-2', resolved['--text-2']],
+    ['--text-3', resolved['--text-3']],
   ];
 
   surfaces.forEach(([surfName, surfHex]) => {

@@ -193,11 +193,11 @@ export const FONT_PRESETS = [
     cssValue: '"Libre Baskerville", Georgia, serif',
   },
   {
-    id: 'inter',
-    label: 'Sans Moderna (Inter)',
-    shortLabel: 'Inter',
-    fontName: 'Inter',
-    cssValue: '"Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+    id: 'source-sans',
+    label: 'Sans Humanista (Source Sans 3)',
+    shortLabel: 'Source Sans 3',
+    fontName: 'Source Sans 3 Variable',
+    cssValue: '"Source Sans 3 Variable", "Codice Sans Fallback", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
   },
   {
     id: 'jakarta',

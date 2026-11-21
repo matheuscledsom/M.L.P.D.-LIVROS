@@ -4,6 +4,7 @@ import { AuthModal } from './components/auth/AuthModal';
 import { BackupRestoreModal } from './components/BackupRestoreModal';
 import { BottomNav } from './components/BottomNav';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import { GraphicFilters } from './design/GraphicFilters';
 import { GeminiConfigModal } from './components/GeminiConfigModal';
 import { ItemDetailSheet } from './components/ItemDetailSheet';
 import { JournalComposerModal } from './components/JournalComposerModal';
@@ -123,6 +124,8 @@ export function App() {
     mode,
     font,
     texture,
+    density,
+    motion,
     presetId,
     specialThemeId,
     pastelSubpaletteId,
@@ -133,6 +136,8 @@ export function App() {
     setMode,
     setFont,
     setTexture,
+    setDensity,
+    setMotion,
     applyPreset,
     applySpecialTheme,
     selectPastelSubpalette,
@@ -1176,6 +1181,7 @@ export function App() {
       onDrop={handleGlobalDrop}
       className="relative min-h-screen bg-app text-ink transition-colors duration-200"
     >
+      <GraphicFilters />
       {textureClass && (
         <div
           aria-hidden="true"
@@ -1313,6 +1319,8 @@ export function App() {
                 mode,
                 font,
                 texture,
+                density,
+                motion,
                 presetId,
                 specialThemeId,
                 pastelSubpaletteId,
@@ -1323,6 +1331,8 @@ export function App() {
                 onSelectMode: setMode,
                 onSelectFont: setFont,
                 onSelectTexture: setTexture,
+                onSelectDensity: setDensity,
+                onSelectMotion: setMotion,
                 onApplyPreset: applyPreset,
                 onApplySpecialTheme: applySpecialTheme,
                 onSelectPastelSubpalette: selectPastelSubpalette,

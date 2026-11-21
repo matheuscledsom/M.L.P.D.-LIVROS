@@ -353,7 +353,7 @@ export function resolveSpecialThemeConfig(
 
 export const DEFAULT_THEME_STATE = {
   mode: 'oled',
-  font: 'inter',
+  font: 'source-sans',
   texture: 'clean',
   presetId: null,
   specialThemeId: null,
@@ -373,9 +373,10 @@ export function parseThemeStorage(raw) {
     const mode = THEME_MODES.some((m) => m.id === parsed.mode)
       ? parsed.mode
       : 'oled';
-    const font = FONT_PRESETS.some((f) => f.id === parsed.font)
-      ? parsed.font
-      : 'inter';
+    const rawFont = parsed.font === 'inter' ? 'source-sans' : parsed.font;
+    const font = FONT_PRESETS.some((f) => f.id === rawFont)
+      ? rawFont
+      : 'source-sans';
     const texture = TEXTURE_OPTIONS.some((t) => t.id === parsed.texture)
       ? parsed.texture
       : 'clean';
