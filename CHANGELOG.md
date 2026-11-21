@@ -17,6 +17,10 @@ npm run version:major -- --name="Odin"
 
 ---
 
+## [v4.8.0 · Ymir] — 2026-11
+
+**Resumo:** Fase 7: Conectores AniList GraphQL e Internet Archive, backoff/8s timeout, cache 7 dias IndexedDB, dedup melhorada e Ler Gratis Agora
+
 ## [v4.7.0 · Ymir] — 2026-11
 
 **Resumo:** Fase 6: Identidade @handle#XXXX (0001-9999), leitura estatica VITE_SUPABASE_*, busca por codigo/tag e schema RLS completo

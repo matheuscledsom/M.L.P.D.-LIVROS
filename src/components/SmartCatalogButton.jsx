@@ -25,6 +25,7 @@ export function SmartCatalogButton({
   const [statusNotice, setStatusNotice] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
   const [doneMode, setDoneMode] = useState('');
+  const [optionalAiOpen, setOptionalAiOpen] = useState(false);
 
   const hasExternalAi = Boolean(activeProvider);
 
@@ -200,18 +201,35 @@ export function SmartCatalogButton({
       {statusNotice && (
         <div
           role="status"
-          className="flex flex-wrap items-center justify-between gap-2 rounded-[4px] border border-line bg-app px-3 py-2 text-[11px] text-muted"
+          className="rounded-[4px] border border-line bg-app px-3 py-2 text-[11px] text-muted space-y-2"
         >
-          <span>{statusNotice}</span>
-          {!hasExternalAi && onOpenGeminiSettings && (
-            <button
-              type="button"
-              onClick={onOpenGeminiSettings}
-              className="inline-flex min-h-[36px] items-center gap-1 rounded-[4px] border border-line px-2 py-1 text-[10px] font-medium text-accent hover:border-accent"
-            >
-              <KeyRound className="h-3 w-3" strokeWidth={1.5} />
-              Configurar IA
-            </button>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span>{statusNotice}</span>
+            {!hasExternalAi && onOpenGeminiSettings && (
+              <button
+                type="button"
+                aria-expanded={optionalAiOpen}
+                onClick={() => setOptionalAiOpen((v) => !v)}
+                className="min-h-[34px] text-[10px] font-medium text-accent hover:underline"
+              >
+                {optionalAiOpen ? 'Ocultar IA opcional' : 'IA externa (opcional)'}
+              </button>
+            )}
+          </div>
+          {optionalAiOpen && !hasExternalAi && onOpenGeminiSettings && (
+            <div className="flex items-center justify-between gap-2 border-t border-line pt-2">
+              <span className="text-[10px] text-subtle">
+                Catalogação já funciona 100% offline. Conecte uma chave apenas se desejar sínteses extras.
+              </span>
+              <button
+                type="button"
+                onClick={onOpenGeminiSettings}
+                className="inline-flex min-h-[36px] shrink-0 items-center gap-1 rounded-[4px] border border-line px-2 py-1 text-[10px] font-medium text-accent hover:border-accent"
+              >
+                <KeyRound className="h-3 w-3" strokeWidth={1.5} />
+                Configurar IA
+              </button>
+            </div>
           )}
         </div>
       )}

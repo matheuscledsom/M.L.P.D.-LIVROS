@@ -11,6 +11,8 @@ const GOOGLE_BOOKS_BASE_URL = 'https://www.googleapis.com/books/v1/volumes';
 const APPLE_BOOKS_BASE_URL = 'https://itunes.apple.com/search';
 const OPEN_LIBRARY_BASE_URL = 'https://openlibrary.org/search.json';
 const JIKAN_MANGA_BASE_URL = 'https://api.jikan.moe/v4/manga';
+const ANILIST_GRAPHQL_URL = 'https://graphql.anilist.co';
+const INTERNET_ARCHIVE_SEARCH_URL = 'https://archive.org/advancedsearch.php';
 const CROSSREF_WORKS_URL = 'https://api.crossref.org/works';
 const WIKIDATA_API_URL = 'https://www.wikidata.org/w/api.php';
 const OPENALEX_WORKS_URL = 'https://api.openalex.org/works';
@@ -18,19 +20,24 @@ const GUTENDEX_BOOKS_URL = 'https://gutendex.com/books';
 const CROSSREF_POLITE_MAILTO = 'codice@projeto-codice.app';
 
 const SEARCH_CACHE_KEY = 'codice_search_cache_v2';
+const IDB_SEARCH_CACHE_DB = 'codice_search_cache_idb_v1';
+const IDB_SEARCH_CACHE_STORE = 'queries';
 export const GOOGLE_BOOKS_KEY_STORAGE = 'codice_search_google_books_key';
 export const MEDIA_SOURCES_STORAGE_KEY = 'codice_active_media_sources_v3';
 const CACHE_TTL_MS = 10 * 60 * 1000;
+const IDB_SEARCH_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const CACHE_MAX_ENTRIES = 60;
-const API_TIMEOUT_MS = 4000;
+const API_TIMEOUT_MS = 8000;
 const MAX_RESULTS_PER_SOURCE = 10;
 
 export const MEDIA_API_SOURCES = [
   { id: 'googleBooks', label: 'Google Books', hint: 'Livros em geral e metadados' },
   { id: 'appleBooks', label: 'Apple Books', hint: 'Ebooks em português e capas HD' },
-  { id: 'openLibrary', label: 'Open Library', hint: 'Edições, ISBN e capas abertas' },
+  { id: 'openLibrary', label: 'Open Library', hint: 'Edições, ISBN, HQs e capas abertas' },
   { id: 'jikan', label: 'Jikan / MAL', hint: 'Mangás, Light Novels e Manhwas' },
+  { id: 'anilist', label: 'AniList GraphQL', hint: 'Mangás, Light Novels e HQs asiáticas' },
   { id: 'gutendex', label: 'Gutendex', hint: 'Clássicos com EPUB grátis' },
+  { id: 'internetArchive', label: 'Internet Archive', hint: 'Acervo histórico e HQs em acesso aberto' },
   { id: 'academic', label: 'CrossRef + OpenAlex', hint: 'Artigos, DOI e Open Access' },
   { id: 'wikidata', label: 'Wikidata', hint: 'Cruzamento bilíngue PT-BR/EN' },
 ];
@@ -65,7 +72,7 @@ export const MEDIA_SOURCE_PRESETS = [
     id: 'manga',
     label: 'Mangás & Light Novels',
     filter: 'manga',
-    sources: ['jikan'],
+    sources: ['jikan', 'anilist'],
   },
   {
     id: 'academic',
@@ -274,11 +281,74 @@ function setCachedSearchMedia(query, filter, sources, payload) {
     if (!oldestKey) break;
     memoryCache.delete(oldestKey);
   }
-  memoryCache.set(key, {
+  setCachedInMemoryAndStorage(key, {
     ...payload,
     timestamp: Date.now(),
   });
+}
+
+function setCachedInMemoryAndStorage(key, entry) {
+  memoryCache.set(key, entry);
   persistMemoryCache();
+}
+
+function openSearchCacheIdb() {
+  if (typeof indexedDB === 'undefined') return Promise.resolve(null);
+  return new Promise((resolve) => {
+    try {
+      const req = indexedDB.open(IDB_SEARCH_CACHE_DB, 1);
+      req.onupgradeneeded = () => {
+        const db = req.result;
+        if (!db.objectStoreNames.contains(IDB_SEARCH_CACHE_STORE)) {
+          db.createObjectStore(IDB_SEARCH_CACHE_STORE, { keyPath: 'key' });
+        }
+      };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => resolve(null);
+    } catch {
+      resolve(null);
+    }
+  });
+}
+
+export async function getIndexedSearchCache(query, filter = 'all', sources = null) {
+  const db = await openSearchCacheIdb();
+  if (!db) return null;
+  const key = makeCacheKey(query, filter, sources);
+  return new Promise((resolve) => {
+    try {
+      const tx = db.transaction(IDB_SEARCH_CACHE_STORE, 'readonly');
+      const req = tx.objectStore(IDB_SEARCH_CACHE_STORE).get(key);
+      req.onsuccess = () => {
+        const rec = req.result;
+        if (!rec || Date.now() - Number(rec.timestamp || 0) >= IDB_SEARCH_CACHE_TTL_MS) {
+          resolve(null);
+        } else {
+          resolve(rec.payload || null);
+        }
+      };
+      req.onerror = () => resolve(null);
+    } catch {
+      resolve(null);
+    }
+  });
+}
+
+export async function setIndexedSearchCache(query, filter = 'all', sources = null, payload = null) {
+  if (!payload) return;
+  const db = await openSearchCacheIdb();
+  if (!db) return;
+  const key = makeCacheKey(query, filter, sources);
+  try {
+    const tx = db.transaction(IDB_SEARCH_CACHE_STORE, 'readwrite');
+    tx.objectStore(IDB_SEARCH_CACHE_STORE).put({
+      key,
+      payload,
+      timestamp: Date.now(),
+    });
+  } catch {
+    // Cache IndexedDB opcional
+  }
 }
 
 function normalizeText(value) {
@@ -459,6 +529,11 @@ function mapGoogleBook(volume, defaultWorkType = 'book', isbnFallback = '') {
     title,
     synopsis,
   });
+  const isComicSubject = rawCategories.some((c) =>
+    /comic|graphic novel|bande dessinee|quadrinho|manga/i.test(String(c || ''))
+  );
+  const resolvedWorkType =
+    defaultWorkType === 'book' && isComicSubject ? 'manga' : defaultWorkType;
 
   return {
     id: `gb-${googleVolumeId}`,
@@ -605,6 +680,11 @@ function mapOpenLibraryDoc(doc, defaultWorkType = 'book', isbnFallback = '') {
     title,
     synopsis,
   });
+  const isComicSubject = rawCategories.some((c) =>
+    /comic|graphic novel|bande dessinee|quadrinho|manga/i.test(String(c || ''))
+  );
+  const resolvedWorkType =
+    defaultWorkType === 'book' && isComicSubject ? 'manga' : defaultWorkType;
 
   return {
     id: `ol-${rawKey}`,
@@ -634,7 +714,8 @@ function mapOpenLibraryDoc(doc, defaultWorkType = 'book', isbnFallback = '') {
     subgenres: mappedGenres.subgenres,
     subgenre: mappedGenres.subgenre,
     genres: mappedGenres.genres,
-    workType: defaultWorkType,
+    workType: resolvedWorkType,
+    demographicOrigin: isComicSubject ? 'HQ / Graphic Novel' : undefined,
     source: 'openLibrary',
     sourceLabel: 'Open Library',
     monogram: getMonogram(title),
@@ -1007,6 +1088,162 @@ export function mapGutendexBook(entry, defaultWorkType = 'book') {
     workType: defaultWorkType,
     source: 'gutendex',
     sourceLabel: 'Gutendex',
+    monogram: getMonogram(title),
+  };
+}
+
+export function mapAniListMedia(entry) {
+  if (!entry || typeof entry !== 'object') return null;
+  const titleObj = entry.title || {};
+  const title =
+    titleObj.english || titleObj.romaji || titleObj.native || 'Sem título';
+  const originalTitle =
+    titleObj.native && titleObj.native !== title
+      ? titleObj.native
+      : titleObj.romaji && titleObj.romaji !== title
+        ? titleObj.romaji
+        : '';
+
+  const staffEdges = Array.isArray(entry.staff?.edges) ? entry.staff.edges : [];
+  const author = staffEdges
+    .filter((edge) => /story|art|author|original creator/i.test(edge?.role || ''))
+    .map((edge) => edge?.node?.name?.full)
+    .filter(Boolean)
+    .slice(0, 3)
+    .join(', ');
+
+  const coverUrl = cleanCoverUrl(
+    entry.coverImage?.extraLarge ||
+      entry.coverImage?.large ||
+      entry.coverImage?.medium ||
+      ''
+  );
+  const coverCandidates = coverUrl ? [coverUrl] : [];
+  const countryCode = String(entry.countryOfOrigin || '').toUpperCase();
+  const originMap = {
+    JP: entry.format === 'NOVEL' ? 'Light Novel' : 'Mangá',
+    KR: 'Manhwa',
+    CN: 'Manhua',
+    TW: 'Manhua',
+  };
+  const demographicOrigin =
+    originMap[countryCode] || (entry.format === 'NOVEL' ? 'Light Novel' : 'Mangá');
+  const rawCategories = (Array.isArray(entry.genres) ? entry.genres : []).slice(0, 5);
+  const synopsis = stripXmlTags(entry.description || '');
+  const mappedGenres = mapCategoriesToGenreAndSubgenres(rawCategories, {
+    workType: 'manga',
+    title,
+    synopsis,
+    demographicOrigin,
+  });
+
+  return {
+    id: `anilist-${entry.id || normalizeText(title)}`,
+    title,
+    originalTitle,
+    titleEnglish: titleObj.english || '',
+    titleJapanese: titleObj.native || '',
+    language: '',
+    author,
+    authors: toAuthorsList(author),
+    coverUrl: coverCandidates[0] || null,
+    coverCandidates,
+    coverSources: coverCandidates,
+    googleCoverUrl: null,
+    openLibIsbnCover: null,
+    openLibIdCover: null,
+    jikanCoverUrls: coverCandidates,
+    releaseYear: Number(entry.startDate?.year) || null,
+    year: Number(entry.startDate?.year) || null,
+    totalPages: null,
+    totalVolumes: Number(entry.volumes) > 0 ? Number(entry.volumes) : null,
+    totalChapters: Number(entry.chapters) > 0 ? Number(entry.chapters) : null,
+    publisher: '',
+    institution: '',
+    isbn: '',
+    doi: '',
+    issn: '',
+    synopsis,
+    originCountry: countryCode === 'KR' ? 'Coreia do Sul' : countryCode === 'CN' ? 'China' : 'Japão',
+    demographicOrigin,
+    rawCategories,
+    primaryGenre: mappedGenres.primaryGenre,
+    subgenres: mappedGenres.subgenres,
+    subgenre: mappedGenres.subgenre,
+    genres: mappedGenres.genres,
+    workType: 'manga',
+    source: 'anilist',
+    sourceLabel: 'AniList',
+    monogram: getMonogram(title),
+  };
+}
+
+export function mapInternetArchiveDoc(doc, defaultWorkType = 'book') {
+  if (!doc || !doc.identifier || !doc.title) return null;
+  const identifier = encodeURIComponent(String(doc.identifier).trim());
+  const title = stripXmlTags(Array.isArray(doc.title) ? doc.title[0] : doc.title);
+  const authorRaw = Array.isArray(doc.creator) ? doc.creator.join(', ') : doc.creator || '';
+  const author = stripXmlTags(authorRaw);
+  const rawSubjects = Array.isArray(doc.subject)
+    ? doc.subject.slice(0, 5)
+    : doc.subject
+      ? [String(doc.subject)]
+      : [];
+  const isComic = rawSubjects.some((s) => /comic|graphic novel|manga/i.test(String(s || '')));
+  const resolvedWorkType = defaultWorkType === 'book' && isComic ? 'manga' : defaultWorkType;
+
+  const coverUrl = `https://archive.org/services/img/${identifier}`;
+  const freeEpubUrl = `https://archive.org/download/${identifier}/${identifier}.epub`;
+  const openAccessUrl = `https://archive.org/details/${identifier}`;
+  const synopsis = stripXmlTags(
+    Array.isArray(doc.description) ? doc.description[0] : doc.description || ''
+  );
+  const mappedGenres = mapCategoriesToGenreAndSubgenres(rawSubjects, {
+    workType: resolvedWorkType,
+    title,
+    synopsis,
+  });
+
+  const yearParsed = Number.parseInt(String(doc.year || '').slice(0, 4), 10);
+  return {
+    id: `ia-${identifier}`,
+    title,
+    originalTitle: '',
+    language: normalizeLanguageLabel(
+      Array.isArray(doc.language) ? doc.language[0] : doc.language || ''
+    ),
+    author,
+    authors: toAuthorsList(author),
+    coverUrl,
+    coverCandidates: [coverUrl],
+    coverSources: [coverUrl],
+    googleCoverUrl: null,
+    openLibIsbnCover: null,
+    openLibIdCover: null,
+    jikanCoverUrls: [],
+    releaseYear: Number.isFinite(yearParsed) && yearParsed > 1000 ? yearParsed : null,
+    year: Number.isFinite(yearParsed) && yearParsed > 1000 ? yearParsed : null,
+    totalPages: null,
+    publisher: normalizePublisherName(
+      Array.isArray(doc.publisher) ? doc.publisher[0] : doc.publisher || 'Internet Archive'
+    ),
+    institution: '',
+    isbn: '',
+    doi: '',
+    issn: '',
+    synopsis,
+    freeEpubUrl,
+    openAccessUrl,
+    isOpenAccess: true,
+    isPublicDomain: true,
+    rawCategories: rawSubjects,
+    primaryGenre: mappedGenres.primaryGenre,
+    subgenres: mappedGenres.subgenres,
+    subgenre: mappedGenres.subgenre,
+    genres: mappedGenres.genres,
+    workType: resolvedWorkType,
+    source: 'internetArchive',
+    sourceLabel: 'Internet Archive',
     monogram: getMonogram(title),
   };
 }
@@ -1416,10 +1653,11 @@ export function mergeTwoResults(primary, secondary) {
   };
 }
 
-function deduplicateAndSortResults(items, query, filter, isbn, doi) {
+export function deduplicateAndSortResults(items, query = '', filter = 'all', isbn = null, doi = null) {
   const byDoi = new Map();
   const byIsbn = new Map();
   const byTitleAuthor = new Map();
+  const byNormalizedTitle = new Map();
   const orderedRecords = [];
 
   items.forEach((item) => {
@@ -1430,12 +1668,21 @@ function deduplicateAndSortResults(items, query, filter, isbn, doi) {
     const titleAuthorKey = titleKey
       ? `${item.workType || 'book'}:${titleKey}:${firstAuthor}`
       : '';
+    const pureTitleKey = titleKey ? `${item.workType || 'book'}:${titleKey}` : '';
 
-    const matchedRef =
+    let matchedRef =
       (cleanDoi && byDoi.get(cleanDoi)) ||
       (cleanIsbn && byIsbn.get(cleanIsbn)) ||
       (titleAuthorKey && byTitleAuthor.get(titleAuthorKey)) ||
       null;
+
+    if (!matchedRef && pureTitleKey && byNormalizedTitle.has(pureTitleKey)) {
+      const candidateBox = byNormalizedTitle.get(pureTitleKey);
+      const candAuthor = normalizeText(String(candidateBox.item.author || '').split(/,|;/)[0]);
+      if (!firstAuthor || !candAuthor || firstAuthor === candAuthor) {
+        matchedRef = candidateBox;
+      }
+    }
 
     if (!matchedRef) {
       const box = { item };
@@ -1443,6 +1690,9 @@ function deduplicateAndSortResults(items, query, filter, isbn, doi) {
       if (cleanDoi) byDoi.set(cleanDoi, box);
       if (cleanIsbn) byIsbn.set(cleanIsbn, box);
       if (titleAuthorKey) byTitleAuthor.set(titleAuthorKey, box);
+      if (pureTitleKey && !byNormalizedTitle.has(pureTitleKey)) {
+        byNormalizedTitle.set(pureTitleKey, box);
+      }
       return;
     }
 
@@ -1460,6 +1710,7 @@ function deduplicateAndSortResults(items, query, filter, isbn, doi) {
         `${merged.workType || 'book'}:${mergedTitleKey}:${mergedAuthor}`,
         matchedRef
       );
+      byNormalizedTitle.set(`${merged.workType || 'book'}:${mergedTitleKey}`, matchedRef);
     }
   });
 
@@ -1507,7 +1758,10 @@ export function searchMockMedia(query = '', filter = 'all') {
   });
 }
 
-async function fetchJsonWithTimeout(url, { signal, timeoutMs = API_TIMEOUT_MS } = {}) {
+async function fetchJsonAttempt(
+  url,
+  { signal, timeoutMs = API_TIMEOUT_MS, method = 'GET', headers, body } = {}
+) {
   const localController = new AbortController();
   let timedOut = false;
 
@@ -1527,7 +1781,10 @@ async function fetchJsonWithTimeout(url, { signal, timeoutMs = API_TIMEOUT_MS } 
   }, timeoutMs);
 
   try {
-    const response = await fetch(url, { signal: localController.signal });
+    const fetchOpts = { method, signal: localController.signal };
+    if (headers) fetchOpts.headers = headers;
+    if (body) fetchOpts.body = body;
+    const response = await fetch(url, fetchOpts);
     if (!response.ok) {
       const httpErr = new Error(`HTTP ${response.status}`);
       httpErr.status = response.status;
@@ -1545,6 +1802,32 @@ async function fetchJsonWithTimeout(url, { signal, timeoutMs = API_TIMEOUT_MS } 
     clearTimeout(timer);
     if (signal) {
       signal.removeEventListener('abort', onParentAbort);
+    }
+  }
+}
+
+export async function fetchJsonWithTimeout(
+  url,
+  { signal, timeoutMs = API_TIMEOUT_MS, method = 'GET', headers, body, retries = 2 } = {}
+) {
+  let attempt = 0;
+  while (true) {
+    try {
+      return await fetchJsonAttempt(url, { signal, timeoutMs, method, headers, body });
+    } catch (err) {
+      if (err?.name === 'AbortError' || signal?.aborted) {
+        throw err;
+      }
+      const retryableStatus =
+        err?.status === 429 || (typeof err?.status === 'number' && err.status >= 500);
+      const retryableNetwork =
+        err?.name === 'TimeoutError' || typeof err?.status !== 'number';
+      if (attempt >= retries || (!retryableStatus && !retryableNetwork)) {
+        throw err;
+      }
+      const backoffMs = 350 * (2 ** attempt);
+      await new Promise((resolve) => setTimeout(resolve, backoffMs));
+      attempt += 1;
     }
   }
 }
@@ -1623,6 +1906,40 @@ function buildGutendexUrl(cleanQuery) {
   const url = new URL(GUTENDEX_BOOKS_URL);
   url.search = new URLSearchParams({
     search: cleanQuery,
+  }).toString();
+  return url.toString();
+}
+
+function buildAniListGraphQLBody(cleanQuery) {
+  return JSON.stringify({
+    query: `query ($search: String) {
+      Page(page: 1, perPage: ${MAX_RESULTS_PER_SOURCE}) {
+        media(search: $search, type: MANGA, sort: SEARCH_MATCH) {
+          id
+          format
+          countryOfOrigin
+          volumes
+          chapters
+          genres
+          description(asHtml: false)
+          startDate { year }
+          title { romaji english native }
+          coverImage { extraLarge large medium }
+          staff(perPage: 4) { edges { role node { name { full } } } }
+        }
+      }
+    }`,
+    variables: { search: cleanQuery },
+  });
+}
+
+function buildInternetArchiveUrl(cleanQuery) {
+  const url = new URL(INTERNET_ARCHIVE_SEARCH_URL);
+  url.search = new URLSearchParams({
+    q: `${cleanQuery} AND mediatype:texts`,
+    output: 'json',
+    rows: String(MAX_RESULTS_PER_SOURCE),
+    page: '1',
   }).toString();
   return url.toString();
 }
@@ -1859,6 +2176,44 @@ export const MEDIA_CONNECTORS = {
       return fetchWikidataSource(cleanQuery, getWorkTypeFromFilter(filter), { signal });
     },
   },
+  anilist: {
+    id: 'anilist',
+    label: 'AniList GraphQL',
+    async search(query, { signal } = {}) {
+      const cleanQuery = String(query || '').trim();
+      const value = await fetchJsonWithTimeout(ANILIST_GRAPHQL_URL, {
+        signal,
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+        },
+        body: buildAniListGraphQLBody(cleanQuery),
+      });
+      const list = value?.data?.Page?.media;
+      return Array.isArray(list)
+        ? list.slice(0, MAX_RESULTS_PER_SOURCE).map(mapAniListMedia).filter(Boolean)
+        : [];
+    },
+  },
+  internetArchive: {
+    id: 'internetArchive',
+    label: 'Internet Archive',
+    async search(query, { signal, filter = 'all' } = {}) {
+      const cleanQuery = String(query || '').trim();
+      const defaultWorkType = getWorkTypeFromFilter(filter);
+      const value = await fetchJsonWithTimeout(buildInternetArchiveUrl(cleanQuery), {
+        signal,
+      });
+      const docs = value?.response?.docs;
+      return Array.isArray(docs)
+        ? docs
+            .slice(0, MAX_RESULTS_PER_SOURCE)
+            .map((d) => mapInternetArchiveDoc(d, defaultWorkType))
+            .filter(Boolean)
+        : [];
+    },
+  },
 };
 
 function assembleMergedItems(itemsBySource, cleanQuery, filter, isbn, doi) {
@@ -1867,6 +2222,8 @@ function assembleMergedItems(itemsBySource, cleanQuery, filter, isbn, doi) {
     ...itemsBySource.appleBooks,
     ...itemsBySource.openlib,
     ...itemsBySource.jikan,
+    ...(itemsBySource.anilist || []),
+    ...(itemsBySource.internetArchive || []),
     ...itemsBySource.crossref,
     ...itemsBySource.openalex,
     ...itemsBySource.gutendex,
@@ -1939,6 +2296,21 @@ export async function searchMedia(
         allFailed: false,
         failedSources: cached.failedSources || [],
         failedCount: Number(cached.failedCount) || 0,
+      };
+    }
+
+    const idbCached = await getIndexedSearchCache(cleanQuery, filter, explicitSources);
+    if (idbCached?.results?.length > 0) {
+      setCachedSearchMedia(cleanQuery, filter, explicitSources, idbCached);
+      return {
+        results: idbCached.results,
+        source: 'cache',
+        isIsbn: Boolean(idbCached.isIsbn),
+        isDoi: Boolean(idbCached.isDoi),
+        partialFailure: Boolean(idbCached.partialFailure),
+        allFailed: false,
+        failedSources: idbCached.failedSources || [],
+        failedCount: Number(idbCached.failedCount) || 0,
       };
     }
   }
@@ -2027,6 +2399,24 @@ export async function searchMedia(
       });
     }
     if (
+      isSourceEnabled('anilist') &&
+      (hasExplicit || filter === 'manga')
+    ) {
+      sourcePlan.push({
+        key: 'anilist',
+        run: () => MEDIA_CONNECTORS.anilist.search(cleanQuery, { signal, filter }),
+      });
+    }
+    if (
+      isSourceEnabled('internetArchive') &&
+      (hasExplicit || filter === 'book')
+    ) {
+      sourcePlan.push({
+        key: 'internetArchive',
+        run: () => MEDIA_CONNECTORS.internetArchive.search(cleanQuery, { signal, filter }),
+      });
+    }
+    if (
       isSourceEnabled('gutendex') &&
       (hasExplicit || filter === 'all' || filter === 'book')
     ) {
@@ -2057,6 +2447,8 @@ export async function searchMedia(
     appleBooks: [],
     openlib: [],
     jikan: [],
+    anilist: [],
+    internetArchive: [],
     crossref: [],
     openalex: [],
     gutendex: [],
@@ -2069,6 +2461,8 @@ export async function searchMedia(
         sourceKey === 'appleBooks' ||
         sourceKey === 'openlib' ||
         sourceKey === 'jikan' ||
+        sourceKey === 'anilist' ||
+        sourceKey === 'internetArchive' ||
         sourceKey === 'gutendex' ||
         sourceKey === 'wikidata') &&
       Array.isArray(value)
@@ -2201,6 +2595,7 @@ export async function searchMedia(
 
   if (merged.length > 0 && !partialFailure) {
     setCachedSearchMedia(cleanQuery, filter, explicitSources, payload);
+    setIndexedSearchCache(cleanQuery, filter, explicitSources, payload).catch(() => {});
   }
   return payload;
 }
