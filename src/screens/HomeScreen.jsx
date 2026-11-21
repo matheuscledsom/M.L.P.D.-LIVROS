@@ -1,6 +1,7 @@
 import {
   ArrowRight,
   BookOpen,
+  Dices,
   FilePlus2,
   Library,
   Play,
@@ -12,7 +13,9 @@ import {
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { CoverArt } from '../components/CoverArt';
+import { OfflineBookPickerModal } from '../components/OfflineBookPickerModal';
 import { OracleWidget } from '../components/OracleWidget';
+import { QuickReadingCheckIn } from '../components/QuickReadingCheckIn';
 import { ReadingStreakWidget } from '../components/ReadingStreakWidget';
 import { RecommendationsSection } from '../components/RecommendationsSection';
 import { ReleaseHistoryModal } from '../components/ReleaseHistoryModal';
@@ -35,10 +38,15 @@ export function HomeScreen({
   items,
   profile,
   streakProps,
+  readingSessions = [],
+  dailyLogs = {},
   resolvedBadgeName = '',
   viewerId = null,
   geminiKey = '',
+  storedReaderWorkIds = [],
   storedReaderBooks = [],
+  onQuickCheckIn,
+  onStartPickedWork,
   onSelectItem,
   onOpenReader,
   onOpenStoredBook,
@@ -53,6 +61,7 @@ export function HomeScreen({
   const { showToast } = useToast();
   const { ui, cardFields, currentYear } = domainConfig;
   const [releaseModalOpen, setReleaseModalOpen] = useState(false);
+  const [rouletteOpen, setRouletteOpen] = useState(false);
   const [hubMetricMode, setHubMetricMode] = useState('percent');
   const [confirmRemoveBookId, setConfirmRemoveBookId] = useState(null);
   const quickReadInputRef = useRef(null);
@@ -249,6 +258,15 @@ export function HomeScreen({
         <ReadingStreakWidget {...streakProps} />
       )}
 
+      <QuickReadingCheckIn
+        items={items}
+        streakCount={streakProps?.streakCount || 0}
+        loggedToday={Boolean(streakProps?.loggedToday)}
+        readingSessions={readingSessions}
+        dailyLogs={dailyLogs}
+        onQuickLog={onQuickCheckIn}
+      />
+
       {/* Hub Unificado "Continuar Lendo" no topo da Home (Acervo + IndexedDB Offline) */}
       <section aria-label={ui.home.continueReadingTitle} className="space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
@@ -265,8 +283,16 @@ export function HomeScreen({
           <div className="flex flex-wrap items-center gap-2">
             <button
               type="button"
+              onClick={() => setRouletteOpen(true)}
+              className="inline-flex min-h-[44px] items-center gap-1.5 rounded-[4px] border border-line bg-card px-2.5 py-1.5 text-[11px] font-medium text-ink transition-colors hover:border-accent"
+            >
+              <Dices className="h-3.5 w-3.5 text-accent" strokeWidth={1.5} />
+              <span>Sortear Próxima Leitura</span>
+            </button>
+            <button
+              type="button"
               onClick={() => quickReadInputRef.current?.click()}
-              className="inline-flex min-h-[38px] items-center gap-1.5 rounded-[4px] border border-accent/45 bg-accent/10 px-2.5 py-1 text-[11px] font-medium text-accent transition-colors hover:bg-accent hover:text-accent-ink"
+              className="inline-flex min-h-[44px] items-center gap-1.5 rounded-[4px] border border-accent/45 bg-accent/10 px-2.5 py-1.5 text-[11px] font-medium text-accent transition-colors hover:bg-accent hover:text-accent-ink"
             >
               <FilePlus2 className="h-3.5 w-3.5" strokeWidth={1.5} />
               <span>+ Adicionar Arquivo para Ler</span>
@@ -274,7 +300,7 @@ export function HomeScreen({
             <button
               type="button"
               onClick={() => onOpenDigitalShelf?.()}
-              className="inline-flex min-h-[38px] items-center gap-1.5 rounded-[4px] border border-line bg-card px-2.5 py-1 text-[11px] font-medium text-ink transition-colors hover:border-accent"
+              className="inline-flex min-h-[44px] items-center gap-1.5 rounded-[4px] border border-line bg-card px-2.5 py-1.5 text-[11px] font-medium text-ink transition-colors hover:border-accent"
             >
               <Library className="h-3.5 w-3.5 text-accent" strokeWidth={1.5} />
               <span>Meus EPUBs</span>
@@ -855,6 +881,16 @@ export function HomeScreen({
       <ReleaseHistoryModal
         isOpen={releaseModalOpen}
         onClose={() => setReleaseModalOpen(false)}
+      />
+
+      <OfflineBookPickerModal
+        isOpen={rouletteOpen}
+        onClose={() => setRouletteOpen(false)}
+        items={items}
+        storedReaderWorkIds={storedReaderWorkIds}
+        onStartReading={onStartPickedWork}
+        onSelectItem={onSelectItem}
+        onOpenReader={onOpenReader}
       />
     </div>
   );

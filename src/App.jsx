@@ -138,9 +138,13 @@ export function App() {
   const {
     items,
     readingSessions,
+    collections,
     addItem,
     updateItem,
     removeItem,
+    createCollection,
+    deleteCollection,
+    toggleWorkCollection,
     addReadingSession,
     replaceWorkspaceData,
     exportBackup,
@@ -164,6 +168,7 @@ export function App() {
     loggedToday,
     isPaused,
     history,
+    dailyLogs,
     registerToday,
     restoreStreakBackup,
   } = useReadingStreak();
@@ -642,6 +647,7 @@ export function App() {
         replaceWorkspaceData({
           items: incomingSnapshot.items || [],
           readingSessions: incomingSnapshot.readingSessions || [],
+          collections: incomingSnapshot.collections || [],
         });
         restoreSocialBackup({
           profile: incomingSnapshot.profile,
@@ -658,12 +664,13 @@ export function App() {
       }
 
       const merged = mergeSnapshots(
-        { items, profile, posts, streak: streakData, readingSessions },
+        { items, profile, posts, streak: streakData, readingSessions, collections },
         incomingSnapshot
       );
       replaceWorkspaceData({
         items: merged.items,
         readingSessions: merged.readingSessions,
+        collections: merged.collections || [],
       });
       restoreSocialBackup({
         profile: merged.profile,
@@ -695,25 +702,91 @@ export function App() {
       posts,
       streak: streakData,
       readingSessions,
+      collections,
     });
     persistCodiceDatabase(db);
-  }, [items, profile, posts, streakData, readingSessions]);
+  }, [items, profile, posts, streakData, readingSessions, collections]);
 
   useEffect(() => {
     if (!items || items.length === 0) return undefined;
     const timer = setTimeout(() => {
       saveAutoSnapshot(
-        { items, profile, posts, streak: streakData, readingSessions },
+        { items, profile, posts, streak: streakData, readingSessions, collections },
         { reason: 'auto', label: 'Auto-snapshot automático' }
       ).catch(() => {});
     }, 8000);
     return () => clearTimeout(timer);
-  }, [items, profile, posts, streakData, readingSessions]);
+  }, [items, profile, posts, streakData, readingSessions, collections]);
 
   const handleRegisterToday = () => {
     registerToday();
     showToast({ message: 'Constância de leitura registrada hoje', type: 'success' });
   };
+
+  const handleQuickReadingCheckIn = useCallback(
+    ({ workId = null, pages = 0, note = '' } = {}) => {
+      const cleanPages = Math.max(0, Math.round(Number(pages) || 0));
+      const cleanNote = String(note || '').trim();
+      if (cleanPages <= 0 && !cleanNote) return;
+
+      const targetWork = workId
+        ? items.find((entry) => entry.id === workId)
+        : null;
+
+      if (targetWork) {
+        if (cleanPages > 0) {
+          const prevPage = Math.max(0, Number(targetWork.currentPage) || 0);
+          const total = Number(targetWork.totalPages) || 0;
+          const nextPage =
+            total > 0 ? Math.min(total, prevPage + cleanPages) : prevPage + cleanPages;
+          const updates = {
+            currentPage: nextPage,
+            updatedAt: new Date().toISOString(),
+            ...(targetWork.status === 'queued' ? { status: 'playing' } : {}),
+          };
+          if (total > 0 && nextPage >= total) {
+            updates.progressPercent = 100;
+          }
+          updateItem(targetWork.id, updates);
+        }
+
+        addReadingSession({
+          workId: targetWork.id,
+          pagesRead: cleanPages,
+          notes: cleanNote,
+        });
+        registerToday({ note: cleanNote });
+      } else {
+        registerToday({
+          standalonePages: cleanPages,
+          standaloneSessions: 1,
+          note: cleanNote,
+        });
+      }
+
+      showToast({
+        message:
+          cleanPages > 0
+            ? `+${cleanPages} ${cleanPages === 1 ? 'página registrada' : 'páginas registradas'} hoje`
+            : 'Reflexão de leitura salva',
+        type: 'success',
+      });
+    },
+    [items, updateItem, addReadingSession, registerToday, showToast]
+  );
+
+  const handleStartPickedWork = useCallback(
+    (work) => {
+      if (!work?.id) return;
+      updateItem(work.id, { status: 'playing', inBacklog: true });
+      setSelectedItemId(work.id);
+      showToast({
+        message: `"${work.title}" iniciada na sua estante`,
+        type: 'success',
+      });
+    },
+    [updateItem, showToast]
+  );
 
   const activeViewerId =
     backendSession?.user?.id || backendSession?.profile?.id || profile?.id || null;
@@ -993,11 +1066,15 @@ export function App() {
               items={items}
               profile={profile}
               streakProps={streakProps}
+              readingSessions={readingSessions}
+              dailyLogs={dailyLogs}
               resolvedBadgeName={resolvedTitleBadge}
               viewerId={activeViewerId}
               geminiKey={geminiKey}
               storedReaderWorkIds={storedReaderWorkIds}
               storedReaderBooks={storedReaderBooks}
+              onQuickCheckIn={handleQuickReadingCheckIn}
+              onStartPickedWork={handleStartPickedWork}
               onSelectItem={handleSelectOrAddFromRecommendation}
               onOpenReader={handleOpenReaderForWork}
               onOpenStoredBook={handleOpenStoredBook}
@@ -1010,7 +1087,14 @@ export function App() {
               onOpenGeminiSettings={() => setGeminiModalOpen(true)}
             />
           )}
-          {activeTab === 'stats' && <StatsScreen items={items} />}
+          {activeTab === 'stats' && (
+            <StatsScreen
+              items={items}
+              readingSessions={readingSessions}
+              streakHistory={history}
+              dailyLogs={dailyLogs}
+            />
+          )}
           {activeTab === 'add' && (
             <AddScreen
               items={items}
@@ -1025,8 +1109,12 @@ export function App() {
               items={items}
               profile={profile}
               streakProps={streakProps}
+              collections={collections}
               geminiKey={geminiKey}
               storedReaderWorkIds={storedReaderWorkIds}
+              onCreateCollection={createCollection}
+              onDeleteCollection={deleteCollection}
+              onStartPickedWork={handleStartPickedWork}
               onSelectItem={(item) => setSelectedItemId(item.id)}
               onOpenReader={handleOpenReaderForWork}
               onOpenDigitalShelf={() => setDigitalShelfOpen(true)}
@@ -1123,6 +1211,7 @@ export function App() {
         <ItemDetailSheet
           item={selectedItem}
           posts={posts}
+          collections={collections}
           geminiKey={geminiKey}
           viewerId={activeViewerId}
           hasStoredFile={Boolean(
@@ -1135,6 +1224,8 @@ export function App() {
           storedFileMeta={selectedStoredBook}
           onClose={() => setSelectedItemId(null)}
           onUpdateItem={handleUpdateItem}
+          onToggleCollection={toggleWorkCollection}
+          onCreateCollection={createCollection}
           onRemoveItem={handleRemoveItem}
           onRemoveStoredFile={(work, meta) =>
             handleRemoveStoredBook(

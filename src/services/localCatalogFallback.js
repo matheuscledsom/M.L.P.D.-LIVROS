@@ -131,30 +131,46 @@ export async function runLocalSmartCataloging(
     ...item,
     title: baseTitle || catalogMatch?.title || '',
     author: mergedAuthor,
+    synopsis: item?.synopsis || catalogMatch?.synopsis || '',
+    keywords: item?.keywords || catalogMatch?.keywords || '',
     genres: candidateGenres,
+    subgenres: Array.isArray(item?.subgenres) ? item.subgenres : [],
   });
-
-  const cddGenreLabel = String(classification.cddLabel || '')
-    .split('·')
-    .slice(1)
-    .join('·')
-    .trim();
 
   const resolvedGenres = Array.from(
     new Set([
       ...existingGenres,
       ...candidateGenres,
-      ...(cddGenreLabel ? [cddGenreLabel] : []),
+      ...(classification.primaryGenre ? [classification.primaryGenre] : []),
+      ...(classification.subgenre ? [classification.subgenre] : []),
     ])
   )
     .filter(Boolean)
     .slice(0, 4);
 
+  const existingSubgenres = Array.isArray(item?.subgenres)
+    ? item.subgenres.filter(Boolean)
+    : [];
+  const resolvedSubgenres = Array.from(
+    new Set([...existingSubgenres, ...(classification.subgenres || [])])
+  ).slice(0, 4);
+
+  const existingTags = Array.isArray(item?.tropes)
+    ? item.tropes.filter(Boolean)
+    : [];
+  const resolvedTags = Array.from(
+    new Set([...existingTags, ...(classification.suggestedTags || [])])
+  ).slice(0, 6);
+
   const updates = {
     cdu_cdd: item?.cdu_cdd || classification.cdu_cdd,
     cutter: item?.cutter || classification.cutter,
     callNumber: item?.callNumber || classification.callNumber,
+    primaryGenre:
+      item?.primaryGenre || resolvedGenres[0] || classification.primaryGenre,
+    subgenres: resolvedSubgenres,
     genres: resolvedGenres,
+    tropes: resolvedTags,
     atmosphere:
       Array.isArray(item?.atmosphere) && item.atmosphere.length > 0
         ? item.atmosphere
@@ -197,7 +213,11 @@ export async function runLocalSmartCataloging(
       });
     }
     if (!item?.keywords) {
-      updates.keywords = resolvedGenres.slice(0, 4).join(', ');
+      updates.keywords = (
+        resolvedTags.length > 0 ? resolvedTags : resolvedGenres
+      )
+        .slice(0, 5)
+        .join(', ');
     }
   }
 

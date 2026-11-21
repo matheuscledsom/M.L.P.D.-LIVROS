@@ -20,6 +20,13 @@ import {
   getVerdictForScore,
   normalizeProgressMode,
 } from '../utils/backlogHelpers';
+import {
+  COLLECTIONS_STORAGE_KEY,
+  createCustomCollection,
+  normalizeCollectionList,
+  saveCollections,
+  toggleWorkInCollection,
+} from '../utils/collections';
 
 const STORAGE_KEY = domainConfig.storageKey;
 const SESSIONS_STORAGE_KEY = 'codice_reading_sessions';
@@ -204,6 +211,9 @@ function normalizeItem(rawItem) {
       typeof rawItem.abntReference === 'string' ? rawItem.abntReference : '',
     atmosphere: Array.isArray(rawItem.atmosphere) ? rawItem.atmosphere : [],
     tropes: Array.isArray(rawItem.tropes) ? rawItem.tropes : [],
+    collectionIds: Array.isArray(rawItem.collectionIds)
+      ? Array.from(new Set(rawItem.collectionIds.map(String).filter(Boolean)))
+      : [],
     quotes: Array.isArray(rawItem.quotes)
       ? rawItem.quotes.filter((q) => q && typeof q === 'object' && q.text)
       : [],
@@ -323,9 +333,26 @@ function loadInitialSessions() {
   }
 }
 
+function loadInitialCollections() {
+  try {
+    const raw = localStorage.getItem(COLLECTIONS_STORAGE_KEY);
+    if (raw !== null) {
+      return normalizeCollectionList(JSON.parse(raw));
+    }
+    const storedDb = loadStoredCodiceDatabase();
+    if (storedDb) {
+      return normalizeCollectionList(hydrateAppSnapshotFromDatabase(storedDb).collections);
+    }
+    return [];
+  } catch {
+    return [];
+  }
+}
+
 export function useBacklog() {
   const [items, setItems] = useState(loadInitialBacklog);
   const [readingSessions, setReadingSessions] = useState(loadInitialSessions);
+  const [collections, setCollections] = useState(loadInitialCollections);
 
   useEffect(() => {
     try {
@@ -342,6 +369,10 @@ export function useBacklog() {
       // Ignora erro caso quota de storage esteja indisponível
     }
   }, [readingSessions]);
+
+  useEffect(() => {
+    saveCollections(collections);
+  }, [collections]);
 
   const addItem = useCallback((newItem) => {
     const nowIso = new Date().toISOString();
@@ -526,6 +557,49 @@ export function useBacklog() {
     setReadingSessions((prev) => prev.filter((session) => session.workId !== id));
   }, []);
 
+  const createCollection = useCallback(
+    (name) => {
+      const res = createCustomCollection(name, collections);
+      if (res.created && !res.duplicate) {
+        setCollections((prev) => createCustomCollection(name, prev).collections);
+      }
+      return { created: res.created, duplicate: res.duplicate };
+    },
+    [collections]
+  );
+
+  const deleteCollection = useCallback((collectionId) => {
+    if (!collectionId) return;
+    const targetId = String(collectionId);
+    setCollections((prev) => prev.filter((col) => col.id !== targetId));
+    setItems((prev) =>
+      prev.map((item) =>
+        Array.isArray(item.collectionIds) && item.collectionIds.includes(targetId)
+          ? {
+              ...item,
+              collectionIds: item.collectionIds.filter((id) => id !== targetId),
+              updatedAt: new Date().toISOString(),
+            }
+          : item
+      )
+    );
+  }, []);
+
+  const toggleWorkCollection = useCallback((workId, collectionId) => {
+    if (!workId || !collectionId) return;
+    setItems((prev) =>
+      prev.map((item) =>
+        item.id === workId
+          ? {
+              ...item,
+              collectionIds: toggleWorkInCollection(item.collectionIds, collectionId),
+              updatedAt: new Date().toISOString(),
+            }
+          : item
+      )
+    );
+  }, []);
+
   const addReadingSession = useCallback((session) => {
     if (!session || !session.workId) return null;
     const nowIso = new Date().toISOString();
@@ -554,6 +628,7 @@ export function useBacklog() {
         posts: extra.posts || [],
         streak: extra.streak || null,
         readingSessions,
+        collections,
         follows: extra.follows || [],
         wallPosts: extra.wallPosts || [],
         directMessages: extra.directMessages || [],
@@ -567,7 +642,7 @@ export function useBacklog() {
       );
       return signed;
     },
-    [items, readingSessions]
+    [items, readingSessions, collections]
   );
 
   const exportCatalogCsv = useCallback(
@@ -578,10 +653,11 @@ export function useBacklog() {
         posts: extra.posts || [],
         streak: extra.streak || null,
         readingSessions,
+        collections,
       });
       exportDatabaseDownloads(db).csv();
     },
-    [items, readingSessions]
+    [items, readingSessions, collections]
   );
 
   const exportReferencesBibtex = useCallback(
@@ -592,10 +668,11 @@ export function useBacklog() {
         posts: extra.posts || [],
         streak: extra.streak || null,
         readingSessions,
+        collections,
       });
       exportDatabaseDownloads(db).bib();
     },
-    [items, readingSessions]
+    [items, readingSessions, collections]
   );
 
   const importBackup = useCallback(async (file) => {
@@ -611,6 +688,9 @@ export function useBacklog() {
       const validItems = result.items.map(normalizeItem);
       setItems(validItems);
       setReadingSessions(result.readingSessions || []);
+      if (Array.isArray(result.collections)) {
+        setCollections(normalizeCollectionList(result.collections));
+      }
 
       return {
         ok: true,
@@ -618,6 +698,7 @@ export function useBacklog() {
         profile: result.profile || null,
         posts: Array.isArray(result.posts) ? result.posts : null,
         streak: result.streak || null,
+        collections: result.collections || null,
         integrity: result.integrity,
         detectedSchemaVersion: result.detectedSchemaVersion,
       };
@@ -627,12 +708,15 @@ export function useBacklog() {
   }, []);
 
   const replaceWorkspaceData = useCallback(
-    ({ items: nextItems, readingSessions: nextSessions } = {}) => {
+    ({ items: nextItems, readingSessions: nextSessions, collections: nextCollections } = {}) => {
       if (Array.isArray(nextItems)) {
         setItems(nextItems.map(normalizeItem));
       }
       if (Array.isArray(nextSessions)) {
         setReadingSessions(nextSessions);
+      }
+      if (Array.isArray(nextCollections)) {
+        setCollections(normalizeCollectionList(nextCollections));
       }
     },
     []
@@ -641,9 +725,13 @@ export function useBacklog() {
   return {
     items,
     readingSessions,
+    collections,
     addItem,
     updateItem,
     removeItem,
+    createCollection,
+    deleteCollection,
+    toggleWorkCollection,
     addReadingSession,
     replaceWorkspaceData,
     exportBackup,

@@ -1,10 +1,16 @@
 import { BarChart2, Clock, Star } from 'lucide-react';
 import { useMemo, useState } from 'react';
+import { ReadingHeatmapWidget } from '../components/ReadingHeatmapWidget';
 import { VectorIcon } from '../components/VectorIcon';
 import { domainConfig, getStatusList } from '../config/domainConfig';
 import { getCompletionPace, getPagesRead } from '../utils/backlogHelpers';
 
-export function StatsScreen({ items = [] }) {
+export function StatsScreen({
+  items = [],
+  readingSessions = [],
+  streakHistory = [],
+  dailyLogs = {},
+}) {
   const { ui, cardFields, workTypes } = domainConfig;
   const { stats } = ui;
   const statuses = getStatusList();
@@ -213,6 +219,12 @@ export function StatsScreen({ items = [] }) {
           </div>
         </div>
       </section>
+
+      <ReadingHeatmapWidget
+        readingSessions={readingSessions}
+        streakHistory={streakHistory}
+        dailyLogs={dailyLogs}
+      />
 
       {/* Balanço de Páginas Lidas (SVG puro) */}
       <section className="rounded-2xl border border-line bg-card p-4">

@@ -1,3 +1,4 @@
+import { normalizeCollectionList } from '../utils/collections.js';
 import {
   buildCodiceDatabase,
   createUuid,
@@ -234,11 +235,15 @@ export function mergeSnapshots(currentSnapshot = {}, incomingSnapshot = {}) {
     coverUrl: currProfile.coverUrl || incProfile.coverUrl || '',
   };
 
-  const currStreak = currentSnapshot.streak || { count: 0, lastDate: null, history: [] };
-  const incStreak = incomingSnapshot.streak || { count: 0, lastDate: null, history: [] };
+  const currStreak = currentSnapshot.streak || { count: 0, lastDate: null, history: [], dailyLogs: {} };
+  const incStreak = incomingSnapshot.streak || { count: 0, lastDate: null, history: [], dailyLogs: {} };
   const mergedHistory = Array.from(
     new Set([...(currStreak.history || []), ...(incStreak.history || [])])
   ).sort();
+  const mergedDailyLogs = {
+    ...(incStreak.dailyLogs && typeof incStreak.dailyLogs === 'object' ? incStreak.dailyLogs : {}),
+    ...(currStreak.dailyLogs && typeof currStreak.dailyLogs === 'object' ? currStreak.dailyLogs : {}),
+  };
   const latestLastDate =
     [currStreak.lastDate, incStreak.lastDate].filter(Boolean).sort().pop() || null;
 
@@ -249,11 +254,16 @@ export function mergeSnapshots(currentSnapshot = {}, incomingSnapshot = {}) {
       currentSnapshot.readingSessions,
       incomingSnapshot.readingSessions
     ),
+    collections: normalizeCollectionList([
+      ...(currentSnapshot.collections || []),
+      ...(incomingSnapshot.collections || []),
+    ]),
     profile: mergedProfile,
     streak: {
       count: Math.max(Number(currStreak.count) || 0, Number(incStreak.count) || 0),
       lastDate: latestLastDate,
       history: mergedHistory,
+      dailyLogs: mergedDailyLogs,
     },
   };
 }
@@ -333,6 +343,7 @@ export async function saveAutoSnapshot(
           posts: workspaceData.posts || [],
           streak: workspaceData.streak || null,
           readingSessions: workspaceData.readingSessions || [],
+          collections: workspaceData.collections || [],
         });
 
   const snapshot = hydrateAppSnapshotFromDatabase(db);

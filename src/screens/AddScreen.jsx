@@ -700,7 +700,22 @@ export function AddScreen({
       [cardFields.year]: manualDraft[cardFields.year]
         ? Number(manualDraft[cardFields.year])
         : null,
-      [cardFields.genres]: genresList,
+      [cardFields.genres]:
+        genresList.length > 0
+          ? genresList
+          : [classification.primaryGenre, ...(classification.subgenres || [])].filter(Boolean),
+      primaryGenre:
+        restDraft.primaryGenre || genresList[0] || classification.primaryGenre,
+      subgenres:
+        Array.isArray(restDraft.subgenres) && restDraft.subgenres.length > 0
+          ? restDraft.subgenres
+          : genresList.length > 1
+            ? genresList.slice(1)
+            : classification.subgenres || [],
+      tropes:
+        Array.isArray(restDraft.tropes) && restDraft.tropes.length > 0
+          ? restDraft.tropes
+          : classification.suggestedTags || [],
       cdu_cdd: finalCdd,
       cutter: finalCutter,
       callNumber: finalCall,

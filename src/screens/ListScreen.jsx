@@ -3,6 +3,8 @@ import {
   ArrowUp,
   ArrowUpDown,
   BookOpen,
+  Dices,
+  FolderPlus,
   FolderTree,
   LayoutGrid,
   LayoutList,
@@ -15,7 +17,9 @@ import {
   X,
 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
+import { CollectionCreatorBar } from '../components/CollectionCreatorBar';
 import { CoverArt } from '../components/CoverArt';
+import { OfflineBookPickerModal } from '../components/OfflineBookPickerModal';
 import { OracleWidget } from '../components/OracleWidget';
 import { ReadingStreakWidget } from '../components/ReadingStreakWidget';
 import { StatusBadge } from '../components/StatusBadge';
@@ -37,6 +41,7 @@ import {
   getVerdictMeta,
   normalizeProgressMode,
 } from '../utils/backlogHelpers';
+import { filterWorksByCollection } from '../utils/collections';
 
 const VIEW_MODE_STORAGE_KEY = 'codice_list_view_mode';
 const GROUP_BY_STORAGE_KEY = 'codice_list_group_by';
@@ -93,8 +98,12 @@ export function ListScreen({
   items,
   profile = null,
   streakProps,
+  collections = [],
   geminiKey = '',
   storedReaderWorkIds = [],
+  onCreateCollection,
+  onDeleteCollection,
+  onStartPickedWork,
   onSelectItem,
   onOpenReader,
   onOpenDigitalShelf,
@@ -103,6 +112,9 @@ export function ListScreen({
 }) {
   const [selectedStatus, setSelectedStatus] = useState('all');
   const [selectedWorkType, setSelectedWorkType] = useState('all');
+  const [selectedCollectionId, setSelectedCollectionId] = useState('all');
+  const [collectionManagerOpen, setCollectionManagerOpen] = useState(false);
+  const [rouletteOpen, setRouletteOpen] = useState(false);
   const [localQuery, setLocalQuery] = useState('');
   const [titleMode, setTitleMode] = useState(loadSavedTitleMode);
   const [sortBy, setSortBy] = useState('recent');
@@ -143,6 +155,15 @@ export function ListScreen({
     [items]
   );
 
+  useEffect(() => {
+    if (
+      selectedCollectionId !== 'all' &&
+      !collections.some((c) => c.id === selectedCollectionId)
+    ) {
+      setSelectedCollectionId('all');
+    }
+  }, [collections, selectedCollectionId]);
+
   const filteredAndSortedItems = useMemo(() => {
     const byStatus =
       selectedStatus === 'all'
@@ -154,10 +175,12 @@ export function ListScreen({
         ? byStatus
         : byStatus.filter((item) => (item.workType || 'book') === selectedWorkType);
 
+    const byCollection = filterWorksByCollection(byType, selectedCollectionId);
+
     const q = localQuery.trim().toLowerCase();
     const filtered = !q
-      ? byType
-      : byType.filter((item) => {
+      ? byCollection
+      : byCollection.filter((item) => {
           const inTitle = String(item.title || '').toLowerCase().includes(q);
           const inOrig = String(item.originalTitle || '').toLowerCase().includes(q);
           const inAuthor = String(item[cardFields.creator] || '').toLowerCase().includes(q);
@@ -193,7 +216,7 @@ export function ListScreen({
       const timeB = Date.parse(b.updatedAt || b.createdAt || '') || 0;
       return timeB - timeA;
     });
-  }, [backlogItems, selectedStatus, selectedWorkType, localQuery, sortBy, cardFields.creator, cardFields.rating]);
+  }, [backlogItems, selectedStatus, selectedWorkType, selectedCollectionId, localQuery, sortBy, cardFields.creator, cardFields.rating]);
 
   const tableSortedItems = useMemo(() => {
     const dirMul = tableSort.dir === 'asc' ? 1 : -1;
@@ -301,16 +324,26 @@ export function ListScreen({
             {filteredAndSortedItems.length} {countLabel}
           </span>
         </div>
-        {onOpenDigitalShelf && (
+        <div className="flex flex-wrap items-center gap-1.5">
           <button
             type="button"
-            onClick={onOpenDigitalShelf}
-            className="inline-flex min-h-[40px] items-center gap-1.5 rounded-[4px] border border-line bg-card px-2.5 py-1.5 text-xs font-medium text-ink transition-colors hover:border-accent"
+            onClick={() => setRouletteOpen(true)}
+            className="inline-flex min-h-[44px] items-center gap-1.5 rounded-[4px] border border-line bg-card px-2.5 py-1.5 text-xs font-medium text-ink transition-colors hover:border-accent"
           >
-            <Library className="h-3.5 w-3.5 text-accent" strokeWidth={1.5} />
-            <span>Meus EPUBs</span>
+            <Dices className="h-3.5 w-3.5 text-accent" strokeWidth={1.5} />
+            <span>Sortear Próxima Leitura</span>
           </button>
-        )}
+          {onOpenDigitalShelf && (
+            <button
+              type="button"
+              onClick={onOpenDigitalShelf}
+              className="inline-flex min-h-[44px] items-center gap-1.5 rounded-[4px] border border-line bg-card px-2.5 py-1.5 text-xs font-medium text-ink transition-colors hover:border-accent"
+            >
+              <Library className="h-3.5 w-3.5 text-accent" strokeWidth={1.5} />
+              <span>Meus EPUBs</span>
+            </button>
+          )}
+        </div>
       </header>
 
       {backlogItems.length > 0 && (
@@ -445,6 +478,85 @@ export function ListScreen({
             </button>
           );
         })}
+      </div>
+
+      {/* Filtro Rápido por Prateleiras / Coleções Personalizadas */}
+      <div className="space-y-2">
+        <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar">
+          <button
+            type="button"
+            aria-pressed={selectedCollectionId === 'all'}
+            onClick={() => setSelectedCollectionId('all')}
+            className={`inline-flex min-h-[44px] shrink-0 items-center rounded-[4px] border px-3 py-1.5 text-[11px] font-medium transition-colors ${
+              selectedCollectionId === 'all'
+                ? 'border-accent bg-accent/15 text-accent'
+                : 'border-line bg-card text-muted hover:text-ink'
+            }`}
+          >
+            Todas as Coleções
+          </button>
+
+          {collections.map((col) => {
+            const isActive = selectedCollectionId === col.id;
+            const colCount = filterWorksByCollection(backlogItems, col.id).length;
+            return (
+              <div key={col.id} className="inline-flex shrink-0 items-center">
+                <button
+                  type="button"
+                  aria-pressed={isActive}
+                  onClick={() => setSelectedCollectionId(col.id)}
+                  className={`inline-flex min-h-[44px] items-center gap-1.5 border px-3 py-1.5 text-[11px] font-medium transition-colors ${
+                    onDeleteCollection ? 'rounded-l-[4px]' : 'rounded-[4px]'
+                  } ${
+                    isActive
+                      ? 'border-accent bg-accent/15 text-ink'
+                      : 'border-line bg-card text-muted hover:text-ink'
+                  }`}
+                >
+                  <span>{col.name}</span>
+                  <span className="text-[10px] tabular-nums text-subtle">
+                    {colCount}
+                  </span>
+                </button>
+                {onDeleteCollection && (
+                  <button
+                    type="button"
+                    aria-label={`Excluir coleção ${col.name}`}
+                    onClick={() => onDeleteCollection(col.id)}
+                    className="inline-flex min-h-[44px] min-w-[36px] items-center justify-center rounded-r-[4px] border border-l-0 border-line bg-card px-1.5 text-subtle transition-colors hover:text-ink"
+                  >
+                    <X className="h-3 w-3" strokeWidth={1.5} />
+                  </button>
+                )}
+              </div>
+            );
+          })}
+
+          {onCreateCollection && (
+            <button
+              type="button"
+              aria-expanded={collectionManagerOpen}
+              onClick={() => setCollectionManagerOpen((v) => !v)}
+              className="inline-flex min-h-[44px] shrink-0 items-center gap-1 rounded-[4px] border border-dashed border-line bg-app px-3 py-1.5 text-[11px] font-medium text-accent transition-colors hover:border-accent"
+            >
+              <FolderPlus className="h-3.5 w-3.5" strokeWidth={1.5} />
+              <span>+ Nova Coleção</span>
+            </button>
+          )}
+        </div>
+
+        {collectionManagerOpen && onCreateCollection && (
+          <div className="rounded-[6px] border border-line bg-card p-3">
+            <CollectionCreatorBar
+              collections={collections}
+              onCreateCollection={onCreateCollection}
+              onCreated={(created) => {
+                setSelectedCollectionId(created.id);
+                setCollectionManagerOpen(false);
+              }}
+            />
+          </div>
+        )}
       </div>
 
       {/* Barra de Ordenação + Alternador Segmentado de 4 Visualizações */}
@@ -1087,6 +1199,16 @@ export function ListScreen({
           ))}
         </div>
       )}
+
+      <OfflineBookPickerModal
+        isOpen={rouletteOpen}
+        onClose={() => setRouletteOpen(false)}
+        items={items}
+        storedReaderWorkIds={storedReaderWorkIds}
+        onStartReading={onStartPickedWork}
+        onSelectItem={onSelectItem}
+        onOpenReader={onOpenReader}
+      />
     </div>
   );
 }

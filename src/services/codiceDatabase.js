@@ -421,6 +421,9 @@ export function migrateV2ToV3(v2Data) {
           : [],
       monogram: rawItem.monogram || '',
       readerState: rawItem.readerState || null,
+      collectionIds: Array.isArray(rawItem.collectionIds)
+        ? Array.from(new Set(rawItem.collectionIds.map(String).filter(Boolean)))
+        : [],
       createdAt,
       updatedAt,
     };
@@ -568,7 +571,8 @@ export function migrateV2ToV3(v2Data) {
         : [],
     },
     metadata: {
-      streak: v2Data?.streak || { count: 0, lastDate: null, history: [] },
+      streak: v2Data?.streak || { count: 0, lastDate: null, history: [], dailyLogs: {} },
+      collections: Array.isArray(v2Data?.collections) ? v2Data.collections : [],
     },
   };
 }
@@ -596,6 +600,9 @@ function normalizeWorkRowV4(work = {}) {
         : null,
     locCurrent: status === 'completed' && locTotal ? locTotal : locCurrent,
     locTotal,
+    collectionIds: Array.isArray(work.collectionIds)
+      ? Array.from(new Set(work.collectionIds.map(String).filter(Boolean)))
+      : [],
   };
 }
 
@@ -630,7 +637,10 @@ export function migrateV3ToV4(v3Data) {
         : [],
     },
     metadata: {
-      streak: v3Data?.metadata?.streak || { count: 0, lastDate: null, history: [] },
+      streak: v3Data?.metadata?.streak || { count: 0, lastDate: null, history: [], dailyLogs: {} },
+      collections: Array.isArray(v3Data?.metadata?.collections)
+        ? v3Data.metadata.collections
+        : [],
     },
   };
 }
@@ -729,6 +739,7 @@ export function buildCodiceDatabase({
   posts = [],
   streak = null,
   readingSessions = [],
+  collections = [],
   follows = [],
   wallPosts = [],
   directMessages = [],
@@ -740,8 +751,9 @@ export function buildCodiceDatabase({
     items,
     profile,
     posts,
-    streak: streak || { count: 0, lastDate: null, history: [] },
+    streak: streak || { count: 0, lastDate: null, history: [], dailyLogs: {} },
     readingSessions,
+    collections,
     follows,
     wallPosts,
     directMessages,
@@ -826,7 +838,10 @@ export function hydrateAppSnapshotFromDatabase(db) {
     items,
     profile: user_profile,
     posts,
-    streak: normalized.metadata?.streak || { count: 0, lastDate: null, history: [] },
+    streak: normalized.metadata?.streak || { count: 0, lastDate: null, history: [], dailyLogs: {} },
+    collections: Array.isArray(normalized.metadata?.collections)
+      ? normalized.metadata.collections
+      : [],
     readingSessions: reading_sessions,
     follows: follows || [],
     wallPosts: wall_posts || [],

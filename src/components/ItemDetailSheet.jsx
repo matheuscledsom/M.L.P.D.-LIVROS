@@ -3,6 +3,7 @@ import {
   Bookmark,
   ExternalLink,
   FileText,
+  FolderOpen,
   Heart,
   MessageSquarePlus,
   Quote,
@@ -21,6 +22,7 @@ import {
   sendDirectMessage,
 } from '../services/codiceBackend';
 import { getDisplayTitles, getVerdictMeta } from '../utils/backlogHelpers';
+import { CollectionCreatorBar } from './CollectionCreatorBar';
 import { CoverArt } from './CoverArt';
 import { LibraryCatalogSection } from './LibraryCatalogSection';
 import { QuotesVaultTab } from './QuotesVaultTab';
@@ -33,12 +35,15 @@ import { WorkTypeSelector } from './WorkTypeSelector';
 export function ItemDetailSheet({
   item,
   posts = [],
+  collections = [],
   geminiKey = '',
   viewerId = null,
   hasStoredFile = false,
   storedFileMeta = null,
   onClose,
   onUpdateItem,
+  onToggleCollection,
+  onCreateCollection,
   onRemoveItem,
   onRemoveStoredFile,
   onOpenJournal,
@@ -568,6 +573,68 @@ export function ItemDetailSheet({
                 onChange={(updates) => onUpdateItem(item.id, updates)}
               />
             </div>
+
+            <section
+              aria-label="Prateleiras e Coleções"
+              className="mt-4 rounded-xl border border-line bg-card p-3 space-y-2.5"
+            >
+              <div className="flex items-center justify-between gap-2">
+                <span className="inline-flex items-center gap-1.5 text-xs font-medium text-ink">
+                  <FolderOpen className="h-3.5 w-3.5 text-accent" strokeWidth={1.5} />
+                  <span>Prateleiras / Coleções</span>
+                </span>
+                <span className="text-[10px] tabular-nums text-subtle">
+                  {Array.isArray(item.collectionIds) ? item.collectionIds.length : 0} selecionada(s)
+                </span>
+              </div>
+
+              {collections.length > 0 ? (
+                <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
+                  {collections.map((col) => {
+                    const checked =
+                      Array.isArray(item.collectionIds) &&
+                      item.collectionIds.map(String).includes(String(col.id));
+                    return (
+                      <label
+                        key={col.id}
+                        className={`flex min-h-[44px] cursor-pointer items-center gap-2 rounded-[4px] border px-3 py-2 text-xs font-medium transition-colors ${
+                          checked
+                            ? 'border-accent bg-accent/10 text-ink'
+                            : 'border-line bg-app text-muted hover:text-ink'
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => onToggleCollection?.(item.id, col.id)}
+                          className="h-4 w-4 accent-[var(--accent-color)]"
+                        />
+                        <span className="truncate">{col.name}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              ) : (
+                <p className="text-[11px] text-subtle">
+                  Crie coleções como Favoritos da Vida, Faculdade / TCC ou Para Ler nas Férias para organizar esta obra.
+                </p>
+              )}
+
+              {onCreateCollection && (
+                <CollectionCreatorBar
+                  collections={collections}
+                  onCreateCollection={onCreateCollection}
+                  onCreated={(created) => {
+                    if (
+                      created?.id &&
+                      !(item.collectionIds || []).map(String).includes(String(created.id))
+                    ) {
+                      onToggleCollection?.(item.id, created.id);
+                    }
+                  }}
+                />
+              )}
+            </section>
 
             <label className="mt-4 block">
               <span className="mb-1.5 block text-xs font-medium text-muted">

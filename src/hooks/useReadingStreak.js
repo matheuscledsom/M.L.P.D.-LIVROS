@@ -8,7 +8,29 @@ const DEFAULT_STREAK = {
   count: 0,
   lastDate: null,
   history: [],
+  dailyLogs: {},
 };
+
+function sanitizeDailyLogs(rawLogs) {
+  if (!rawLogs || typeof rawLogs !== 'object' || Array.isArray(rawLogs)) {
+    return {};
+  }
+  const entries = Object.entries(rawLogs)
+    .filter(([date, val]) => /^\d{4}-\d{2}-\d{2}$/.test(date) && val && typeof val === 'object')
+    .sort(([a], [b]) => a.localeCompare(b))
+    .slice(-365);
+
+  return entries.reduce((acc, [date, val]) => {
+    acc[date] = {
+      standalonePages: Math.max(0, Number(val.standalonePages) || 0),
+      standaloneSessions: Math.max(0, Number(val.standaloneSessions) || 0),
+      notes: Array.isArray(val.notes)
+        ? val.notes.map((n) => String(n || '').trim()).filter(Boolean).slice(-10)
+        : [],
+    };
+    return acc;
+  }, {});
+}
 
 function loadStreak() {
   try {
@@ -19,7 +41,8 @@ function loadStreak() {
     return {
       count: Math.max(0, Number(parsed.count) || 0),
       lastDate: typeof parsed.lastDate === 'string' ? parsed.lastDate : null,
-      history: Array.isArray(parsed.history) ? parsed.history.slice(-90) : [],
+      history: Array.isArray(parsed.history) ? parsed.history.slice(-365) : [],
+      dailyLogs: sanitizeDailyLogs(parsed.dailyLogs),
     };
   } catch {
     return DEFAULT_STREAK;
@@ -48,27 +71,78 @@ export function useReadingStreak() {
     };
   }, []);
 
-  const registerToday = useCallback(() => {
+  const registerToday = useCallback((options = {}) => {
     const today = getTodayLocalISO();
     setTodayIso(today);
 
+    const extraStandalonePages = Math.max(
+      0,
+      Number(options?.standalonePages) || 0
+    );
+    const extraStandaloneSessions = Math.max(
+      0,
+      Number(options?.standaloneSessions) || 0
+    );
+    const cleanNote = String(options?.note || '').trim();
+
     setStreakData((prev) => {
       const state = getStreakState(prev, today);
-      if (state.loggedToday) return prev;
+      const hasDailyExtras =
+        extraStandalonePages > 0 ||
+        extraStandaloneSessions > 0 ||
+        Boolean(cleanNote);
 
-      const nextCount =
-        state.status === 'active' || state.status === 'paused'
+      if (state.loggedToday && !hasDailyExtras) return prev;
+
+      const nextCount = state.loggedToday
+        ? prev.count
+        : state.status === 'active' || state.status === 'paused'
           ? prev.count + 1
           : 1;
 
       const nextHistory = Array.from(new Set([...(prev.history || []), today]))
         .sort()
-        .slice(-90);
+        .slice(-365);
+
+      const prevLogs = sanitizeDailyLogs(prev.dailyLogs);
+      if (!hasDailyExtras) {
+        return {
+          count: nextCount,
+          lastDate: today,
+          history: nextHistory,
+          dailyLogs: prevLogs,
+        };
+      }
+
+      const todayPrev = prevLogs[today] || {
+        standalonePages: 0,
+        standaloneSessions: 0,
+        notes: [],
+      };
+      const nextNotes = cleanNote
+        ? Array.from(new Set([...todayPrev.notes, cleanNote])).slice(-10)
+        : todayPrev.notes;
+
+      const nextLogs = sanitizeDailyLogs({
+        ...prevLogs,
+        [today]: {
+          standalonePages: todayPrev.standalonePages + extraStandalonePages,
+          standaloneSessions:
+            todayPrev.standaloneSessions +
+            (extraStandaloneSessions > 0
+              ? extraStandaloneSessions
+              : extraStandalonePages > 0 || cleanNote
+                ? 1
+                : 0),
+          notes: nextNotes,
+        },
+      });
 
       return {
         count: nextCount,
         lastDate: today,
         history: nextHistory,
+        dailyLogs: nextLogs,
       };
     });
   }, []);
@@ -78,7 +152,8 @@ export function useReadingStreak() {
     setStreakData({
       count: Math.max(0, Number(savedStreak.count) || 0),
       lastDate: typeof savedStreak.lastDate === 'string' ? savedStreak.lastDate : null,
-      history: Array.isArray(savedStreak.history) ? savedStreak.history.slice(-90) : [],
+      history: Array.isArray(savedStreak.history) ? savedStreak.history.slice(-365) : [],
+      dailyLogs: sanitizeDailyLogs(savedStreak.dailyLogs),
     });
   }, []);
 
@@ -91,6 +166,7 @@ export function useReadingStreak() {
     loggedToday: state.loggedToday,
     isPaused: state.isPaused,
     history: streakData.history,
+    dailyLogs: streakData.dailyLogs || {},
     registerToday,
     restoreStreakBackup,
   };
