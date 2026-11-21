@@ -645,6 +645,8 @@ const MIRROR_ITEM_ALLOWED_KEYS = [
   'completedDate',
   'completedYear',
   'dropDate',
+  'wantToReread',
+  'tags',
   'readerBookId',
   'readerState',
   'coverUrl',
@@ -654,11 +656,36 @@ const MIRROR_ITEM_ALLOWED_KEYS = [
   'createdAt',
 ];
 
+function stripDataUrls(value) {
+  if (typeof value === 'string') {
+    return /^data:/i.test(value.trim()) ? '' : value;
+  }
+  if (Array.isArray(value)) {
+    return value
+      .map(stripDataUrls)
+      .filter((entry) => entry !== '' && entry !== null && entry !== undefined);
+  }
+  if (value && typeof value === 'object') {
+    const out = {};
+    for (const [k, v] of Object.entries(value)) {
+      const clean = stripDataUrls(v);
+      if (clean !== '' && clean !== null && clean !== undefined) {
+        out[k] = clean;
+      }
+    }
+    return Object.keys(out).length > 0 ? out : null;
+  }
+  return value;
+}
+
 function compactMirrorItem(item) {
   if (!item || typeof item !== 'object') return null;
   const out = {};
   MIRROR_ITEM_ALLOWED_KEYS.forEach((key) => {
-    const val = item[key];
+    let val = item[key];
+    if (key === 'coverUrl' || key === 'coverSources') {
+      val = stripDataUrls(val);
+    }
     if (val === null || val === undefined || val === '' || val === false) return;
     if (Array.isArray(val) && val.length === 0) return;
     out[key] = val;

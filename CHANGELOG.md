@@ -17,6 +17,10 @@ npm run version:major -- --name="Odin"
 
 ---
 
+## [v5.0.0 · Alexandria] — 2026-11
+
+**Resumo:** Códice 5.0.0 Alexandria: Leitura Conjunta com Escudo Anti-Spoiler no DOM, Códice Wrapped exportável em PNG, Blindagem Tripla sem imagens Base64 e File Handlers PWA (.epub/.pdf/.cbz).
+
 ## [v4.17.0 · Ymir] — 2026-11
 
 **Resumo:** Acessibilidade WCAG/teclado (UX_AUDIT.md), 3 escalas de fonte, espaçamento dislexia, badges com formas para daltonismo, PWA registerType prompt com toast e banner de modo privado

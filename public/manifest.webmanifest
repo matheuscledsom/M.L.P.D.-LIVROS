@@ -9,6 +9,17 @@
   "orientation": "portrait",
   "background_color": "#000000",
   "theme_color": "#000000",
+  "file_handlers": [
+    {
+      "action": "/",
+      "accept": {
+        "application/epub+zip": [".epub"],
+        "application/pdf": [".pdf"],
+        "application/vnd.comicbook+zip": [".cbz"],
+        "application/x-cbz": [".cbz"]
+      }
+    }
+  ],
   "icons": [
     {
       "src": "/icons/icon-192.png",

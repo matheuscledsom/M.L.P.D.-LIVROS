@@ -16,16 +16,25 @@ export const VERSIONING_RULES = {
 };
 
 export const CODICE_RELEASE = {
-  version: '4.17.0',
-  codename: 'Ymir',
-  label: 'v4.17.0 · Ymir',
-  releaseType: 'minor',
+  version: '5.0.0',
+  codename: 'Alexandria',
+  label: 'v5.0.0 · Alexandria',
+  releaseType: 'major',
   date: '2026-11',
   summary:
-    'Acessibilidade WCAG/teclado (UX_AUDIT.md), 3 escalas de fonte, espaçamento dislexia, badges com formas para daltonismo, PWA registerType prompt com toast e banner de modo privado',
+    'Códice 5.0.0 Alexandria: Leitura Conjunta com Escudo Anti-Spoiler no DOM, Códice Wrapped exportável em PNG, Blindagem Tripla sem imagens Base64 e File Handlers PWA (.epub/.pdf/.cbz).',
 };
 
 export const RELEASE_HISTORY = [
+  {
+    version: '5.0.0',
+    codename: 'Alexandria',
+    label: 'v5.0.0 · Alexandria',
+    releaseType: 'major',
+    date: '2026-11',
+    summary: 'Códice 5.0.0 Alexandria: Leitura Conjunta com Escudo Anti-Spoiler no DOM, Códice Wrapped exportável em PNG, Blindagem Tripla sem imagens Base64 e File Handlers PWA (.epub/.pdf/.cbz).',
+    highlights: ['Release automatizado via bump-version.mjs.'],
+  },
   {
     version: '4.17.0',
     codename: 'Ymir',

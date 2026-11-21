@@ -147,6 +147,11 @@ const ImportCatalogModal = lazy(() =>
     default: m.ImportCatalogModal,
   }))
 );
+const WrappedModal = lazy(() =>
+  import('./components/WrappedModal').then((m) => ({
+    default: m.WrappedModal,
+  }))
+);
 
 const ReaderShell = lazy(() =>
   import('./components/reader/ReaderShell').then((m) => ({
@@ -165,6 +170,7 @@ export function App() {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [importCatalogOpen, setImportCatalogOpen] = useState(false);
+  const [wrappedOpen, setWrappedOpen] = useState(false);
   const [requestedCollectionId, setRequestedCollectionId] = useState(null);
   const [privateStorageMode, setPrivateStorageMode] = useState(false);
   const [onboardingReopened, setOnboardingReopened] = useState(false);
@@ -574,6 +580,24 @@ export function App() {
       initialFile: file,
     });
   }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.launchQueue?.setConsumer) {
+      return;
+    }
+    window.launchQueue.setConsumer(async (launchParams) => {
+      const handle = launchParams?.files?.[0];
+      if (!handle || typeof handle.getFile !== 'function') return;
+      try {
+        const file = await handle.getFile();
+        if (file) {
+          handleOpenQuickReader(file);
+        }
+      } catch {
+        // Ignora erro de permissão ao abrir arquivo pelo sistema
+      }
+    });
+  }, [handleOpenQuickReader]);
 
   const handleOpenStoredBook = useCallback((entry) => {
     if (!entry) return;
@@ -1551,6 +1575,7 @@ export function App() {
               readingSessions={readingSessions}
               streakHistory={history}
               dailyLogs={dailyLogs}
+              onOpenWrapped={() => setWrappedOpen(true)}
             />
           )}
           {activeTab === 'add' && (
@@ -1701,6 +1726,7 @@ export function App() {
           {Boolean(selectedItem) && (
             <ItemDetailSheet
               item={selectedItem}
+              profile={profile}
               posts={posts}
               collections={collections}
               geminiKey={geminiKey}
@@ -2131,6 +2157,16 @@ export function App() {
                 });
                 if (inserted.length > 0) setActiveTab('list');
               }}
+            />
+          )}
+
+          {wrappedOpen && (
+            <WrappedModal
+              isOpen={wrappedOpen}
+              onClose={() => setWrappedOpen(false)}
+              items={items}
+              profile={profile}
+              streakCount={streakCount}
             />
           )}
 

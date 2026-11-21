@@ -101,6 +101,7 @@ async function runAudit() {
     hasNavLandmark: false,
     tabsChecked: [],
     shortcutDialogPassed: false,
+    buddySpoilerShieldDomPassed: false,
     localHttpErrors: [],
     pageErrors: [],
   };
@@ -128,6 +129,43 @@ async function runAudit() {
           preferredCriteria: ['plot'],
           favoriteGenres: ['Literatura Clássica', 'Fantasia'],
           annualGoal: 12,
+        })
+      );
+      localStorage.setItem(
+        'mlpd_livros_backlog',
+        JSON.stringify([
+          {
+            id: 'buddy-audit-book',
+            title: 'Dom Casmurro Teste',
+            author: 'Machado de Assis',
+            workType: 'book',
+            status: 'playing',
+            totalPages: 100,
+            currentPage: 30,
+            progressPercent: 30,
+            inBacklog: true,
+          },
+        ])
+      );
+      localStorage.setItem(
+        'codice_buddy_reads_v1',
+        JSON.stringify({
+          'title:dom-casmurro-teste': [
+            {
+              id: 'br-safe',
+              authorName: 'Amigo Safe',
+              progressPct: 10,
+              text: 'COMENTARIO_SEGURO_10_PCT',
+              createdAt: '2026-11-20T10:00:00Z',
+            },
+            {
+              id: 'br-spoiler',
+              authorName: 'Amigo Spoiler',
+              progressPct: 85,
+              text: 'SPOILER_SECRETO_PROIBIDO_85',
+              createdAt: '2026-11-20T11:00:00Z',
+            },
+          ],
         })
       );
     });
@@ -192,6 +230,27 @@ async function runAudit() {
       results.shortcutDialogPassed = !stillVisible;
     }
 
+    // Testa Escudo Anti-Spoiler Buddy Read no DOM real
+    const listNavBtn = page.locator('nav button, nav a').filter({ hasText: /acervo|estante/i }).first();
+    if ((await listNavBtn.count()) > 0) {
+      await listNavBtn.click();
+      await page.waitForTimeout(350);
+      const bookCard = page.locator('button').filter({ hasText: 'Dom Casmurro Teste' }).first();
+      if ((await bookCard.count()) > 0) {
+        await bookCard.click();
+        await page.waitForTimeout(350);
+        const conjuntaTab = page.locator('button').filter({ hasText: 'Conjunta' }).first();
+        if ((await conjuntaTab.count()) > 0) {
+          await conjuntaTab.click();
+          await page.waitForTimeout(250);
+          const domDump = await page.evaluate(() => document.body.innerHTML);
+          const hasSafe = domDump.includes('COMENTARIO_SEGURO_10_PCT');
+          const leaksSpoiler = domDump.includes('SPOILER_SECRETO_PROIBIDO_85');
+          results.buddySpoilerShieldDomPassed = hasSafe && !leaksSpoiler;
+        }
+      }
+    }
+
     await context.close();
   } finally {
     clearTimeout(watchdog);
@@ -214,6 +273,7 @@ try {
     !report.hasSkipLink ||
     !report.hasMainLandmark ||
     !report.hasNavLandmark ||
+    !report.buddySpoilerShieldDomPassed ||
     totalUnlabeled > 0 ||
     totalImgsMissingAlt > 0 ||
     report.localHttpErrors.length > 0 ||

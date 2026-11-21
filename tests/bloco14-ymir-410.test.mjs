@@ -94,13 +94,16 @@ test('versioning.js, package.json, CHANGELOG.md e scripts/bump-version.mjs confi
 
     const patchRes = await runVersionBump(['patch', '--no-git'], { rootDir: tmpDir });
     assert.equal(patchRes.nextRelease.version, computeNextVersion(pkg.version, 'patch'));
-    assert.equal(patchRes.nextRelease.codename, 'Ymir');
+    assert.equal(patchRes.nextRelease.codename, CODICE_RELEASE.codename);
 
     const majorRes = await runVersionBump(
       ['major', '--name=Odin', '--no-git'],
       { rootDir: tmpDir }
     );
-    assert.equal(majorRes.nextRelease.version, '5.0.0');
+    assert.equal(
+      majorRes.nextRelease.version,
+      computeNextVersion(patchRes.nextRelease.version, 'major')
+    );
     assert.equal(majorRes.nextRelease.codename, 'Odin');
   } finally {
     await fs.rm(tmpDir, { recursive: true, force: true });

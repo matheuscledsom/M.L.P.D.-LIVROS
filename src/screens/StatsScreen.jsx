@@ -1,4 +1,4 @@
-import { BarChart2, Clock, Star } from 'lucide-react';
+import { BarChart2, Clock, Sparkles, Star } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { ReadingHeatmapWidget } from '../components/ReadingHeatmapWidget';
 import { VectorIcon } from '../components/VectorIcon';
@@ -10,6 +10,7 @@ export function StatsScreen({
   readingSessions = [],
   streakHistory = [],
   dailyLogs = {},
+  onOpenWrapped,
 }) {
   const { ui, cardFields, workTypes } = domainConfig;
   const { stats } = ui;
@@ -161,15 +162,27 @@ export function StatsScreen({
 
   return (
     <div className="space-y-4 pb-24">
-      <header className="flex items-center justify-between pt-2">
+      <header className="flex flex-wrap items-center justify-between gap-2 pt-2">
         <div>
           <h1 className="text-xl font-semibold tracking-tight text-ink">
             {stats.title}
           </h1>
           <p className="mt-0.5 text-xs text-subtle">{stats.subtitle}</p>
         </div>
-        <div className="flex h-9 w-9 items-center justify-center rounded-full border border-line bg-card text-accent">
-          <BarChart2 className="h-4 w-4" />
+        <div className="flex items-center gap-2">
+          {onOpenWrapped && (
+            <button
+              type="button"
+              onClick={onOpenWrapped}
+              className="inline-flex min-h-[44px] items-center gap-1.5 rounded-[4px] border border-accent bg-accent/15 px-3 py-1.5 text-xs font-semibold text-ink transition-colors hover:bg-accent hover:text-accent-ink"
+            >
+              <Sparkles className="h-3.5 w-3.5 text-accent" strokeWidth={1.5} />
+              <span>Códice Wrapped</span>
+            </button>
+          )}
+          <div className="flex h-9 w-9 items-center justify-center rounded-full border border-line bg-card text-accent">
+            <BarChart2 className="h-4 w-4" />
+          </div>
         </div>
       </header>
 

@@ -17,6 +17,7 @@ import {
   Tag,
   Trash2,
   UserCheck,
+  Users,
   X,
 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
@@ -34,6 +35,7 @@ import {
   normalizeTagsList,
 } from '../utils/backlogHelpers';
 import { downloadWorkMarkdown } from '../utils/markdownExport';
+import { BuddyReadPanel } from './BuddyReadPanel';
 import { CollectionCreatorBar } from './CollectionCreatorBar';
 import { CoverArt } from './CoverArt';
 import { LibraryCatalogSection } from './LibraryCatalogSection';
@@ -46,6 +48,7 @@ import { WorkTypeSelector } from './WorkTypeSelector';
 
 export function ItemDetailSheet({
   item,
+  profile = null,
   posts = [],
   collections = [],
   geminiKey = '',
@@ -446,31 +449,31 @@ export function ItemDetailSheet({
           )}
         </div>
 
-        {/* Seletor de Abas da Obra: Catalogação vs Citações & Fichamento */}
-        <div className="mt-4 grid grid-cols-2 gap-1.5 rounded-2xl border border-line bg-app p-1">
+        {/* Seletor de Abas da Obra: Catalogação, Citações & Leitura Conjunta */}
+        <div className="mt-4 grid grid-cols-3 gap-1 rounded-2xl border border-line bg-app p-1">
           <button
             type="button"
             onClick={() => setActiveSheetTab('catalog')}
-            className={`flex items-center justify-center gap-1.5 rounded-xl py-2 text-xs font-semibold transition-colors ${
+            className={`flex min-h-[40px] items-center justify-center gap-1 rounded-xl px-1.5 py-2 text-[11px] font-semibold transition-colors ${
               activeSheetTab === 'catalog'
                 ? 'bg-accent text-accent-ink'
                 : 'text-muted hover:text-ink'
             }`}
           >
-            <BookOpen className="h-3.5 w-3.5" />
-            Catalogação
+            <BookOpen className="h-3.5 w-3.5 shrink-0" />
+            <span className="truncate">Ficha</span>
           </button>
           <button
             type="button"
             onClick={() => setActiveSheetTab('quotes')}
-            className={`flex items-center justify-center gap-1.5 rounded-xl py-2 text-xs font-semibold transition-colors ${
+            className={`flex min-h-[40px] items-center justify-center gap-1 rounded-xl px-1.5 py-2 text-[11px] font-semibold transition-colors ${
               activeSheetTab === 'quotes'
                 ? 'bg-accent text-accent-ink'
                 : 'text-muted hover:text-ink'
             }`}
           >
-            <Quote className="h-3.5 w-3.5" />
-            <span className="truncate">Citações & Fichamento</span>
+            <Quote className="h-3.5 w-3.5 shrink-0" />
+            <span className="truncate">Citações</span>
             {quotesCount > 0 && (
               <span
                 className={`rounded-full px-1.5 py-0.2 text-[10px] ${
@@ -483,9 +486,25 @@ export function ItemDetailSheet({
               </span>
             )}
           </button>
+          <button
+            type="button"
+            onClick={() => setActiveSheetTab('buddy')}
+            className={`flex min-h-[40px] items-center justify-center gap-1 rounded-xl px-1.5 py-2 text-[11px] font-semibold transition-colors ${
+              activeSheetTab === 'buddy'
+                ? 'bg-accent text-accent-ink'
+                : 'text-muted hover:text-ink'
+            }`}
+          >
+            <Users className="h-3.5 w-3.5 shrink-0" strokeWidth={1.5} />
+            <span className="truncate">Conjunta</span>
+          </button>
         </div>
 
-        {activeSheetTab === 'quotes' ? (
+        {activeSheetTab === 'buddy' ? (
+          <div className="mt-4">
+            <BuddyReadPanel item={item} profile={profile} />
+          </div>
+        ) : activeSheetTab === 'quotes' ? (
           <div className="mt-4">
             <QuotesVaultTab
               item={item}
