@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { CoverArt } from '../components/CoverArt';
+import { BackupReminderBanner } from '../components/BackupReminderBanner';
 import { OfflineBookPickerModal } from '../components/OfflineBookPickerModal';
 import { OracleWidget } from '../components/OracleWidget';
 import { QuickReadingCheckIn } from '../components/QuickReadingCheckIn';
@@ -43,8 +44,11 @@ export function HomeScreen({
   resolvedBadgeName = '',
   viewerId = null,
   geminiKey = '',
+  backupReminder = null,
   storedReaderWorkIds = [],
   storedReaderBooks = [],
+  onSaveBackupNow,
+  onDismissBackupReminder,
   onQuickCheckIn,
   onStartPickedWork,
   onSelectItem,
@@ -256,6 +260,14 @@ export function HomeScreen({
 
       {profile?.gamificationEnabled !== false && streakProps && (
         <ReadingStreakWidget {...streakProps} />
+      )}
+
+      {backupReminder?.shouldRemind && (
+        <BackupReminderBanner
+          daysWithoutBackup={backupReminder.daysWithoutBackup}
+          onSaveBackupNow={onSaveBackupNow}
+          onDismiss={onDismissBackupReminder}
+        />
       )}
 
       <QuickReadingCheckIn

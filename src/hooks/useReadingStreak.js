@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { domainConfig } from '../config/domainConfig';
+import { loadEmergencyMirror } from '../services/backupEngine';
 import { getStreakState, getTodayLocalISO } from '../utils/backlogHelpers';
 
 const STREAK_KEY = domainConfig.streakStorageKey;
@@ -35,7 +36,23 @@ function sanitizeDailyLogs(rawLogs) {
 function loadStreak() {
   try {
     const raw = localStorage.getItem(STREAK_KEY);
-    if (!raw) return DEFAULT_STREAK;
+    if (!raw) {
+      const mirror = loadEmergencyMirror();
+      if (mirror.ok && mirror.streak) {
+        return {
+          count: Math.max(0, Number(mirror.streak.count) || 0),
+          lastDate:
+            typeof mirror.streak.lastDate === 'string'
+              ? mirror.streak.lastDate
+              : null,
+          history: Array.isArray(mirror.streak.history)
+            ? mirror.streak.history.slice(-365)
+            : [],
+          dailyLogs: sanitizeDailyLogs(mirror.streak.dailyLogs),
+        };
+      }
+      return DEFAULT_STREAK;
+    }
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== 'object') return DEFAULT_STREAK;
     return {

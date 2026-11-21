@@ -1,15 +1,21 @@
+import { getTodayLocalISO } from '../utils/backlogHelpers.js';
 import { normalizeCollectionList } from '../utils/collections.js';
 import {
   buildCodiceDatabase,
   createUuid,
   hydrateAppSnapshotFromDatabase,
   migrateDatabase,
+  triggerFileDownload,
   validateReferentialIntegrity,
 } from './codiceDatabase.js';
 
 export const AUTO_SNAPSHOT_DB_NAME = 'codice_auto_snapshots_v1';
 export const AUTO_SNAPSHOT_STORE_NAME = 'snapshots';
 export const MAX_AUTO_SNAPSHOTS = 5;
+export const EMERGENCY_MIRROR_KEY = 'codice_emergency_mirror_v1';
+export const LAST_BACKUP_EXPORT_KEY = 'codice_last_backup_exported_at';
+export const FIRST_ACTIVITY_SEEN_KEY = 'codice_first_activity_seen_at';
+export const BACKUP_REMINDER_DAYS = 7;
 
 const memorySnapshotStore = new Map();
 
@@ -436,4 +442,421 @@ export async function deleteAutoSnapshot(snapshotId) {
   } catch {
     // Silencioso
   }
+}
+
+function bytesToBase64(uint8Bytes) {
+  let binary = '';
+  for (let i = 0; i < uint8Bytes.length; i += 1) {
+    binary += String.fromCharCode(uint8Bytes[i]);
+  }
+  if (typeof btoa === 'function') return btoa(binary);
+  return Buffer.from(uint8Bytes).toString('base64');
+}
+
+function base64ToBytes(b64) {
+  if (typeof atob === 'function') {
+    const bin = atob(b64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i += 1) {
+      bytes[i] = bin.charCodeAt(i);
+    }
+    return bytes;
+  }
+  return new Uint8Array(Buffer.from(b64, 'base64'));
+}
+
+// Compactação LZW síncrona sobre UTF-8 para reduzir JSON no localStorage de emergência
+export function compressMirrorText(plainText) {
+  const utf8 = new TextEncoder().encode(String(plainText ?? ''));
+  if (utf8.length === 0) return 'CM1:';
+
+  const dict = new Map();
+  for (let i = 0; i < 256; i += 1) {
+    dict.set(String.fromCharCode(i), i);
+  }
+
+  let nextCode = 256;
+  let phrase = String.fromCharCode(utf8[0]);
+  const codes = [];
+
+  for (let i = 1; i < utf8.length; i += 1) {
+    const ch = String.fromCharCode(utf8[i]);
+    const combined = phrase + ch;
+    if (dict.has(combined)) {
+      phrase = combined;
+    } else {
+      codes.push(dict.get(phrase));
+      if (nextCode < 4096) {
+        dict.set(combined, nextCode);
+        nextCode += 1;
+      }
+      phrase = ch;
+    }
+  }
+  codes.push(dict.get(phrase));
+
+  // Empacota códigos de 12 bits em bytes (2 códigos = 3 bytes)
+  const packed = [];
+  for (let i = 0; i < codes.length; i += 2) {
+    const c1 = codes[i];
+    const c2 = i + 1 < codes.length ? codes[i + 1] : null;
+    if (c2 === null) {
+      packed.push((c1 >> 4) & 0xff, ((c1 & 0x0f) << 4) & 0xff);
+    } else {
+      packed.push(
+        (c1 >> 4) & 0xff,
+        ((c1 & 0x0f) << 4) | ((c2 >> 8) & 0x0f),
+        c2 & 0xff
+      );
+    }
+  }
+
+  const out = new Uint8Array(1 + packed.length);
+  out[0] = codes.length % 2; // Flag de paridade para desempacote exato
+  out.set(packed, 1);
+  return `CM1:${bytesToBase64(out)}`;
+}
+
+export function decompressMirrorText(encoded) {
+  const raw = String(encoded ?? '').trim();
+  if (!raw) return '';
+  if (!raw.startsWith('CM1:')) return raw;
+  const body = raw.slice(4);
+  if (!body) return '';
+
+  const bytes = base64ToBytes(body);
+  const hasOddTail = bytes[0] === 1;
+  const codes = [];
+
+  for (let i = 1; i < bytes.length; ) {
+    const remaining = bytes.length - i;
+    if (remaining === 2 && hasOddTail) {
+      codes.push((bytes[i] << 4) | (bytes[i + 1] >> 4));
+      break;
+    }
+    if (remaining < 3) break;
+    const c1 = (bytes[i] << 4) | (bytes[i + 1] >> 4);
+    const c2 = ((bytes[i + 1] & 0x0f) << 8) | bytes[i + 2];
+    codes.push(c1, c2);
+    i += 3;
+  }
+
+  if (codes.length === 0) return '';
+
+  const dict = [];
+  for (let i = 0; i < 256; i += 1) {
+    dict[i] = String.fromCharCode(i);
+  }
+
+  let nextCode = 256;
+  let prevPhrase = dict[codes[0]];
+  let result = prevPhrase;
+
+  for (let i = 1; i < codes.length; i += 1) {
+    const code = codes[i];
+    let entry;
+    if (dict[code] !== undefined) {
+      entry = dict[code];
+    } else if (code === nextCode) {
+      entry = prevPhrase + prevPhrase[0];
+    } else {
+      throw new Error('Espelho de emergência corrompido.');
+    }
+    result += entry;
+    if (nextCode < 4096) {
+      dict[nextCode] = prevPhrase + entry[0];
+      nextCode += 1;
+    }
+    prevPhrase = entry;
+  }
+
+  const outBytes = new Uint8Array(result.length);
+  for (let i = 0; i < result.length; i += 1) {
+    outBytes[i] = result.charCodeAt(i);
+  }
+  return new TextDecoder('utf-8', { fatal: true }).decode(outBytes);
+}
+
+const MIRROR_ITEM_ALLOWED_KEYS = [
+  'id',
+  'title',
+  'originalTitle',
+  'author',
+  'translator',
+  'advisor',
+  'workType',
+  'status',
+  'format',
+  'access',
+  'currentPage',
+  'totalPages',
+  'progress',
+  'progressMode',
+  'progressPercent',
+  'locCurrent',
+  'locTotal',
+  'currentVolume',
+  'totalVolumes',
+  'currentChapter',
+  'totalChapters',
+  'rating',
+  'verdict',
+  'reviewCriteria',
+  'recommended',
+  'isFavorite',
+  'isWishlist',
+  'isPlatinum',
+  'inBacklog',
+  'collectionIds',
+  'genres',
+  'primaryGenre',
+  'subgenres',
+  'tropes',
+  'atmosphere',
+  'publisher',
+  'institution',
+  'publicationPlace',
+  'publicationYear',
+  'releaseYear',
+  'edition',
+  'language',
+  'isbn',
+  'issn',
+  'doi',
+  'cdu_cdd',
+  'cutter',
+  'callNumber',
+  'seriesName',
+  'seriesIndex',
+  'seriesVolume',
+  'physicalLocation',
+  'acquisitionType',
+  'conservationState',
+  'loanedTo',
+  'loanedAt',
+  'notes',
+  'synopsis',
+  'quotes',
+  'checkpoint',
+  'hype',
+  'completionType',
+  'dropReason',
+  'startDate',
+  'completedDate',
+  'completedYear',
+  'dropDate',
+  'readerBookId',
+  'readerState',
+  'coverUrl',
+  'coverSources',
+  'monogram',
+  'updatedAt',
+  'createdAt',
+];
+
+function compactMirrorItem(item) {
+  if (!item || typeof item !== 'object') return null;
+  const out = {};
+  MIRROR_ITEM_ALLOWED_KEYS.forEach((key) => {
+    const val = item[key];
+    if (val === null || val === undefined || val === '' || val === false) return;
+    if (Array.isArray(val) && val.length === 0) return;
+    out[key] = val;
+  });
+  return out.id && out.title ? out : null;
+}
+
+export async function requestPersistentStorage() {
+  try {
+    if (typeof navigator === 'undefined' || !navigator.storage) {
+      return { supported: false, persisted: false };
+    }
+    const alreadyPersisted =
+      typeof navigator.storage.persisted === 'function'
+        ? await navigator.storage.persisted()
+        : false;
+    if (alreadyPersisted) {
+      return { supported: true, persisted: true };
+    }
+    if (typeof navigator.storage.persist === 'function') {
+      const granted = await navigator.storage.persist();
+      return { supported: true, persisted: Boolean(granted) };
+    }
+    return { supported: false, persisted: false };
+  } catch {
+    return { supported: false, persisted: false };
+  }
+}
+
+export function saveEmergencyMirror({
+  items = [],
+  collections = [],
+  streak = null,
+  readingSessions = [],
+  updatedAt = null,
+} = {}) {
+  try {
+    if (typeof localStorage === 'undefined') return false;
+    const compactItems = (Array.isArray(items) ? items : [])
+      .map(compactMirrorItem)
+      .filter(Boolean);
+
+    const payload = {
+      v: 1,
+      updatedAt: updatedAt || new Date().toISOString(),
+      items: compactItems,
+      collections: normalizeCollectionList(collections),
+      streak:
+        streak && typeof streak === 'object'
+          ? {
+              count: Math.max(0, Number(streak.count) || 0),
+              lastDate: streak.lastDate || null,
+              history: Array.isArray(streak.history) ? streak.history.slice(-365) : [],
+              dailyLogs:
+                streak.dailyLogs && typeof streak.dailyLogs === 'object'
+                  ? streak.dailyLogs
+                  : {},
+            }
+          : null,
+      readingSessions: Array.isArray(readingSessions)
+        ? readingSessions.slice(0, 200)
+        : [],
+    };
+
+    const encoded = compressMirrorText(JSON.stringify(payload));
+    localStorage.setItem(EMERGENCY_MIRROR_KEY, encoded);
+
+    if (!localStorage.getItem(FIRST_ACTIVITY_SEEN_KEY) && compactItems.length > 0) {
+      localStorage.setItem(FIRST_ACTIVITY_SEEN_KEY, String(Date.now()));
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function loadEmergencyMirror() {
+  try {
+    if (typeof localStorage === 'undefined') {
+      return { ok: false, items: [] };
+    }
+    const raw = localStorage.getItem(EMERGENCY_MIRROR_KEY);
+    if (!raw) return { ok: false, items: [] };
+    const jsonText = decompressMirrorText(raw);
+    if (!jsonText) return { ok: false, items: [] };
+    const parsed = JSON.parse(jsonText);
+    if (!parsed || typeof parsed !== 'object' || !Array.isArray(parsed.items)) {
+      return { ok: false, items: [] };
+    }
+
+    return {
+      ok: true,
+      updatedAt: parsed.updatedAt || null,
+      items: parsed.items,
+      collections: normalizeCollectionList(parsed.collections),
+      streak: parsed.streak || null,
+      readingSessions: Array.isArray(parsed.readingSessions)
+        ? parsed.readingSessions
+        : [],
+    };
+  } catch {
+    return { ok: false, items: [] };
+  }
+}
+
+export function recordBackupExportTimestamp(nowMs = Date.now()) {
+  try {
+    if (typeof localStorage === 'undefined') return;
+    localStorage.setItem(LAST_BACKUP_EXPORT_KEY, String(nowMs));
+  } catch {
+    // Silencioso
+  }
+}
+
+export function getBackupReminderStatus({
+  itemsCount = 0,
+  nowMs = Date.now(),
+} = {}) {
+  if (itemsCount <= 0 || typeof localStorage === 'undefined') {
+    return { shouldRemind: false, daysWithoutBackup: 0, lastExportMs: null };
+  }
+
+  try {
+    const rawExport = localStorage.getItem(LAST_BACKUP_EXPORT_KEY);
+    const parsedExport = rawExport ? Number(rawExport) : NaN;
+    if (Number.isFinite(parsedExport) && parsedExport > 0) {
+      const elapsedDays = Math.floor((nowMs - parsedExport) / 86400000);
+      return {
+        shouldRemind: elapsedDays >= BACKUP_REMINDER_DAYS,
+        daysWithoutBackup: Math.max(0, elapsedDays),
+        lastExportMs: parsedExport,
+      };
+    }
+
+    const rawFirstSeen = localStorage.getItem(FIRST_ACTIVITY_SEEN_KEY);
+    const firstSeenMs = rawFirstSeen ? Number(rawFirstSeen) : NaN;
+    if (!Number.isFinite(firstSeenMs) || firstSeenMs <= 0) {
+      localStorage.setItem(FIRST_ACTIVITY_SEEN_KEY, String(nowMs));
+      return { shouldRemind: false, daysWithoutBackup: 0, lastExportMs: null };
+    }
+
+    const elapsedSinceStart = Math.floor((nowMs - firstSeenMs) / 86400000);
+    return {
+      shouldRemind: elapsedSinceStart >= BACKUP_REMINDER_DAYS,
+      daysWithoutBackup: Math.max(0, elapsedSinceStart),
+      lastExportMs: null,
+    };
+  } catch {
+    return { shouldRemind: false, daysWithoutBackup: 0, lastExportMs: null };
+  }
+}
+
+export async function shareOrDownloadSignedBackup(workspaceData = {}) {
+  const db =
+    workspaceData?.tables && workspaceData?.schemaVersion
+      ? migrateDatabase(workspaceData)
+      : buildCodiceDatabase({
+          items: workspaceData.items || [],
+          profile: workspaceData.profile || null,
+          posts: workspaceData.posts || [],
+          streak: workspaceData.streak || null,
+          readingSessions: workspaceData.readingSessions || [],
+          collections: workspaceData.collections || [],
+        });
+
+  const signed = await exportSignedBackupPayload(db);
+  const stamp = getTodayLocalISO();
+  const filename = `codice-banco-relacional-${stamp}.json`;
+  const jsonText = JSON.stringify(signed, null, 2);
+
+  if (
+    typeof File === 'function' &&
+    typeof navigator !== 'undefined' &&
+    typeof navigator.share === 'function' &&
+    typeof navigator.canShare === 'function'
+  ) {
+    try {
+      const file = new File([jsonText], filename, {
+        type: 'application/json',
+      });
+      if (navigator.canShare({ files: [file] })) {
+        await navigator.share({
+          files: [file],
+          title: 'Backup Projeto Códice',
+          text: `Cópia de segurança do acervo Códice (${stamp})`,
+        });
+        recordBackupExportTimestamp();
+        return { method: 'share', filename, signed };
+      }
+    } catch (err) {
+      // Se usuário cancelou ou compartilhamento de arquivo falhar, segue para download direto
+      if (err?.name === 'AbortError') {
+        return { method: 'cancelled', filename, signed };
+      }
+    }
+  }
+
+  triggerFileDownload(jsonText, filename, 'application/json;charset=utf-8');
+  recordBackupExportTimestamp();
+  return { method: 'download', filename, signed };
 }

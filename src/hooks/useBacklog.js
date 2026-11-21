@@ -1,7 +1,11 @@
 import { useCallback, useEffect, useState } from 'react';
 import { domainConfig } from '../config/domainConfig';
 import { initialItems } from '../data/mockData';
-import { exportSignedBackupPayload } from '../services/backupEngine';
+import {
+  exportSignedBackupPayload,
+  loadEmergencyMirror,
+  recordBackupExportTimestamp,
+} from '../services/backupEngine';
 import {
   buildCodiceDatabase,
   createUuid,
@@ -310,6 +314,10 @@ function loadInitialBacklog() {
       const { items } = hydrateAppSnapshotFromDatabase(storedDb);
       return items.map(normalizeItem);
     }
+    const mirror = loadEmergencyMirror();
+    if (mirror.ok && mirror.items.length > 0) {
+      return mirror.items.map(normalizeItem);
+    }
     return initialItems.map(normalizeItem);
   } catch {
     return initialItems.map(normalizeItem);
@@ -327,6 +335,10 @@ function loadInitialSessions() {
     if (storedDb) {
       return hydrateAppSnapshotFromDatabase(storedDb).readingSessions || [];
     }
+    const mirror = loadEmergencyMirror();
+    if (mirror.ok && mirror.readingSessions.length > 0) {
+      return mirror.readingSessions;
+    }
     return [];
   } catch {
     return [];
@@ -342,6 +354,10 @@ function loadInitialCollections() {
     const storedDb = loadStoredCodiceDatabase();
     if (storedDb) {
       return normalizeCollectionList(hydrateAppSnapshotFromDatabase(storedDb).collections);
+    }
+    const mirror = loadEmergencyMirror();
+    if (mirror.ok && mirror.collections.length > 0) {
+      return mirror.collections;
     }
     return [];
   } catch {
@@ -640,6 +656,7 @@ export function useBacklog() {
         `codice-banco-relacional-${stamp}.json`,
         'application/json;charset=utf-8'
       );
+      recordBackupExportTimestamp();
       return signed;
     },
     [items, readingSessions, collections]

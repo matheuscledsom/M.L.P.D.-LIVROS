@@ -6,7 +6,9 @@ import {
   Copy,
   Link2,
   MessagesSquare,
+  QrCode,
   Search,
+  Trash2,
   UserCheck,
   UserPlus,
   Users,
@@ -38,9 +40,13 @@ export function CommunityScreen({
   viewerId = null,
   myProfile = null,
   myShelfItems = [],
+  savedPeerCards = [],
   unreadDmCount = 0,
   backendMode = 'local',
   onOpenAuthModal,
+  onOpenShareProfileCard,
+  onOpenFriendCard,
+  onRemoveFriendCard,
   onOpenUserProfile,
   onOpenDirectChat,
   onCopyBookToWishlist,
@@ -214,7 +220,7 @@ export function CommunityScreen({
         <div className="flex min-w-0 flex-1 items-start gap-2.5 text-muted">
           <Cloud className="mt-0.5 h-4 w-4 shrink-0 text-accent" strokeWidth={1.5} />
           <p className="leading-relaxed">
-            <span className="font-medium text-ink">Modo Local ativo: </span>
+            <span className="font-medium text-ink">Rede Sem Servidor Ativa: </span>
             {contextText}
           </p>
         </div>
@@ -222,9 +228,9 @@ export function CommunityScreen({
           <button
             type="button"
             onClick={onOpenAuthModal}
-            className="min-h-[44px] shrink-0 rounded-[4px] border border-accent px-3 py-1.5 text-xs font-medium text-accent hover:bg-accent/10 transition-colors"
+            className="min-h-[44px] shrink-0 rounded-[4px] border border-line bg-app px-3 py-1.5 text-xs font-medium text-muted hover:border-accent hover:text-ink transition-colors"
           >
-            Conectar Supabase
+            Sincronização Avançada (Supabase)
           </button>
         )}
       </div>
@@ -244,17 +250,23 @@ export function CommunityScreen({
             Comunidade &amp; Leitores
           </h1>
           <p className="text-xs text-muted">
-            Acompanhe leituras, convide leitores pelo @handle e converse sobre livros.
+            Troque perfis e estantes por Link ou QR Code sem precisar criar conta ou servidor.
           </p>
         </div>
 
         <button
           type="button"
-          onClick={handleCopyInviteLink}
-          className="min-h-[44px] px-3.5 py-2 rounded-[4px] border border-line bg-surface text-xs font-medium text-ink hover:border-accent hover:text-accent inline-flex items-center gap-2 transition-colors"
+          onClick={() => {
+            if (onOpenShareProfileCard) {
+              onOpenShareProfileCard();
+            } else {
+              handleCopyInviteLink();
+            }
+          }}
+          className="min-h-[44px] px-3.5 py-2 rounded-[4px] border border-accent bg-accent text-xs font-semibold text-accent-ink hover:opacity-90 inline-flex items-center gap-2 transition-opacity"
         >
-          <Link2 className="w-4 h-4 text-accent" strokeWidth={1.5} />
-          <span>{copiedInvite ? 'Convite copiado' : 'Copiar link de convite'}</span>
+          <QrCode className="w-4 h-4" strokeWidth={1.5} />
+          <span>Compartilhar Meu Perfil</span>
         </button>
       </header>
 
@@ -311,7 +323,7 @@ export function CommunityScreen({
           className="space-y-4"
         >
           {renderLocalModeBanner(
-            'você vê as atividades salvas neste navegador. Conecte um projeto Supabase para sincronizar leituras e publicações com outros leitores.'
+            'você pode trocar perfis e estantes por Link ou QR Code livremente. A sincronização automática em tempo real (Supabase) é opcional nas Configurações.'
           )}
           <ActivityFeed
             viewerId={viewerId}
@@ -329,27 +341,88 @@ export function CommunityScreen({
           className="space-y-5"
         >
           {renderLocalModeBanner(
-            'o diretório e os contatos de convite ficam salvos apenas localmente. Conecte o Supabase para buscar perfis na nuvem.'
+            'use Cartões Vivos (?card= / QR Code) para adicionar amigos sem servidor. Sincronização automática via Supabase é opcional.'
+          )}
+
+          {savedPeerCards.length > 0 && (
+            <section className="space-y-2.5" aria-label="Amigos salvos por link ou QR Code">
+              <p className="text-[11px] uppercase tracking-wider font-medium text-muted">
+                Amigos Salvos por Link / QR Code ({savedPeerCards.length})
+              </p>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                {savedPeerCards.map((peerCard) => (
+                  <div
+                    key={peerCard.id || peerCard.handle}
+                    className="flex items-center justify-between gap-2 rounded-[4px] border border-line bg-surface p-3"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => onOpenFriendCard?.(peerCard)}
+                      className="flex min-w-0 flex-1 items-center gap-2.5 text-left"
+                    >
+                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-line bg-panel text-xs font-serif font-semibold text-accent">
+                        {peerCard.avatarInitials || 'LC'}
+                      </div>
+                      <div className="min-w-0">
+                        <p className="truncate text-xs font-semibold text-ink">
+                          {peerCard.displayName || peerCard.handle}
+                        </p>
+                        <p className="truncate text-[11px] tabular-nums text-subtle">
+                          {peerCard.handle}
+                          {peerCard.currentReading?.title
+                            ? ` · ${peerCard.currentReading.title}`
+                            : ''}
+                        </p>
+                      </div>
+                    </button>
+                    {onRemoveFriendCard && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          onRemoveFriendCard(peerCard.id || peerCard.handle)
+                        }
+                        aria-label={`Remover ${peerCard.displayName || peerCard.handle}`}
+                        className="flex min-h-[44px] min-w-[44px] shrink-0 items-center justify-center rounded-[4px] text-subtle hover:text-ink"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" strokeWidth={1.5} />
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </section>
           )}
 
           {/* Card compacto de convite */}
           <div className="rounded-[4px] border border-line bg-surface p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div className="min-w-0 space-y-1">
               <p className="text-xs font-semibold text-ink">
-                Seu link de convite por @handle
+                Compartilhe seu Cartão Vivo (Link &amp; QR Code) ou @handle
               </p>
               <p className="truncate text-xs text-muted tabular-nums">
                 {inviteUrl || 'Configure um @handle em Editar Perfil para compartilhar'}
               </p>
             </div>
-            <button
-              type="button"
-              onClick={handleCopyInviteLink}
-              className="min-h-[44px] shrink-0 px-3.5 py-2 rounded-[4px] border border-line bg-panel text-xs font-medium text-ink hover:border-accent hover:text-accent inline-flex items-center gap-1.5 transition-colors"
-            >
-              <Copy className="w-3.5 h-3.5 text-accent" strokeWidth={1.5} />
-              <span>{copiedInvite ? 'Copiado' : 'Copiar link'}</span>
-            </button>
+            <div className="flex flex-wrap items-center gap-2">
+              {onOpenShareProfileCard && (
+                <button
+                  type="button"
+                  onClick={onOpenShareProfileCard}
+                  className="min-h-[44px] shrink-0 px-3 py-2 rounded-[4px] border border-accent bg-accent/15 text-xs font-medium text-accent hover:bg-accent hover:text-accent-ink inline-flex items-center gap-1.5 transition-colors"
+                >
+                  <QrCode className="w-3.5 h-3.5" strokeWidth={1.5} />
+                  <span>QR Code &amp; Link</span>
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={handleCopyInviteLink}
+                className="min-h-[44px] shrink-0 px-3.5 py-2 rounded-[4px] border border-line bg-panel text-xs font-medium text-ink hover:border-accent hover:text-accent inline-flex items-center gap-1.5 transition-colors"
+              >
+                <Copy className="w-3.5 h-3.5 text-accent" strokeWidth={1.5} />
+                <span>{copiedInvite ? 'Copiado' : 'Link @handle'}</span>
+              </button>
+            </div>
           </div>
 
           {/* Solicitações Pendentes */}

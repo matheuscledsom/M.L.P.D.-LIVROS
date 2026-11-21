@@ -232,18 +232,18 @@ export function ProfileSettingsDrawer({
                   <HardDrive className="h-4 w-4 shrink-0 text-accent" strokeWidth={1.5} />
                 )}
                 <h3 className="text-xs font-semibold uppercase tracking-wider text-ink">
-                  Conta &amp; Sincronização Nuvem
+                  Sincronização em Tempo Real (Avançado)
                 </h3>
               </div>
               <span className="rounded-[4px] border border-line bg-app px-2 py-0.5 text-[10px] font-medium text-accent">
-                {isSupabaseMode ? 'Supabase' : 'Modo Local'}
+                {isSupabaseMode ? 'Supabase Ativo' : 'Local / Sem Servidor'}
               </span>
             </div>
 
             <p className="text-[11px] leading-relaxed text-muted">
               {isSupabaseMode
-                ? 'Sincronização em nuvem e rede social entre dispositivos ativas.'
-                : 'Seus livros ficam salvos apenas neste navegador. Conecte o Supabase para usar rede social e sincronização.'}
+                ? 'Sincronização automática em tempo real e rede na nuvem ativas entre dispositivos.'
+                : 'Seus livros ficam protegidos no aparelho e você já pode trocar perfis por Link ou QR Code sem conta. Conecte o Supabase apenas se quiser sincronização automática em tempo real.'}
             </p>
 
             <button
@@ -257,12 +257,12 @@ export function ProfileSettingsDrawer({
               {isSupabaseMode ? (
                 <>
                   <Cloud className="h-4 w-4 text-accent" strokeWidth={1.5} />
-                  <span>Gerenciar Conta &amp; Supabase</span>
+                  <span>Gerenciar Sincronização Supabase</span>
                 </>
               ) : (
                 <>
                   <Users className="h-4 w-4 text-accent" strokeWidth={1.5} />
-                  <span>Perfis Locais ou Conectar Supabase</span>
+                  <span>Perfis Locais / Sincronização Supabase</span>
                 </>
               )}
             </button>

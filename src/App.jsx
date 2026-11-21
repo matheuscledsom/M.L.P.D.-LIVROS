@@ -10,6 +10,8 @@ import { OnboardingFlow } from './components/OnboardingFlow';
 import { DigitalShelfModal } from './components/reader/DigitalShelfModal';
 import { CommunityScreen } from './components/social/CommunityScreen';
 import { DirectChatDrawer } from './components/social/DirectChatDrawer';
+import { FriendProfileCardModal } from './components/social/FriendProfileCardModal';
+import { ShareProfileCardModal } from './components/social/ShareProfileCardModal';
 import { UserProfileModal } from './components/social/UserProfileModal';
 import { formatExactPercent } from './components/reader/useReaderProgress';
 import { useToast } from './context/ToastContext';
@@ -19,9 +21,20 @@ import { useReadingStreak } from './hooks/useReadingStreak';
 import { useSocialProfile } from './hooks/useSocialProfile';
 import { useTheme } from './hooks/useTheme';
 import {
+  getBackupReminderStatus,
+  listAutoSnapshots,
   mergeSnapshots,
+  requestPersistentStorage,
   saveAutoSnapshot,
+  saveEmergencyMirror,
+  shareOrDownloadSignedBackup,
 } from './services/backupEngine';
+import {
+  decodePublicProfileCard,
+  listSavedPeerCards,
+  removeSavedPeerCard,
+  savePeerProfileCard,
+} from './services/peerProfileShare';
 import {
   bootstrapBackend,
   ensureLocalCommunitySeeded,
@@ -97,6 +110,11 @@ export function App() {
   const [pendingInviteHandle, setPendingInviteHandle] = useState(null);
   const [inviteCandidate, setInviteCandidate] = useState(null);
   const [inviteFollowBusy, setInviteFollowBusy] = useState(false);
+  const [shareProfileModalOpen, setShareProfileModalOpen] = useState(false);
+  const [friendCardModal, setFriendCardModal] = useState(null);
+  const [savedPeerCards, setSavedPeerCards] = useState(() => listSavedPeerCards());
+  const [backupReminderDismissed, setBackupReminderDismissed] = useState(false);
+  const [backupReminderTick, setBackupReminderTick] = useState(0);
 
   const { showToast } = useToast();
 
@@ -705,7 +723,35 @@ export function App() {
       collections,
     });
     persistCodiceDatabase(db);
+    saveEmergencyMirror({
+      items,
+      collections,
+      streak: streakData,
+      readingSessions,
+    });
   }, [items, profile, posts, streakData, readingSessions, collections]);
+
+  useEffect(() => {
+    requestPersistentStorage().catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (!items || items.length === 0) return undefined;
+    listAutoSnapshots()
+      .then((snaps) => {
+        if (!Array.isArray(snaps) || snaps.length === 0) {
+          return saveAutoSnapshot(
+            { items, profile, posts, streak: streakData, readingSessions, collections },
+            { reason: 'auto', label: 'Recuperação automática do espelho local' }
+          );
+        }
+        return null;
+      })
+      .catch(() => {});
+    return undefined;
+    // Executa apenas na inicialização para re-semear IndexedDB se o navegador o tiver limpo
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     if (!items || items.length === 0) return undefined;
@@ -866,22 +912,98 @@ export function App() {
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const params = new URLSearchParams(window.location.search || '');
-    if (!params.has('invite')) return;
+    const hasInvite = params.has('invite');
+    const hasCard = params.has('card');
+    if (!hasInvite && !hasCard) return;
 
-    const rawInvite = params.get('invite');
-    const parsedHandle = parseInviteHandleParam(rawInvite);
+    const rawInvite = hasInvite ? params.get('invite') : null;
+    const rawCard = hasCard ? params.get('card') : null;
+    const parsedHandle = rawInvite ? parseInviteHandleParam(rawInvite) : null;
 
     params.delete('invite');
+    params.delete('card');
     const nextSearch = params.toString();
     const cleanUrl = `${window.location.pathname}${nextSearch ? `?${nextSearch}` : ''}${window.location.hash || ''}`;
     if (typeof window.history?.replaceState === 'function') {
       window.history.replaceState({}, '', cleanUrl);
     }
 
+    if (rawCard) {
+      const decoded = decodePublicProfileCard(rawCard);
+      if (decoded.ok) {
+        setFriendCardModal(decoded.card);
+      } else {
+        showToast({
+          message: decoded.error || 'Link de cartão de perfil inválido.',
+          type: 'error',
+        });
+      }
+    }
+
     if (parsedHandle) {
       setPendingInviteHandle(parsedHandle);
     }
-  }, []);
+  }, [showToast]);
+
+  const backupReminder = useMemo(() => {
+    if (backupReminderDismissed) {
+      return { shouldRemind: false, daysWithoutBackup: 0 };
+    }
+    const backlogCount = items.filter((item) => item && item.inBacklog !== false).length;
+    return getBackupReminderStatus({
+      itemsCount: backlogCount,
+      nowMs: Date.now() + backupReminderTick * 0,
+    });
+  }, [items, backupReminderDismissed, backupReminderTick]);
+
+  const handleSaveBackupCopyNow = useCallback(async () => {
+    try {
+      const res = await shareOrDownloadSignedBackup({
+        items,
+        profile,
+        posts,
+        streak: streakData,
+        readingSessions,
+        collections,
+      });
+      setBackupReminderTick((t) => t + 1);
+      if (res.method === 'share') {
+        showToast({ message: 'Cópia de segurança compartilhada.', type: 'success' });
+      } else if (res.method === 'download') {
+        showToast({
+          message: 'Cópia de segurança (.json + SHA-256) salva no aparelho.',
+          type: 'success',
+        });
+      }
+    } catch {
+      showToast({
+        message: 'Não foi possível gerar a cópia agora.',
+        type: 'error',
+      });
+    }
+  }, [items, profile, posts, streakData, readingSessions, collections, showToast]);
+
+  const handleSavePeerCard = useCallback(
+    (card) => {
+      if (!card) return;
+      const next = savePeerProfileCard(card);
+      setSavedPeerCards(next);
+      showToast({
+        message: `${card.displayName || card.handle} salvo na sua Rede local.`,
+        type: 'success',
+      });
+    },
+    [showToast]
+  );
+
+  const handleRemovePeerCard = useCallback(
+    (cardIdOrHandle) => {
+      const next = removeSavedPeerCard(cardIdOrHandle);
+      setSavedPeerCards(next);
+      showToast({ message: 'Contato removido da lista salva.', type: 'info' });
+    },
+    [showToast]
+  );
 
   useEffect(() => {
     if (!backendReady || !pendingInviteHandle) return undefined;
@@ -1071,8 +1193,11 @@ export function App() {
               resolvedBadgeName={resolvedTitleBadge}
               viewerId={activeViewerId}
               geminiKey={geminiKey}
+              backupReminder={backupReminder}
               storedReaderWorkIds={storedReaderWorkIds}
               storedReaderBooks={storedReaderBooks}
+              onSaveBackupNow={handleSaveBackupCopyNow}
+              onDismissBackupReminder={() => setBackupReminderDismissed(true)}
               onQuickCheckIn={handleQuickReadingCheckIn}
               onStartPickedWork={handleStartPickedWork}
               onSelectItem={handleSelectOrAddFromRecommendation}
@@ -1127,9 +1252,13 @@ export function App() {
               viewerId={activeViewerId}
               myProfile={profile}
               myShelfItems={items}
+              savedPeerCards={savedPeerCards}
               unreadDmCount={unreadDmCount}
               backendMode={backendSession?.mode || 'local'}
               onOpenAuthModal={() => setAuthModalOpen(true)}
+              onOpenShareProfileCard={() => setShareProfileModalOpen(true)}
+              onOpenFriendCard={(card) => setFriendCardModal(card)}
+              onRemoveFriendCard={handleRemovePeerCard}
               onOpenUserProfile={(id) => setViewingUserProfileId(id)}
               onOpenDirectChat={handleOpenDirectChat}
               onCopyBookToWishlist={handleCopyWorkToWishlist}
@@ -1151,6 +1280,10 @@ export function App() {
               hasGeminiKey={aiConfig.hasAnyAiKey || hasGeminiKey}
               aiConfig={aiConfig}
               backendSession={backendSession}
+              backupReminder={backupReminder}
+              onSaveBackupNow={handleSaveBackupCopyNow}
+              onDismissBackupReminder={() => setBackupReminderDismissed(true)}
+              onOpenShareProfileCard={() => setShareProfileModalOpen(true)}
               onOpenAuthModal={() => setAuthModalOpen(true)}
               onOpenGeminiSettings={() => setGeminiModalOpen(true)}
               onSaveGeminiKey={(key) => {
@@ -1511,6 +1644,31 @@ export function App() {
             </div>
           </div>
         )}
+
+        <ShareProfileCardModal
+          isOpen={shareProfileModalOpen}
+          onClose={() => setShareProfileModalOpen(false)}
+          profile={profile}
+          items={items}
+          activeTitleName={resolvedTitleBadge}
+          streakCount={streakCount}
+        />
+
+        <FriendProfileCardModal
+          isOpen={Boolean(friendCardModal)}
+          card={friendCardModal}
+          isAlreadySaved={Boolean(
+            friendCardModal &&
+              savedPeerCards.some(
+                (c) =>
+                  String(c.handle || '').toLowerCase() ===
+                  String(friendCardModal.handle || '').toLowerCase()
+              )
+          )}
+          onClose={() => setFriendCardModal(null)}
+          onSaveFriend={handleSavePeerCard}
+          onCopyBookToWishlist={handleCopyWorkToWishlist}
+        />
       </div>
     </div>
   );

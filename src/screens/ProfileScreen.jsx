@@ -6,6 +6,7 @@ import {
   Link2,
   PenLine,
   Plus,
+  QrCode,
   Settings,
   Share2,
   Star,
@@ -14,6 +15,7 @@ import {
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AiProvidersPanel } from '../components/AiProvidersPanel';
+import { BackupReminderBanner } from '../components/BackupReminderBanner';
 import { BadgesGallery } from '../components/BadgesGallery';
 import { CoverArt } from '../components/CoverArt';
 import { PostDetailModal } from '../components/PostDetailModal';
@@ -72,6 +74,10 @@ export function ProfileScreen({
   hasGeminiKey = false,
   aiConfig = null,
   backendSession = null,
+  backupReminder = null,
+  onSaveBackupNow,
+  onDismissBackupReminder,
+  onOpenShareProfileCard,
   onOpenAuthModal,
   onOpenGeminiSettings,
   onSaveGeminiKey,
@@ -335,6 +341,14 @@ export function ProfileScreen({
         </div>
       )}
 
+      {backupReminder?.shouldRemind && (
+        <BackupReminderBanner
+          daysWithoutBackup={backupReminder.daysWithoutBackup}
+          onSaveBackupNow={onSaveBackupNow}
+          onDismiss={onDismissBackupReminder}
+        />
+      )}
+
       {/* Cabeçalho Editorial (Estilo Letterboxd / Goodreads) */}
       <header className="-mx-4 sm:-mx-6">
         <div
@@ -477,11 +491,17 @@ export function ProfileScreen({
 
             <button
               type="button"
-              onClick={handleShareInvite}
+              onClick={() => {
+                if (onOpenShareProfileCard) {
+                  onOpenShareProfileCard();
+                } else {
+                  handleShareInvite();
+                }
+              }}
               className="inline-flex min-h-[44px] flex-1 items-center justify-center gap-1.5 rounded-[4px] border border-line bg-card px-3 py-2 text-xs font-medium text-ink hover:border-accent hover:text-accent"
             >
-              <Share2 className="h-3.5 w-3.5" strokeWidth={1.5} />
-              <span className="truncate">Compartilhar Convite</span>
+              <QrCode className="h-3.5 w-3.5 text-accent" strokeWidth={1.5} />
+              <span className="truncate">Compartilhar Meu Perfil</span>
             </button>
 
             <button
